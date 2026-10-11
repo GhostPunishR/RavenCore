@@ -3,7 +3,6 @@
 #include <ravenemu/core.hpp>
 #include <ravenemu/gb/core.hpp>
 #include <ravenemu/gbc/core.hpp>
-#include <ravenemu/gba/core.hpp>
 #include <memory>
 
 namespace ravenemu::sdk {

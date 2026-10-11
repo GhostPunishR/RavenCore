@@ -5,7 +5,6 @@
 #elif defined(RAVENEMU_LIBRETRO_GBC)
 #include <ravenemu/gbc/core.hpp>
 #elif defined(RAVENEMU_LIBRETRO_GBA)
-#include <ravenemu/gba/core.hpp>
 #else
 #error "Choose exactly one Libretro core"
 #endif
