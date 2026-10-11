@@ -24,8 +24,13 @@ jobs:
           test -f build/libretro/ravenemu_gb_libretro.so
           test -f build/libretro/ravenemu_gbc_libretro.so
           test -f build/libretro/ravenemu_gba_libretro.so
+      - name: Package cores and RetroArch information
+        run: |
+          mkdir -p dist/cores dist/info
+          cp build/libretro/*_libretro.so dist/cores/
+          cp libretro/info/*_libretro.info dist/info/
       - uses: actions/upload-artifact@v4
         with:
           name: ravenemu-libretro-linux-x86_64
-          path: build/libretro/*_libretro.so
+          path: dist/
           if-no-files-found: error

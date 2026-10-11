@@ -53,6 +53,12 @@ Sous Linux leurs fichiers sont `.so`, sous Windows `.dll`, sous macOS `.dylib`. 
 
 L'adaptateur transmet les commandes, les images, l'audio, les sauvegardes batterie et les save states des moteurs RavenEmu au frontend. Les jeux doivent être chargés depuis la mémoire du frontend. Aucune ROM de jeu n'est incluse.
 
+### Tester dans RetroArch sur Linux x86-64
+
+Ouvrir [la dernière exécution CI réussie](https://github.com/GhostPunishR/RavenEmu-Cores/actions/workflows/ci.yml), télécharger l'artefact `ravenemu-libretro-linux-x86_64` et l'extraire. Copier les fichiers `cores/*.so` dans le dossier `cores` de RetroArch et les fichiers `info/*.info` dans son dossier `info`. Dans RetroArch, ouvrir **Charger un cœur** puis sélectionner RavenGB, RavenGBC ou RavenGBA, et charger une ROM obtenue légalement.
+
+L'artefact est **compilé pour Linux x86-64 uniquement** ; il ne peut pas être installé tel quel dans RetroArch Android, Windows ou macOS. Les autres plateformes exigent une compilation adaptée et des tests spécifiques. Ce dépôt n'est pas encore inclus dans le téléchargeur officiel de cœurs RetroArch.
+
 **RetroAchievements :** l'adaptateur Libretro ne déclare *pas encore* le support RetroAchievements ; les pointeurs RAM directs et les cartes mémoire exigés par les frontends doivent être implémentés et testés correctement avant toute activation. La prise en charge Hardcore et les classements compétitifs ne sont ni revendiqués ni approuvés. L'intégration RetroAchievements native à l'application Android relève du dépôt principal.
 
 ## Relation au projet Android
