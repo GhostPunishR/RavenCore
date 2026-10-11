@@ -68,6 +68,30 @@ public:
     bool length_enabled{};
     int volume_code{};
     std::array<int, 32> wave_ram{};
+    void save(BinaryWriter& out) const {
+        out.boolean(enabled);
+        out.boolean(dac_enabled);
+        out.i32(frequency);
+        out.i32(length_counter);
+        out.boolean(length_enabled);
+        out.i32(volume_code);
+        out.i32(timer_);
+        out.i32(accumulator_);
+        out.i32(position_);
+        for (auto value : wave_ram) out.i32(value);
+    }
+    void load(BinaryReader& in) {
+        enabled = in.boolean();
+        dac_enabled = in.boolean();
+        frequency = in.bounded_i32(0, 2047);
+        length_counter = in.bounded_i32(0, 256);
+        length_enabled = in.boolean();
+        volume_code = in.bounded_i32(0, 3);
+        timer_ = in.bounded_i32(0, 4096);
+        accumulator_ = in.bounded_i32(0, 1920);
+        position_ = in.bounded_i32(0, 31);
+        for (auto& value : wave_ram) value = in.bounded_i32(0, 15);
+    }
 private:
     int timer_{};
     int accumulator_{};

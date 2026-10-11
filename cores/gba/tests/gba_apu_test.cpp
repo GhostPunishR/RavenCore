@@ -206,12 +206,47 @@ void l_extinction_ne_garde_pas_la_fenetre_precedente() {
     check(highest == 0, "aucun résidu ne franchit l'extinction");
 }
 
+void audio_state_restores_channels_and_fifos() {
+    Apu original;
+    original.write_register(0x84, 0x80); original.write_register(0x80, 0xff77);
+    original.write_register(0x82, 0x730f);
+    original.write_register(0x60, 0x21);
+    original.write_register(0x62, 0xf280); original.write_register(0x64, 0x83e8);
+    original.write_register(0x68, 0xa940); original.write_register(0x6c, 0x86d6);
+    original.write_register(0x70, 0x80); original.write_register(0x72, 0x2000);
+    for (int reg = 0x90; reg <= 0x9e; reg += 2) original.write_register(reg, 0x1234 + reg);
+    original.write_register(0x74, 0x85dc);
+    original.write_register(0x78, 0xc100); original.write_register(0x7c, 0x8035);
+    for (int i = 0; i < 8; ++i) {
+        original.push_fifo(0, 0x12345678 + i, 4); original.push_fifo(1, -123456 + i, 4);
+    }
+    original.timer_overflow(0); original.timer_overflow(1); original.tick(777);
+    BinaryWriter writer; original.save(writer); const auto bytes = std::move(writer).take();
+    Apu restored; BinaryReader reader(bytes); restored.load(reader);
+    check(reader.exhausted(), "APU state trailing bytes");
+    int requests_a = 0, requests_b = 0;
+    original.on_fifo_request = [&](int) { ++requests_a; };
+    restored.on_fifo_request = [&](int) { ++requests_b; };
+    std::array<std::int16_t, 8192> a{}, b{};
+    for (int step = 0; step < 400; ++step) {
+        original.timer_overflow(step & 1); restored.timer_overflow(step & 1);
+        original.tick(137); restored.tick(137);
+        const auto n = original.read_samples(a), m = restored.read_samples(b);
+        check(n == m && std::equal(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n), b.begin()), "PSG/FIFO audio mismatch");
+    }
+    check(requests_a > 0 && requests_a == requests_b, "FIFO refill timing mismatch");
+    auto bad = bytes; bad[4] = 4; // first square duty is i32 at bytes 1..4
+    BinaryReader invalid(bad);
+    ravenemu::testing::expect_failure<SaveStateError>([&] { restored.load(invalid); }, "invalid GBA duty accepted");
+}
+
 } // namespace
 
 } // namespace ravenemu::gba::testing
 
 int main() {
     using namespace ravenemu::gba::testing;
+    audio_state_restores_channels_and_fifos();
     un_carre_tres_rapide_ne_produit_pas_de_ton();
     la_moyenne_suit_le_rapport_cyclique();
     le_bruit_rapide_se_resserre_autour_de_sa_moyenne();

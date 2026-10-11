@@ -26,6 +26,20 @@ public:
     bool increasing{};
     int period{};
     int volume{};
+    void save(BinaryWriter& out) const {
+        out.i32(initial_volume);
+        out.boolean(increasing);
+        out.i32(period);
+        out.i32(volume);
+        out.i32(timer_);
+    }
+    void load(BinaryReader& in) {
+        initial_volume = in.bounded_i32(0, 15);
+        increasing = in.boolean();
+        period = in.bounded_i32(0, 7);
+        volume = in.bounded_i32(0, 15);
+        timer_ = in.bounded_i32(0, 7);
+    }
 private:
     int timer_{};
 };

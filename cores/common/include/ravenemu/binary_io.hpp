@@ -88,6 +88,12 @@ public:
 
     [[nodiscard]] std::int32_t i32() { return static_cast<std::int32_t>(u32()); }
 
+    [[nodiscard]] std::int32_t bounded_i32(std::int32_t minimum, std::int32_t maximum) {
+        const auto value = i32();
+        if (value < minimum || value > maximum) throw SaveStateError("État instantané hors limites : " + std::to_string(value) + " [" + std::to_string(minimum) + ", " + std::to_string(maximum) + "]");
+        return value;
+    }
+
     [[nodiscard]] std::uint64_t u64() {
         return (static_cast<std::uint64_t>(u32()) << 32U) | u32();
     }

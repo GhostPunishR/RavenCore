@@ -223,6 +223,10 @@ public:
             throw SaveStateError("État instantané corrompu (APU)");
         }
         capacitor_left_ = in.f64(); capacitor_right_ = in.f64();
+        if (!std::isfinite(capacitor_left_) || !std::isfinite(capacitor_right_) ||
+            std::abs(capacitor_left_) > 1'000'000 || std::abs(capacitor_right_) > 1'000'000) {
+            throw SaveStateError("État instantané corrompu (filtre APU)");
+        }
         square1_.load(in); square2_.load(in); wave_.load(in); noise_.load(in);
         ring_read_ = 0; ring_write_ = 0; ring_count_ = 0;
         mixer_changed_mid_window_ = false;
@@ -363,13 +367,13 @@ private:
             out.i32(accumulator); out.boolean(timer_running); out.boolean(force_first_step_zero);
         }
         void load(BinaryReader& in) {
-            enabled = in.boolean(); dac_enabled = in.boolean(); duty = in.i32(); length = in.i32();
-            length_enabled = in.boolean(); envelope_initial = in.i32(); envelope_add = in.boolean();
-            envelope_period = in.i32(); volume = in.i32(); envelope_timer = in.i32();
-            frequency = in.i32(); timer = in.i32(); duty_position = in.i32(); sweep_period = in.i32();
-            sweep_negate = in.boolean(); sweep_shift = in.i32(); sweep_timer = in.i32();
-            sweep_enabled = in.boolean(); shadow_frequency = in.i32();
-            sweep_negate_used = in.boolean(); accumulator = in.i32();
+            enabled = in.boolean(); dac_enabled = in.boolean(); duty = in.bounded_i32(0, 3); length = in.bounded_i32(0, 64);
+            length_enabled = in.boolean(); envelope_initial = in.bounded_i32(0, 15); envelope_add = in.boolean();
+            envelope_period = in.bounded_i32(0, 7); volume = in.bounded_i32(0, 15); envelope_timer = in.bounded_i32(0, 9);
+            frequency = in.bounded_i32(0, 2047); timer = in.bounded_i32(1, 8195); duty_position = in.bounded_i32(0, 7); sweep_period = in.bounded_i32(0, 7);
+            sweep_negate = in.boolean(); sweep_shift = in.bounded_i32(0, 7); sweep_timer = in.bounded_i32(0, 8);
+            sweep_enabled = in.boolean(); shadow_frequency = in.bounded_i32(0, 2047);
+            sweep_negate_used = in.boolean(); accumulator = in.bounded_i32(-1920, 1920);
             timer_running = in.boolean(); force_first_step_zero = in.boolean();
         }
     };
@@ -434,10 +438,10 @@ private:
             out.i32(accumulator);
         }
         void load(BinaryReader& in) {
-            in.raw(ram); enabled = in.boolean(); dac_enabled = in.boolean(); length = in.i32();
-            length_enabled = in.boolean(); volume_code = in.i32(); frequency = in.i32();
-            timer = in.i32(); position = in.i32(); sample_buffer = in.i32();
-            ram_access_cycles = std::max(0, in.i32()); accumulator = in.i32();
+            in.raw(ram); enabled = in.boolean(); dac_enabled = in.boolean(); length = in.bounded_i32(0, 256);
+            length_enabled = in.boolean(); volume_code = in.bounded_i32(0, 3); frequency = in.bounded_i32(0, 2047);
+            timer = in.bounded_i32(1, 4096); position = in.bounded_i32(0, 31); sample_buffer = in.bounded_i32(0, 15);
+            ram_access_cycles = in.bounded_i32(0, 2); accumulator = in.bounded_i32(-1920, 1920);
         }
     };
 
@@ -516,11 +520,11 @@ private:
             out.i32(accumulator);
         }
         void load(BinaryReader& in) {
-            enabled = in.boolean(); dac_enabled = in.boolean(); length = in.i32(); length_enabled = in.boolean();
-            envelope_initial = in.i32(); envelope_add = in.boolean(); envelope_period = in.i32();
-            volume = in.i32(); envelope_timer = in.i32(); divisor_code = in.i32();
-            width_mode7 = in.boolean(); clock_shift = in.i32(); lfsr = in.i32(); timer = in.i32();
-            accumulator = in.i32();
+            enabled = in.boolean(); dac_enabled = in.boolean(); length = in.bounded_i32(0, 64); length_enabled = in.boolean();
+            envelope_initial = in.bounded_i32(0, 15); envelope_add = in.boolean(); envelope_period = in.bounded_i32(0, 7);
+            volume = in.bounded_i32(0, 15); envelope_timer = in.bounded_i32(0, 9); divisor_code = in.bounded_i32(0, 7);
+            width_mode7 = in.boolean(); clock_shift = in.bounded_i32(0, 15); lfsr = in.bounded_i32(0, 32767); timer = in.bounded_i32(1, 3670016);
+            accumulator = in.bounded_i32(-1920, 1920);
         }
     };
 

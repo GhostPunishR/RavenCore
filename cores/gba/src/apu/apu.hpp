@@ -106,6 +106,31 @@ public:
         write_index_ = read_index_ = available_ = 0; underruns = 0; fifo_empty_reads_.fill(0);
         cpu_remainder_ = sample_timer_ = sequencer_timer_ = sequencer_step_ = 0;
     }
+    void save(BinaryWriter& out) const {
+        square1.save(out); square2.save(out); wave.save(out); noise.save(out);
+        out.i32(control_l); out.i32(control_h); out.boolean(master_enable);
+        fifo_a_.save(out); fifo_b_.save(out);
+        out.i32(direct_a_); out.i32(direct_b_);
+        out.i32(cpu_remainder_); out.i32(sample_timer_);
+        out.i32(sequencer_timer_); out.i32(sequencer_step_);
+        // Preserve pending PCM as well as oscillator phase for exact continuation.
+        out.i32(static_cast<int>(read_index_)); out.i32(static_cast<int>(available_));
+        for (auto sample : ring_) out.u16(static_cast<std::uint16_t>(sample));
+    }
+    void load(BinaryReader& in) {
+        square1.load(in); square2.load(in); wave.load(in); noise.load(in);
+        control_l = in.bounded_i32(0, 65535); control_h = in.bounded_i32(0, 65535);
+        master_enable = in.boolean();
+        fifo_a_.load(in); fifo_b_.load(in);
+        direct_a_ = in.bounded_i32(-128, 127); direct_b_ = in.bounded_i32(-128, 127);
+        cpu_remainder_ = in.bounded_i32(0, 511); sample_timer_ = in.bounded_i32(0, 127);
+        if (cpu_remainder_ + sample_timer_ * 4 >= 512) throw SaveStateError("Phase APU GBA invalide");
+        sequencer_timer_ = in.bounded_i32(0, 8191); sequencer_step_ = in.bounded_i32(0, 7);
+        read_index_ = static_cast<std::size_t>(in.bounded_i32(0, 8191));
+        available_ = static_cast<std::size_t>(in.bounded_i32(0, 8192));
+        write_index_ = (read_index_ + available_) & ring_mask;
+        for (auto& sample : ring_) sample = std::bit_cast<std::int16_t>(in.u16());
+    }
     std::function<void(int)> on_fifo_request;
     std::function<void(std::int64_t)> on_batch_nanos;
     SquareChannel square1;
@@ -129,6 +154,15 @@ private:
             if (size == 0) return 0;
             const auto value = data[static_cast<std::size_t>(head)]; head = (head + 1) & 31; --size;
             return value;
+        }
+        void save(BinaryWriter& out) const {
+            out.i32(head); out.i32(size);
+            for (auto value : data) out.i32(value);
+        }
+        void load(BinaryReader& in) {
+            head = in.bounded_i32(0, 31); size = in.bounded_i32(0, 32);
+            tail = (head + size) & 31;
+            for (auto& value : data) value = static_cast<std::int8_t>(in.bounded_i32(-128, 127));
         }
         void clear() noexcept { head = 0; tail = 0; size = 0; }
     };

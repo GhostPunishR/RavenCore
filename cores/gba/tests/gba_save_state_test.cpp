@@ -93,7 +93,39 @@ void eeprom_transactions() {
     }
 }
 
+void automatic_eeprom_capacity() {
+    const std::array<std::uint8_t, 8> marker{'E','E','P','R','O','M','_','V'};
+    auto memory = make_save(detect_save(marker));
+    check(memory->data().size() == 8192, "automatic EEPROM must reserve 8 KiB");
+    auto write_block = [&](int block, int value) {
+        memory->hint_transfer_length(81);
+        memory->write(0, 1); memory->write(0, 0);
+        for (int b = 13; b >= 0; --b) memory->write(0, (block >> b) & 1);
+        for (int byte = 0; byte < 8; ++byte)
+            for (int b = 7; b >= 0; --b) memory->write(0, (value >> b) & 1);
+        memory->write(0, 0);
+    };
+    const auto* stable = memory->data().data();
+    write_block(0, 0x11); write_block(64, 0x22); write_block(1023, 0x33);
+    check(memory->data()[0] == 0x11 && memory->data()[512] == 0x22 &&
+          memory->data()[8184] == 0x33, "EEPROM blocks alias");
+    auto loaded = restore(*memory);
+    check(loaded->data() == memory->data(), "8 KiB state lost data");
+    auto battery = memory->data(); auto imported = make_save(detect_save(marker));
+    imported->import(battery); check(imported->data() == battery, "8 KiB battery truncated");
+    std::array<std::uint8_t, 512> small{}; small[0] = 0x44; imported->import(small);
+    check(imported->data()[0] == 0x44 && imported->data()[512] == 0, "512 B import incompatible");
+    memory->hint_transfer_length(73);
+    memory->write(0, 1); memory->write(0, 0);
+    for (int b = 5; b >= 0; --b) memory->write(0, 0);
+    for (int b = 0; b < 64; ++b) memory->write(0, 1);
+    memory->write(0, 0);
+    check(memory->data()[0] == 0xff && memory->data()[512] == 0x22, "6-bit EEPROM protocol broken");
+    check(memory->data().data() == stable && memory->data().size() == 8192, "battery storage moved");
+}
+
 int main() {
+    automatic_eeprom_capacity();
     flash_transactions();
     eeprom_transactions();
 }

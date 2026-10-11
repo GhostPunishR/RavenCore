@@ -70,3 +70,18 @@ L'artefact est **compilé pour Linux x86-64 uniquement** ; il ne peut pas être 
 Code des moteurs et nouveaux adaptateurs sous **AGPL-3.0** ; voir [LICENSE](LICENSE) et [NOTICE.md](NOTICE.md). L'en-tête public `libretro.h` est sous licence MIT avec ses propres mentions de copyright. Les anciennes versions de RavenEmu distribuées sous MIT conservent leurs conditions d'origine.
 
 Le dépôt n'est ni affilié à Nintendo ni approuvé par RetroArch ou RetroAchievements. Aucune ROM ni BIOS protégé n'est inclus.
+
+### Compatibilité des sauvegardes
+
+Les états instantanés GBA utilisent le format version 11, qui conserve les canaux
+PSG, les FIFO Direct Sound, les phases audio et les échantillons en attente. Les
+anciens états GBA version 10 sont refusés ; les sauvegardes batterie restent
+utilisables. Le format des états GB/GBC reste inchangé, avec validation renforcée
+des valeurs audio lors du chargement.
+
+La signature GBA `EEPROM_V` ne distingue pas les EEPROM de 512 octets et 8 Kio.
+En détection automatique, le cœur réserve donc 8 Kio dès le chargement, tandis
+que les transferts DMA sélectionnent le protocole d'adresse approprié. Les
+sauvegardes batterie EEPROM exportées automatiquement font 8 Kio ; les anciens
+fichiers de 512 octets restent importables. L'API C++ permet toujours de forcer
+une EEPROM de 512 octets pour un jeu dont la capacité est connue.
