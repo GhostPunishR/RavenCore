@@ -1,0 +1,31 @@
+name: Native cores and Libretro
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  native:
+    name: C++20 engines, Libretro and tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure CMake
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build native engines and Libretro
+        run: cmake --build build --parallel 2
+      - name: Run all synthetic tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Verify Libretro libraries
+        run: |
+          test -f build/libretro/ravenemu_gb_libretro.so
+          test -f build/libretro/ravenemu_gbc_libretro.so
+          test -f build/libretro/ravenemu_gba_libretro.so
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ravenemu-libretro-linux-x86_64
+          path: build/libretro/*_libretro.so
+          if-no-files-found: error
