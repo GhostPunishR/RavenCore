@@ -1,5 +1,6 @@
 #include <libretro.h>
 #include <synthetic_roms.hpp>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -52,6 +53,8 @@ int main() {
 
 #if defined(RAVENEMU_LIBRETRO_GBA)
     auto rom = ravenemu::testing::minimal_gba_rom();
+    const char marker[] = "EEPROM_V";
+    std::copy_n(marker, 8, rom.begin() + 0x100);
     constexpr unsigned expected_width = 240, expected_height = 160;
 #else
     auto rom = ravenemu::testing::minimal_game_boy_rom();
@@ -75,8 +78,16 @@ int main() {
         std::cerr << "Invalid Libretro AV metadata\n";
         return 1;
     }
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    auto* battery = static_cast<std::uint8_t*>(retro_get_memory_data(RETRO_MEMORY_SAVE_RAM));
+    if (!battery || retro_get_memory_size(RETRO_MEMORY_SAVE_RAM) != 8192) return 1;
+    battery[8184] = 0x5a; // Frontend import before the first frame.
+#endif
     retro_run();
     retro_run();
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    if (retro_get_memory_data(RETRO_MEMORY_SAVE_RAM) != battery || battery[8184] != 0x5a) return 1;
+#endif
     if (video_frames != 2 || last_width != expected_width || last_height != expected_height) {
         std::cerr << "Libretro video callback missing\n";
         return 1;

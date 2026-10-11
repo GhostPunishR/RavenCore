@@ -96,6 +96,40 @@ public:
     int length_counter{};
     bool length_enabled{};
     Envelope envelope;
+    void save(BinaryWriter& out) const {
+        out.boolean(enabled);
+        out.i32(duty);
+        out.i32(frequency);
+        out.i32(length_counter);
+        out.boolean(length_enabled);
+        out.i32(timer_);
+        out.i32(accumulator_);
+        out.i32(duty_step_);
+        out.i32(sweep_period_);
+        out.boolean(sweep_negate_);
+        out.i32(sweep_shift_);
+        out.i32(sweep_timer_);
+        out.i32(sweep_shadow_);
+        out.boolean(sweep_active_);
+        envelope.save(out);
+    }
+    void load(BinaryReader& in) {
+        enabled = in.boolean();
+        duty = in.bounded_i32(0, 3);
+        frequency = in.bounded_i32(0, 2047);
+        length_counter = in.bounded_i32(0, 64);
+        length_enabled = in.boolean();
+        timer_ = in.bounded_i32(0, 8192);
+        accumulator_ = in.bounded_i32(0, 1920);
+        duty_step_ = in.bounded_i32(0, 7);
+        sweep_period_ = in.bounded_i32(0, 7);
+        sweep_negate_ = in.boolean();
+        sweep_shift_ = in.bounded_i32(0, 7);
+        sweep_timer_ = in.bounded_i32(0, 8);
+        sweep_shadow_ = in.bounded_i32(0, 2047);
+        sweep_active_ = in.boolean();
+        envelope.load(in);
+    }
 private:
     void compute_sweep(bool apply) noexcept {
         const auto delta = sweep_shadow_ >> sweep_shift_;

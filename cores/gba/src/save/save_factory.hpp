@@ -25,7 +25,10 @@ inline GbaSaveType detect_save(std::span<const std::uint8_t> rom) {
         std::pair{std::string_view{"FLASH1M_V"}, GbaSaveType::flash_128k},
         std::pair{std::string_view{"FLASH512_V"}, GbaSaveType::flash_64k},
         std::pair{std::string_view{"FLASH_V"}, GbaSaveType::flash_64k},
-        std::pair{std::string_view{"EEPROM_V"}, GbaSaveType::eeprom_512},
+        // EEPROM_V does not distinguish 512 B from 8 KiB. Reserve the maximum
+        // from load time so Libretro's battery pointer and size remain stable.
+        // DMA transfer lengths still select the 6-bit or 14-bit wire protocol.
+        std::pair{std::string_view{"EEPROM_V"}, GbaSaveType::eeprom_8k},
         std::pair{std::string_view{"SRAM_F_V"}, GbaSaveType::sram},
         std::pair{std::string_view{"SRAM_V"}, GbaSaveType::sram},
     };

@@ -135,6 +135,33 @@ void gba_save_detection_test() {
 }
 
 
+void audio_state_continuation_test() {
+    auto rom = minimal_gba_rom();
+    // Configure PSG once, then loop without further IO writes.
+    const std::array<std::uint32_t, 13> code{
+        0xe59f0020, 0xe59f1020, 0xe5801080, 0xe3a01080, 0xe5801084,
+        0xe59f1014, 0xe5801060, 0xe3a01902, 0xe5801064, 0xeafffffe,
+        0x04000000, 0x00001177, 0xf0800000};
+    for (std::size_t i = 0; i < code.size(); ++i)
+        for (unsigned b = 0; b < 4; ++b) rom[i * 4 + b] = static_cast<std::uint8_t>(code[i] >> (8U * b));
+    auto core = ravenemu::make_gba_core(std::nullopt); core->load_rom(rom, {});
+    std::vector<std::int32_t> frame(240 * 160);
+    std::array<std::int16_t, 4096> first{}, restored{};
+    core->run_frame(frame, true); core->read_audio(first);
+    const auto state = core->save_state();
+    core->run_frame(frame, true); const auto n = core->read_audio(first);
+    check(std::any_of(first.begin(), first.begin() + static_cast<std::ptrdiff_t>(n), [](auto v) { return v != 0; }), "audio fixture silent");
+    core->load_state(state); core->run_frame(frame, true);
+    const auto m = core->read_audio(restored);
+    check(n == m && std::equal(first.begin(), first.begin() + static_cast<std::ptrdiff_t>(n), restored.begin()), "audio continuation diverged");
+    const auto unchanged = core->save_state();
+    auto old = state; old[5] = 10;
+    expect_failure<ravenemu::SaveStateError>([&] { core->load_state(old); }, "legacy audio-less state accepted");
+    auto truncated = state; truncated.pop_back();
+    expect_failure<ravenemu::SaveStateError>([&] { core->load_state(truncated); }, "truncated audio state accepted");
+    check(core->save_state() == unchanged, "failed load changed GBA machine");
+}
+
 void invalid_rom_test() {
     auto rom = minimal_gba_rom();
     rom[0xb2] = 0;
@@ -148,6 +175,7 @@ void invalid_rom_test() {
 } // namespace
 
 int main() {
+    audio_state_continuation_test();
     invalid_rom_test();
     gba_smoke_test();
     gba_save_detection_test();

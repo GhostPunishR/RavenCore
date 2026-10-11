@@ -69,6 +69,30 @@ public:
     int length_counter{};
     bool length_enabled{};
     Envelope envelope;
+    void save(BinaryWriter& out) const {
+        out.boolean(enabled);
+        out.i32(length_counter);
+        out.boolean(length_enabled);
+        out.i32(shift_clock_);
+        out.boolean(width_mode_);
+        out.i32(divisor_code_);
+        out.i32(timer_);
+        out.i32(accumulator_);
+        out.i32(lfsr_);
+        envelope.save(out);
+    }
+    void load(BinaryReader& in) {
+        enabled = in.boolean();
+        length_counter = in.bounded_i32(0, 64);
+        length_enabled = in.boolean();
+        shift_clock_ = in.bounded_i32(0, 15);
+        width_mode_ = in.boolean();
+        divisor_code_ = in.bounded_i32(0, 7);
+        timer_ = in.bounded_i32(0, 3670016);
+        accumulator_ = in.bounded_i32(0, 1920);
+        lfsr_ = in.bounded_i32(0, 32767);
+        envelope.load(in);
+    }
 private:
     [[nodiscard]] int period() const noexcept {
         const auto divisor = divisor_code_ == 0 ? 8 : divisor_code_ * 16;

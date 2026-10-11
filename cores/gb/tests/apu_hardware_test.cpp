@@ -1,5 +1,7 @@
 #include "apu/apu.hpp"
 #include "check.hpp"
+#include "synthetic_roms.hpp"
+#include <ravenemu/gb/core.hpp>
 
 #include <algorithm>
 #include <array>
@@ -522,10 +524,37 @@ void apu_state_layout_rejection_test() {
         "un layout APU incompatible a été chargé silencieusement");
 }
 
+void corrupt_channel_state_is_rejected() {
+    for (auto model : {gb::HardwareModel::dmg, gb::HardwareModel::cgb}) {
+        auto core = gb::make_core(model);
+        core->load_rom(ravenemu::testing::minimal_game_boy_rom(), {});
+        Apu reference; reference.initialize_hle_post_boot();
+        BinaryWriter out; reference.save(out); const auto pattern = std::move(out).take();
+        const auto original = core->save_state();
+        const auto found = std::search(original.begin(), original.end(), pattern.begin(), pattern.end());
+        check(found != original.end(), "APU fixture not found");
+        const auto base = static_cast<std::size_t>(found - original.begin());
+        constexpr std::size_t square = 4 + 1 + 8 + 48 * 4 + 8 + 16;
+        // Invalid table indices, zero period, shift count and non-finite filter.
+        for (const auto& [offset, value] : std::array<std::pair<std::size_t, std::uint32_t>, 6>{{
+                 {square + 2, 4}, {square + 36, 8}, {square + 28, 2048},
+                 {square + 32, 0}, {square + 45, 32}, {square - 16, 0x7ff00000U}}}) {
+            auto corrupted = original;
+            for (unsigned b = 0; b < 4; ++b)
+                corrupted[base + offset + b] = static_cast<std::uint8_t>(value >> (24U - b * 8U));
+            expect_failure<SaveStateError>([&] { core->load_state(corrupted); }, "unsafe APU state accepted");
+            check(core->save_state() == original, "rejected state changed machine");
+        }
+        core->load_state(original);
+        std::vector<std::int32_t> frame(160 * 144); core->run_frame(frame, true);
+    }
+}
+
 } // namespace ravenemu::cgb::testing
 
 int main() {
     using namespace ravenemu::cgb::testing;
+    corrupt_channel_state_is_rejected();
     hle_post_boot_register_test();
     hle_post_boot_silence_test();
     post_boot_channel_still_audible_test();
