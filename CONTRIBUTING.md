@@ -45,7 +45,7 @@ Conservez la séparation entre la logique matérielle et les frontends. Les doss
 
 1. Écrivez du C++20 lisible, cohérent avec le module modifié et sans nouvelle dépendance injustifiée.
 2. Pour une correction de CPU, PPU, APU, timer, DMA, cartouche ou sauvegarde, ajoutez un test de régression ou expliquez pourquoi ce n'est pas possible.
-3. Documentez les changements de compatibilité, de timings, de sauvegardes batterie et de format des états instantanés. Évitez de casser les anciennes sauvegardes sans avertissement.
+3. Documentez les changements de compatibilité, de timings, de sauvegardes batterie et de format des états instantanés, notamment dans la section « Non publié » du [journal des modifications](CHANGELOG.md). Évitez de casser les anciennes sauvegardes sans avertissement.
 4. N'intégrez pas de code copié, traduit ou adapté d'un autre émulateur. Utilisez des spécifications et documentations matérielles publiques, avec leurs références lorsque cela aide à vérifier un comportement.
 5. Pour Libretro, préservez l'interface C et vérifiez le chargement, la vidéo, l'audio, les entrées et les sauvegardes. N'annoncez pas RetroAchievements ou Hardcore sans une implémentation et une validation effectives.
 6. Ne joignez aucun fichier de jeu, BIOS, firmware propriétaire ou donnée personnelle. Un nom de jeu et une empreinte SHA-256 facultative peuvent aider à reproduire un bug.

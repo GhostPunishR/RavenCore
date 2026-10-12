@@ -64,7 +64,7 @@ L'intégration RetroAchievements de [RavenEmu Android](https://github.com/GhostP
 
 ## Contribuer
 
-Les contributions sont les bienvenues. Consultez le [guide de contribution](CONTRIBUTING.md) et le [code de conduite](CODE_OF_CONDUCT.md) avant d'ouvrir une issue ou une pull request.
+Les contributions sont les bienvenues. Consultez le [guide de contribution](CONTRIBUTING.md) et le [code de conduite](CODE_OF_CONDUCT.md) avant d'ouvrir une issue ou une pull request. Les évolutions de chaque version sont listées dans le [journal des modifications](CHANGELOG.md).
 
 ## Licence
 
