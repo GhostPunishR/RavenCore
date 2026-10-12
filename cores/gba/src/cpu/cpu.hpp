@@ -74,6 +74,7 @@ public:
         pipeline_ = value.opcodes; pipeline_valid_ = value.valid; pipeline_thumb_ = value.thumb;
     }
     [[nodiscard]] bool check_condition(int condition) const noexcept {
+        if (condition == 14) return true;  // AL, de loin la plus fréquente
         switch (condition & 15) {
         case 0: return state.zero; case 1: return !state.zero; case 2: return state.carry;
         case 3: return !state.carry; case 4: return state.negative; case 5: return !state.negative;
@@ -171,6 +172,7 @@ private:
     int arm_branch(std::int32_t instruction);
     int arm_data_or_psr(std::int32_t instruction);
     int arm_data(std::int32_t instruction, bool immediate, int opcode, bool set_flags);
+    int arm_data_without_flags(std::uint32_t raw, int opcode);
     std::int32_t arm_operand2(std::int32_t instruction, bool immediate, int pc_extra);
     int arm_psr(std::int32_t instruction);
     int arm_single_transfer(std::int32_t instruction);

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <memory>
+#include <utility>
 #include <string_view>
 #include <vector>
 
@@ -336,6 +337,27 @@ void rom_reads_past_end_return_address() {
     check(bus.read8(i32(0x0800'1001U)) == 0x08, "lecture 8 bits hors ROM");
 }
 
+// Lecture d'instructions par fenêtre : dans une ROM de 32 Mio, les régions
+// impaires (0x09, 0x0B, 0x0D) couvrent la seconde moitié de la ROM.
+void fetch_window_follows_rom_halves() {
+    std::vector<std::uint8_t> rom(0x0200'0000U);
+    rom[0xb2] = 0x96;
+    const auto put = [&](std::size_t at, std::uint32_t word) {
+        for (unsigned index = 0; index < 4; ++index) rom[at + index] = static_cast<std::uint8_t>(word >> (8U * index));
+    };
+    put(0x100, 0xe3a0'0007U);         put(0x104, 0xe3a0'1007U);         put(0x108, 0xeaff'fffeU);
+    put(0x0100'0100U, 0xe3a0'0005U);  put(0x0100'0104U, 0xe3a0'1005U);  put(0x0100'0108U, 0xeaff'fffeU);
+    Machine machine(std::make_shared<const std::vector<std::uint8_t>>(std::move(rom)), std::nullopt, std::nullopt,
+                    [] { return std::int64_t{0}; });
+    for (const auto& [entry, expected] : {std::pair{0x0800'0100U, 7U}, std::pair{0x0900'0100U, 5U},
+                                         std::pair{0x0a00'0100U, 7U}, std::pair{0x0b00'0100U, 5U},
+                                         std::pair{0x0d00'0100U, 5U}}) {
+        machine.cpu.reset(static_cast<std::int32_t>(entry));
+        for (int step = 0; step < 8; ++step) machine.cpu.step();
+        check(static_cast<std::uint32_t>(machine.cpu.state.regs[1]) == expected, "moitié de ROM mal lue par la fenêtre");
+    }
+}
+
 } // namespace ravenemu::gba::testing
 
 int main() {
@@ -352,5 +374,6 @@ int main() {
     bios_reads_return_last_prefetched_word();
     sram_eight_bit_bus();
     rom_reads_past_end_return_address();
+    fetch_window_follows_rom_halves();
     return 0;
 }

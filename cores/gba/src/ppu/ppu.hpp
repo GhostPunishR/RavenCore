@@ -54,6 +54,10 @@ public:
             }
         }
     }
+    // Cycles jusqu'au prochain changement visible : fin du tracé ou de la ligne.
+    [[nodiscard]] int cycles_until_next_event() const noexcept {
+        return (in_hblank ? line_cycles_total : hdraw_cycles) - line_cycles_;
+    }
     [[nodiscard]] int dispstat_low() const noexcept {
         auto status = (in_vblank ? 1 : 0) | (in_hblank ? 2 : 0) | (vcount_match ? 4 : 0);
         return (bus_.io[4] & 0xf8) | status;
@@ -251,18 +255,28 @@ private:
         const auto effective_y = (source_y + (reg16(0x12 + bg * 4) & 0x1ff)) & (height - 1);
         const auto tile_y = effective_y >> 3; const auto initial_py = effective_y & 7;
         const auto horizontal = reg16(0x10 + bg * 4) & 0x1ff;
+        const auto block_y = tile_y >= 32 ? 1 : 0;
+        // L'entrée de carte et la ligne de la tuile ne changent qu'avec
+        // tile_x : elles sont relues une fois par tuile, pas par pixel.
+        int cached_tile_x = -1; int row_base{}; int palette_bank{}; bool flip_x{};
         for (int x = 0; x < screen_width; ++x) {
             if ((window_mask_[static_cast<std::size_t>(x)] & (1 << bg)) == 0) continue;
             const auto source_x = mosaic ? x - x % mosaic_width : x;
             const auto effective_x = (source_x + horizontal) & (width - 1); const auto tile_x = effective_x >> 3;
-            const auto block_x = tile_x >= 32 ? 1 : 0; const auto block_y = tile_y >= 32 ? 1 : 0;
-            const auto block = size == 1 ? block_x : size == 2 ? block_y : size == 3 ? block_y * 2 + block_x : 0;
-            const auto entry = vram16(screen_base + block * 0x800 + ((tile_y & 31) * 32 + (tile_x & 31)) * 2);
-            const auto tile = entry & 0x3ff; const auto px = (entry & 0x400) != 0 ? 7 - (effective_x & 7) : effective_x & 7;
-            const auto py = (entry & 0x800) != 0 ? 7 - initial_py : initial_py;
+            if (tile_x != cached_tile_x) {
+                cached_tile_x = tile_x;
+                const auto block_x = tile_x >= 32 ? 1 : 0;
+                const auto block = size == 1 ? block_x : size == 2 ? block_y : size == 3 ? block_y * 2 + block_x : 0;
+                const auto entry = vram16(screen_base + block * 0x800 + ((tile_y & 31) * 32 + (tile_x & 31)) * 2);
+                const auto tile = entry & 0x3ff;
+                const auto py = (entry & 0x800) != 0 ? 7 - initial_py : initial_py;
+                row_base = eight_bpp ? char_base + tile * 64 + py * 8 : char_base + tile * 32 + py * 4;
+                palette_bank = ((entry >> 12) & 15) * 16; flip_x = (entry & 0x400) != 0;
+            }
+            const auto px = flip_x ? 7 - (effective_x & 7) : effective_x & 7;
             int color{};
-            if (eight_bpp) color = vram8(char_base + tile * 64 + py * 8 + px);
-            else { const auto byte = vram8(char_base + tile * 32 + py * 4 + px / 2); const auto nibble = (px & 1) == 0 ? byte & 15 : byte >> 4; if (nibble != 0) color = ((entry >> 12) & 15) * 16 + nibble; }
+            if (eight_bpp) color = vram8(row_base + px);
+            else { const auto byte = vram8(row_base + px / 2); const auto nibble = (px & 1) == 0 ? byte & 15 : byte >> 4; if (nibble != 0) color = palette_bank + nibble; }
             if (color != 0) push_pixel(x, palette_color(color), priority, bg);
         }
     }

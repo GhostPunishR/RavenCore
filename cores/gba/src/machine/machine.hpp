@@ -20,7 +20,17 @@ public:
         ppu.interrupts = &interrupts; ppu.dma = &dma;
         timers.on_overflow = [this](int timer) { apu.timer_overflow(timer); };
         apu.on_fifo_request = [this](int channel) { dma.trigger_sound_fifo(channel); };
-        cpu.swi_handler = [this](int number) { bios.handle_swi(number); };
+        // Un SWI HLE touche directement registres et mémoire : les
+        // périphériques doivent d'abord rattraper les instructions passées.
+        cpu.swi_handler = [this](int number) { sync_peripherals(); bios.handle_swi(number); next_event_ = 0; };
+        bus.io_sync_context = this;
+        bus.io_sync = [](void* context, bool write) {
+            auto& machine = *static_cast<Machine*>(context);
+            machine.sync_peripherals();
+            // Une écriture peut lancer un timer ou changer un registre vidéo :
+            // le prochain événement est recalculé après l'instruction.
+            if (write) machine.next_event_ = 0;
+        };
         interrupts.on_request = [this](int mask) { bios.interrupt_raised(mask); bus.diagnostics.interrupt(mask); };
         cpu.reset(i32(0x08000000U));
     }
@@ -33,14 +43,16 @@ public:
         auto elapsed = 0; bus.diagnostics.begin_frame();
         while (elapsed < cycles) {
             if (dma.active()) {
+                sync_peripherals();
                 const auto dma_cycles = std::min(cycles - elapsed, dma.cycles_until_event());
                 // L'effet mémoire survient après que le coût de l'accès s'est
                 // écoulé, à la même position temporelle dans tous les périphériques.
-                advance_peripherals(dma_cycles); dma.tick(dma_cycles); elapsed += dma_cycles;
+                advance_now(dma_cycles); dma.tick(dma_cycles); elapsed += dma_cycles;
                 continue;
             }
             if (cpu.state.halted) {
-                advance_peripherals(64); elapsed += 64;
+                sync_peripherals();
+                advance_now(64); elapsed += 64;
                 bus.diagnostics.wait_step(64, bios.wait_state() ? bios.wait_state()->interrupt_mask : 0);
                 if (bios.should_resume()) { cpu.state.halted = false; bus.diagnostics.wait_resolved(); bus.break_access_sequence(); }
                 continue;
@@ -48,8 +60,27 @@ public:
             if (interrupts.pending() && !cpu.state.irq_disabled) {
                 cpu.raise_exception(CpuState::mode_irq, 0x18, add32(cpu.state.regs[15], 4));
             }
-            const auto consumed = cpu.step(); bus.diagnostics.instruction(); advance_peripherals(consumed); elapsed += consumed;
+            const auto consumed = cpu.step(); bus.diagnostics.instruction();
+            pending_cycles_ += consumed; elapsed += consumed;
+            if (pending_cycles_ >= next_event_) sync_peripherals();
         }
+        sync_peripherals();
+    }
+    /**
+     * Les périphériques n'ont pas à être avancés après chaque instruction :
+     * entre deux événements (fin de tracé, fin de ligne, débordement de
+     * timer), le CPU ne peut observer leur état qu'en lisant un registre
+     * d'E/S. Les cycles s'accumulent donc et sont rattrapés au prochain
+     * événement, avant tout accès aux E/S et avant un SWI, un DMA ou un Halt.
+     * L'ordre des effets est exactement celui d'une avance à chaque instruction.
+     */
+    void sync_peripherals() {
+        if (pending_cycles_ > 0) { const auto cycles = pending_cycles_; pending_cycles_ = 0; advance_peripherals(cycles); }
+        next_event_ = std::min(ppu.cycles_until_next_event(), timers.cycles_until_next_overflow());
+    }
+    void advance_now(int cycles) {
+        advance_peripherals(cycles);
+        next_event_ = std::min(ppu.cycles_until_next_event(), timers.cycles_until_next_overflow());
     }
     void advance_peripherals(int cycles) {
         auto remaining = cycles;
@@ -68,6 +99,10 @@ public:
     Apu apu;
     Cpu cpu;
     Bios bios;
+
+private:
+    int pending_cycles_{};
+    int next_event_{};
 };
 
 } // namespace ravenemu::gba

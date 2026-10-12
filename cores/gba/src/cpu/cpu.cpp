@@ -40,8 +40,40 @@ int Cpu::arm_data_or_psr(std::int32_t instruction) {
     const auto immediate = ((raw >> 25U) & 1U) != 0;
     const auto opcode = static_cast<int>((raw >> 21U) & 15U);
     const auto set_flags = ((raw >> 20U) & 1U) != 0;
-    if (!set_flags && opcode >= 8 && opcode <= 11) return arm_psr(instruction);
+    if (!set_flags) {
+        if (opcode >= 8 && opcode <= 11) return arm_psr(instruction);
+        return arm_data_without_flags(raw, opcode);
+    }
     return arm_data(instruction, immediate, opcode, set_flags);
+}
+
+// Traitement de données sans S, de loin le plus fréquent : ni retenue ni
+// débordement à calculer. Fonction courte, séparée de arm_data pour éviter
+// à chaque appel le prologue de la version complète.
+int Cpu::arm_data_without_flags(std::uint32_t raw, int opcode) {
+    const auto rn = static_cast<int>((raw >> 16U) & 15U);
+    const auto rd = static_cast<int>((raw >> 12U) & 15U);
+    std::uint32_t y{};
+    auto pc_extra = 0;
+    if (((raw >> 25U) & 1U) != 0) {
+        y = std::rotr(raw & 0xffU, static_cast<int>(((raw >> 8U) & 15U) * 2U));
+    } else {
+        pc_extra = ((raw >> 4U) & 1U) != 0 ? 4 : 0;
+        y = u32(arm_operand2(i32(raw), false, pc_extra));
+    }
+    const auto x = u32(add32(read_reg(rn), rn == 15 ? pc_extra : 0));
+    const auto carry_in = state.carry ? 1U : 0U;
+    std::uint32_t value{};
+    switch (opcode) {
+    case 0: value = x & y; break; case 1: value = x ^ y; break;
+    case 2: value = x - y; break; case 3: value = y - x; break;
+    case 4: value = x + y; break; case 5: value = x + y + carry_in; break;
+    case 6: value = x + ~y + carry_in; break; case 7: value = y + ~x + carry_in; break;
+    case 12: value = x | y; break; case 13: value = y; break;
+    case 14: value = x & ~y; break; default: value = ~y; break;
+    }
+    write_reg(rd, i32(value));
+    return rd == 15 ? 3 : 1;
 }
 
 int Cpu::arm_data(std::int32_t instruction, bool immediate, int opcode, bool set_flags) {
@@ -52,6 +84,7 @@ int Cpu::arm_data(std::int32_t instruction, bool immediate, int opcode, bool set
     const auto pc_extra = register_shift ? 4 : 0;
     const auto a = add32(read_reg(rn), rn == 15 ? pc_extra : 0);
     const auto b = arm_operand2(instruction, immediate, pc_extra);
+    const auto writes = opcode < 8 || opcode > 11;
     bool arithmetic{};
     std::int32_t result{};
     switch (opcode) {
@@ -68,7 +101,6 @@ int Cpu::arm_data(std::int32_t instruction, bool immediate, int opcode, bool set
     case 12: result = a | b; break; case 13: result = b; break;
     case 14: result = a & ~b; break; default: result = ~b; break;
     }
-    const auto writes = opcode < 8 || opcode > 11;
     // Avec S et Rd = PC, l'ARM7TDMI recopie SPSR dans CPSR, y compris pour
     // TST/TEQ/CMP/CMN qui n'écrivent pas de résultat (forme « P » héritée).
     if (set_flags) {
@@ -260,6 +292,11 @@ int Cpu::thumb_undefined(int instruction) {
 
 int Cpu::execute_thumb(int instruction) {
     const auto instr = static_cast<unsigned>(instruction) & 0xffffU;
+    // Les formats sont testés dans l'ordre croissant des opcodes : on entre
+    // directement dans la chaîne au premier format possible pour les trois
+    // bits de poids fort, au lieu de tester tous les formats précédents.
+    switch (instr >> 13U) {
+    case 0:
     if ((instr & 0xf800U) == 0x1800U) {
         const auto immediate = ((instr >> 10U) & 1U) != 0; const auto subtract = ((instr >> 9U) & 1U) != 0;
         const auto operand = static_cast<int>((instr >> 6U) & 7U); const auto rs = static_cast<int>((instr >> 3U) & 7U);
@@ -272,6 +309,8 @@ int Cpu::execute_thumb(int instruction) {
         const auto rs = static_cast<int>((instr >> 3U) & 7U); const auto rd = static_cast<int>(instr & 7U);
         const auto result = shift_immediate(read_reg(rs), type, amount); write_reg(rd, result); set_nz(result); state.carry = shifter_carry; return 1;
     }
+        [[fallthrough]];
+    case 1:
     if ((instr & 0xe000U) == 0x2000U) {
         const auto opcode = static_cast<int>((instr >> 11U) & 3U); const auto rd = static_cast<int>((instr >> 8U) & 7U);
         const auto value = i32(instr & 0xffU); std::int32_t result{};
@@ -281,6 +320,8 @@ int Cpu::execute_thumb(int instruction) {
         else { result = add_with_carry(read_reg(rd), ~value, 1); write_reg(rd, result); thumb_arithmetic_flags(result); }
         return 1;
     }
+        [[fallthrough]];
+    case 2:
     if ((instr & 0xfc00U) == 0x4000U) {
         const auto opcode = static_cast<int>((instr >> 6U) & 15U); const auto rs = static_cast<int>((instr >> 3U) & 7U);
         const auto rd = static_cast<int>(instr & 7U); const auto a = read_reg(rd); const auto b = read_reg(rs);
@@ -335,6 +376,8 @@ int Cpu::execute_thumb(int instruction) {
         else write_reg(rd, load_signed_halfword(address));
         return 2;
     }
+        [[fallthrough]];
+    case 3:
     if ((instr & 0xe000U) == 0x6000U) {
         const auto byte = ((instr >> 12U) & 1U) != 0; const auto load = ((instr >> 11U) & 1U) != 0;
         const auto offset = static_cast<int>((instr >> 6U) & 31U); const auto rb = static_cast<int>((instr >> 3U) & 7U);
@@ -344,6 +387,8 @@ int Cpu::execute_thumb(int instruction) {
         else bus.write32(address, read_reg(rd));
         return 2;
     }
+        [[fallthrough]];
+    case 4:
     if ((instr & 0xf000U) == 0x8000U) {
         const auto load = ((instr >> 11U) & 1U) != 0; const auto rb = static_cast<int>((instr >> 3U) & 7U);
         const auto rd = static_cast<int>(instr & 7U); const auto address = add32(read_reg(rb), static_cast<int>((instr >> 5U) & 0x3eU));
@@ -354,6 +399,8 @@ int Cpu::execute_thumb(int instruction) {
         const auto address = add32(read_reg(13), static_cast<int>((instr & 0xffU) << 2U));
         if (load) write_reg(rd, load_word_rotated(address)); else bus.write32(address, read_reg(rd)); return 2;
     }
+        [[fallthrough]];
+    case 5:
     if ((instr & 0xf000U) == 0xa000U) {
         const auto rd = static_cast<int>((instr >> 8U) & 7U); const auto base = ((instr >> 11U) & 1U) != 0
             ? read_reg(13) : i32(u32(read_reg(15)) & ~2U);
@@ -380,6 +427,8 @@ int Cpu::execute_thumb(int instruction) {
         }
         return count + 1;
     }
+        [[fallthrough]];
+    case 6:
     if ((instr & 0xf000U) == 0xc000U) {
         const auto load = ((instr >> 11U) & 1U) != 0; const auto rb = static_cast<int>((instr >> 8U) & 7U);
         const auto list = instr & 0xffU; const auto base = read_reg(rb);
@@ -407,11 +456,15 @@ int Cpu::execute_thumb(int instruction) {
         const auto condition = static_cast<int>((instr >> 8U) & 15U); if (condition >= 14 || !check_condition(condition)) return 1;
         branch_to(add32(read_reg(15), sign_extend((instr & 0xffU) << 1U, 9))); return 3;
     }
+        [[fallthrough]];
+    case 7:
     if ((instr & 0xf800U) == 0xe000U) { branch_to(add32(read_reg(15), sign_extend((instr & 0x7ffU) << 1U, 12))); return 3; }
     if ((instr & 0xf800U) == 0xf000U) { write_reg(14, add32(read_reg(15), sign_extend((instr & 0x7ffU) << 12U, 23))); return 1; }
     if ((instr & 0xf800U) == 0xf800U) {
         const auto target = add32(read_reg(14), static_cast<int>((instr & 0x7ffU) << 1U));
         write_reg(14, i32(u32(add32(state.regs[15], 2)) | 1U)); branch_to(target); return 3;
+    }
+    default: break;
     }
     return thumb_undefined(instruction);
 }

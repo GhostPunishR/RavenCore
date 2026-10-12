@@ -65,6 +65,7 @@ public:
         const auto half = (static_cast<unsigned>(offset) >> 1U) & 0xffffU;
         return static_cast<int>((half >> ((static_cast<unsigned>(offset) & 1U) * 8U)) & 0xffU);
     }
+    [[nodiscard]] std::span<const std::uint8_t> rom() const noexcept { return *rom_; }
     [[nodiscard]] GbaSaveType save_type() const noexcept { return save_type_; }
     [[nodiscard]] SaveMemory* save() noexcept { return save_.get(); }
     [[nodiscard]] const SaveMemory* save() const noexcept { return save_.get(); }
