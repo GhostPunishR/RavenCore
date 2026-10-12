@@ -24,3 +24,12 @@ add_subdirectory(gba)
 
 add_library(ravenemu_cores INTERFACE)
 target_link_libraries(ravenemu_cores INTERFACE gb_raven_core gbc_raven_core gba_raven_core)
+
+if(RAVENEMU_BUILD_TESTS)
+    # Filet transversal : des états instantanés corrompus ne doivent planter
+    # aucun des trois cœurs. La CI l'exécute aussi sous ASan/UBSan.
+    add_executable(ravenemu_state_mutation_tests tests/state_mutation_test.cpp)
+    target_include_directories(ravenemu_state_mutation_tests PRIVATE common/tests/support)
+    target_link_libraries(ravenemu_state_mutation_tests PRIVATE ravenemu_cores)
+    add_test(NAME ravenemu_state_mutation COMMAND ravenemu_state_mutation_tests)
+endif()
