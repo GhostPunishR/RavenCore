@@ -1,0 +1,8 @@
+# Builds CMake et artefacts locaux
+/build/
+/build-*/
+/cmake-build-*/
+/install/
+/dist/
+/CMakeUserPresets.json
+__pycache__/

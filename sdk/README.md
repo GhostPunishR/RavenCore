@@ -15,3 +15,18 @@ ctest --test-dir build --output-on-failure
 ```
 
 Aucune ROM commerciale ni BIOS n'est nécessaire pour les tests synthétiques.
+
+## Utiliser le paquet CMake
+
+Installer les moteurs, l'API C et leurs en-têtes, puis les consommer depuis un autre projet :
+
+```sh
+cmake --install build --prefix /chemin/ravenemu
+```
+
+```cmake
+find_package(RavenEmuCores 0.1 REQUIRED)
+target_link_libraries(mon_app PRIVATE RavenEmu::ravenemu_c_api)  # ou RavenEmu::ravenemu_cores en C++
+```
+
+Passer `-DCMAKE_PREFIX_PATH=/chemin/ravenemu` à la configuration du projet consommateur. Avant la version 1.0, seules les versions de même mineure sont déclarées compatibles. Les adaptateurs Libretro ne sont pas installés : ils se copient dans les dossiers du frontend.

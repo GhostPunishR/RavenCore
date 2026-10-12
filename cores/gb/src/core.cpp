@@ -134,7 +134,9 @@ public:
         if (state_hardware != replacement->hardware_mode) {
             throw SaveStateError("État issu d'un autre mode matériel GB/GBC");
         }
-        replacement->cpu.load(in); replacement->interrupts.flags = in.i32(); replacement->interrupts.enable = in.i32();
+        replacement->cpu.load(in);
+        replacement->interrupts.flags = in.bounded_i32(0, 0xff);
+        replacement->interrupts.enable = in.bounded_i32(0, 0xff);
         replacement->timer.load(in); replacement->serial.load(in); replacement->joypad.load(in);
         replacement->ppu.load(in); replacement->speed.load(in); replacement->bus.load(in);
         replacement->apu.load(in); replacement->cartridge->load_state(in);

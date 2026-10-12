@@ -33,7 +33,10 @@ public:
         return result;
     }
     void import_state(std::span<const std::int32_t> values) {
-        if (values.size() != state_words) throw SaveStateError("État GPIO GBA invalide");
+        if (values.size() != state_words || values[0] < 0 || values[0] > 15 ||
+            values[1] < 0 || values[1] > 15) {
+            throw SaveStateError("État GPIO GBA invalide");
+        }
         data_ = values[0]; direction_ = values[1]; readable_ = values[2] != 0;
         rtc_.import_state(values.subspan(3));
     }

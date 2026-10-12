@@ -1,6 +1,6 @@
 add_library(gb_raven_core STATIC src/core.cpp)
 target_include_directories(gb_raven_core
-    PUBLIC include
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     PRIVATE src
 )
 # `gbc_hardware` est déclarée par `cores/gbc` et porte les composants CGB déjà

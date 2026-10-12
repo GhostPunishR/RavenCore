@@ -14,11 +14,11 @@
 # cycle n'apparaît. C'est précisément ce que l'inclusion par chemin relatif
 # depuis `cores/gb` rendait impossible.
 add_library(gbc_hardware INTERFACE)
-target_include_directories(gbc_hardware INTERFACE include)
+target_include_directories(gbc_hardware INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(gbc_hardware INTERFACE ravenemu_common)
 
 add_library(gbc_raven_core STATIC src/core.cpp)
-target_include_directories(gbc_raven_core PUBLIC include)
+target_include_directories(gbc_raven_core PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(gbc_raven_core PUBLIC gb_raven_core gbc_hardware)
 set_target_properties(gbc_raven_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 

@@ -160,12 +160,12 @@ public:
         const auto cpsr = in.i32(); m.cpu.state.halted = in.boolean(); if (in.i32() != 28) throw SaveStateError("État GBA corrompu (banques)");
         std::array<std::int32_t, 28> banks{}; for (auto& value : banks) value = in.i32(); m.cpu.state.import_banks(banks); m.cpu.state.set_control_raw(cpsr); m.cpu.state.regs = registers;
         read_array(in, m.bus.ewram); read_array(in, m.bus.iwram); read_array(in, m.bus.io); m.bus.sync_timing_from_io();
-        read_array(in, m.bus.palette); read_array(in, m.bus.vram); read_array(in, m.bus.oam); read_array(in, m.bus.fallback_sram); m.bus.keypad.pressed_bits = in.i32();
+        read_array(in, m.bus.palette); read_array(in, m.bus.vram); read_array(in, m.bus.oam); read_array(in, m.bus.fallback_sram); m.bus.keypad.pressed_bits = in.bounded_i32(0, 0x3ff);
         if (in.i32() != Ppu::state_field_count) throw SaveStateError("État GBA corrompu (PPU)");
         std::array<std::int32_t, Ppu::state_field_count> ppu_state{}; for (auto& value : ppu_state) value = in.i32(); m.ppu.restore_state(ppu_state);
         for (auto& pixel : m.ppu.frame) pixel = in.i32();
-        m.interrupts.enable = in.i32();
-        m.interrupts.flags = in.i32();
+        m.interrupts.enable = in.bounded_i32(0, 0xffff);
+        m.interrupts.flags = in.bounded_i32(0, 0xffff);
         m.interrupts.master_enable = in.boolean();
         std::array<std::int32_t, 16> timer_state{}; for (auto& value : timer_state) value = in.i32(); m.timers.import_state(timer_state);
         std::array<std::int32_t, DmaController::state_words> dma_state{};

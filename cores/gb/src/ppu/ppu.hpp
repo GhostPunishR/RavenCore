@@ -371,6 +371,24 @@ public:
         considered_sprite_tile_count_ = std::clamp(in.i32(), 0, 10);
         oam_scan_index_ = std::clamp(in.i32(), 0, 40);
         entered_hblank_ = in.i32() != 0; frame_ready_ = in.i32() != 0;
+        // Aucun de ces champs n'indexe un tableau, mais des valeurs extrêmes
+        // feraient déborder l'arithmétique signée du fetcher et des décomptes.
+        // Les bornes couvrent toutes les valeurs que le PPU produit.
+        const std::array byte_registers{
+            lcdc_, stat_enable_, scy_, scx_, lyc_, bgp_, obp0_, obp1_, wy_, wx_, scx_latched_,
+            fetcher_tile_, fetcher_attributes_, fetcher_data_low_, fetcher_data_high_,
+        };
+        const std::array counters{
+            window_line_, startup_dots_remaining_, discard_pixels_remaining_,
+            window_restart_dots_remaining_, window_initial_skip_, fetcher_tile_x_,
+            fetcher_phase_dots_, fetcher_row_, fetcher_tile_data_address_,
+        };
+        if (std::any_of(byte_registers.begin(), byte_registers.end(),
+                        [](int value) { return value < 0 || value > 0xff; }) ||
+            std::any_of(counters.begin(), counters.end(),
+                        [](int value) { return value < 0 || value > 0xffff; })) {
+            throw SaveStateError("État instantané corrompu (registres PPU)");
+        }
         validate_timing_state();
         if (window_wx_glitch_x_ < 0 || window_wx_glitch_x_ >= width ||
             (window_wx_glitch_armed_ &&

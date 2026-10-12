@@ -73,17 +73,19 @@ public:
         return bytes_[position_++];
     }
 
+    // Chaque lecture fait avancer `position_` : les opérandes d'un `|` ne sont
+    // pas séquencés en C++, d'où une instruction par octet lu. Sinon un
+    // compilateur pourrait lire l'octet de poids faible en premier.
     [[nodiscard]] std::uint16_t u16() {
-        return static_cast<std::uint16_t>(
-            (static_cast<std::uint16_t>(u8()) << 8U) | u8()
-        );
+        const auto high = static_cast<std::uint16_t>(u8());
+        const auto low = static_cast<std::uint16_t>(u8());
+        return static_cast<std::uint16_t>((high << 8U) | low);
     }
 
     [[nodiscard]] std::uint32_t u32() {
-        return (static_cast<std::uint32_t>(u8()) << 24U) |
-            (static_cast<std::uint32_t>(u8()) << 16U) |
-            (static_cast<std::uint32_t>(u8()) << 8U) |
-            static_cast<std::uint32_t>(u8());
+        const auto high = static_cast<std::uint32_t>(u16());
+        const auto low = static_cast<std::uint32_t>(u16());
+        return (high << 16U) | low;
     }
 
     [[nodiscard]] std::int32_t i32() { return static_cast<std::int32_t>(u32()); }
@@ -95,7 +97,9 @@ public:
     }
 
     [[nodiscard]] std::uint64_t u64() {
-        return (static_cast<std::uint64_t>(u32()) << 32U) | u32();
+        const auto high = static_cast<std::uint64_t>(u32());
+        const auto low = static_cast<std::uint64_t>(u32());
+        return (high << 32U) | low;
     }
 
     [[nodiscard]] std::int64_t i64() { return static_cast<std::int64_t>(u64()); }

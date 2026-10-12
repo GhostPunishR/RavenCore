@@ -56,7 +56,8 @@ public:
         out.boolean(ime); out.boolean(halted); out.boolean(ei_pending); out.boolean(halt_bug); out.boolean(locked); out.boolean(stopped);
     }
     void load(BinaryReader& in) {
-        set_af(in.i32()); set_bc(in.i32()); set_de(in.i32()); set_hl(in.i32()); sp = in.i32(); pc = in.i32();
+        set_af(in.i32()); set_bc(in.i32()); set_de(in.i32()); set_hl(in.i32());
+        sp = in.bounded_i32(0, 0xffff); pc = in.bounded_i32(0, 0xffff);
         ime = in.boolean(); halted = in.boolean(); ei_pending = in.boolean(); halt_bug = in.boolean(); locked = in.boolean(); stopped = in.boolean();
     }
 
