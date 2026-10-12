@@ -1,79 +1,155 @@
 # RavenEmu Cores
 
-**Cœurs d'émulation maison Game Boy, Game Boy Color et Game Boy Advance**, écrits en C++20 et extraits de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu).
+**Moteurs d'émulation Game Boy, Game Boy Color et Game Boy Advance, développés pour RavenEmu en C++20.**
 
-[![CI C++](https://github.com/GhostPunishR/RavenEmu-Cores/actions/workflows/ci.yml/badge.svg)](https://github.com/GhostPunishR/RavenEmu-Cores/actions/workflows/ci.yml)
+[![CI — Cœurs et Libretro](https://github.com/GhostPunishR/RavenEmu-Cores/actions/workflows/ci.yml/badge.svg)](https://github.com/GhostPunishR/RavenEmu-Cores/actions/workflows/ci.yml)
+[![Licence : AGPL-3.0](https://img.shields.io/badge/Licence-AGPL--3.0-blue.svg)](LICENSE)
 
-Les cœurs sont indépendants d'Android et de JNI. Le dépôt les conserve tels quels dans `cores/`, avec leurs tests natifs. Le code original a été importé depuis le commit [RavenEmu 312e4af](https://github.com/GhostPunishR/RavenEmu/commit/312e4af765e2005e1f21713f4caf79e96c6f4da5). Un adaptateur Libretro distinct permet d'exécuter les jeux dans les frontends compatibles, sans remplacer le CPU, le PPU, l'APU ni la logique de cartouche des moteurs.
+**RavenEmu-Cores** regroupe les cœurs d'émulation maison du projet [RavenEmu](https://github.com/GhostPunishR/RavenEmu) dans un dépôt indépendant de l'application Android.
 
-## Composants
+Les moteurs ne sont pas des adaptations de cœurs tiers : ils conservent leur propre implémentation du CPU, des composants graphiques et audio, de la mémoire et des cartouches. Ils peuvent être intégrés à d'autres applications C++ ou utilisés à travers les adaptateurs **Libretro** fournis ici.
 
-| Cœur | Bibliothèque CMake | Niveau actuel |
-|---|---|---|
-| RavenGB | `gb_raven_core` | GB/DMG, moteur mature mais pas cycle-perfect |
-| RavenGBC | `gbc_raven_core` | CGB natif, façade sur les composants GB partagés |
-| RavenGBA | `gba_raven_core` | GBA, moteur encore expérimental |
+> **État du projet :** GB/GBC sont en développement avancé ; GBA reste expérimental. Une compilation réussie ou un test synthétique validé ne garantit pas la compatibilité avec tous les jeux.
 
-L'API C++ commune est [`cores/common/include/ravenemu/core.hpp`](cores/common/include/ravenemu/core.hpp). Le petit en-tête [`sdk/include/ravenemu/sdk.hpp`](sdk/include/ravenemu/sdk.hpp) propose une fabrique pratique ; ce n'est **pas** une ABI C stabilisée.
+## Les trois cœurs
 
-## Compiler les cœurs et les tests (Linux/macOS/Windows)
+| Cœur | Console | Bibliothèque C++ | Adaptateur Libretro | État |
+| --- | --- | --- | --- | --- |
+| **RavenGB** | Game Boy | `gb_raven_core` | `ravenemu_gb_libretro` | Avancé, non cycle-perfect |
+| **RavenGBC** | Game Boy Color | `gbc_raven_core` | `ravenemu_gbc_libretro` | Avancé, différences matérielles à valider |
+| **RavenGBA** | Game Boy Advance | `gba_raven_core` | `ravenemu_gba_libretro` | Expérimental |
 
-Prérequis : CMake ≥ 3.22.1 et compilateur C++20.
+RavenGB et RavenGBC partagent les composants matériels communs. **RavenGBC** est une bibliothèque distincte qui utilise ces composants et sélectionne un matériel CGB, y compris le mode de compatibilité pour les jeux Game Boy. Le moteur GBA possède sa propre implémentation.
 
-```sh
+L'adaptateur **RavenGB Libretro** sélectionne volontairement le modèle DMG (Game Boy monochrome). Pour jouer à une ROM Game Boy Color, choisissez RavenGBC.
+
+## Fonctionnalités
+
+Les cœurs exposent notamment :
+
+- l'exécution des jeux, la gestion des boutons, l'image et le son ;
+- les sauvegardes batterie et les états instantanés ;
+- les fonctions matérielles propres à chaque console, selon leur degré d'implémentation ;
+- une API C++ commune, sans dépendance à Android ou à JNI.
+
+Les adaptateurs Libretro relient ces moteurs aux fonctions standard du frontend : affichage, audio, manette, chargement de jeu, sauvegarde batterie et états instantanés.
+
+**Limitations connues :** des comportements matériels rares restent à valider sur GB/GBC ; le cœur GBA présente encore des limites de précision, de performances et de compatibilité selon les jeux. Le support des périphériques particuliers n'est pas exhaustif. Les moteurs ne sont pas présentés comme entièrement conformes au matériel d'origine.
+
+## Compilation
+
+### Prérequis
+
+- **CMake 3.22.1** ou version ultérieure ;
+- un compilateur compatible **C++20** ;
+- un environnement de construction natif adapté au système cible.
+
+### Compiler les moteurs, les adaptateurs Libretro et les tests
+
+```bash
+git clone https://github.com/GhostPunishR/RavenEmu-Cores.git
+cd RavenEmu-Cores
+
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-Pour compiler exclusivement les moteurs sans Libretro :
+### Compiler uniquement les moteurs C++
 
-```sh
+```bash
 cmake -S . -B build/cores -DRAVENEMU_BUILD_LIBRETRO=OFF -DBUILD_TESTING=OFF
 cmake --build build/cores --parallel
 ```
 
-## Libretro / RetroArch
+Les bibliothèques C++ sont construites à partir de `cores/`. Les adaptateurs Libretro, lorsqu'ils sont activés, sont générés dans `build/libretro/`.
 
-Les bibliothèques partagées générées sont :
+| Option CMake | Par défaut | Utilité |
+| --- | --- | --- |
+| `RAVENEMU_BUILD_LIBRETRO` | `ON` | Construire les trois adaptateurs Libretro |
+| `BUILD_TESTING` | `ON` | Compiler et exécuter les tests avec CTest |
 
-- `ravenemu_gb_libretro` : GB, modèle automatique.
-- `ravenemu_gbc_libretro` : GBC, matériel CGB imposé, avec mode de compatibilité GB.
-- `ravenemu_gba_libretro` : GBA, expérimental.
+La CI exécute les tests des moteurs et des adaptateurs sur Linux. Les tests utilisent des données synthétiques et ne nécessitent aucune ROM commerciale.
 
-Sous Linux leurs fichiers sont `.so`, sous Windows `.dll`, sous macOS `.dylib`. Le nom final dépend de la plateforme et de CMake. La construction et les tests de l'adaptateur sont automatisés dans [la CI](.github/workflows/ci.yml).
+## Utiliser les cœurs dans RetroArch
 
-L'adaptateur transmet les commandes, les images, l'audio, les sauvegardes batterie et les save states des moteurs RavenEmu au frontend. Les jeux doivent être chargés depuis la mémoire du frontend. Aucune ROM de jeu n'est incluse.
+Les adaptateurs fournissent des bibliothèques compatibles avec l'interface [Libretro](https://www.libretro.com/). Ils peuvent être chargés manuellement dans un frontend compatible, notamment RetroArch.
 
-### Tester dans RetroArch sur Linux x86-64
+### Installation manuelle — Linux x86-64
 
-Ouvrir [la dernière exécution CI réussie](https://github.com/GhostPunishR/RavenEmu-Cores/actions/workflows/ci.yml), télécharger l'artefact `ravenemu-libretro-linux-x86_64` et l'extraire. Copier les fichiers `cores/*.so` dans le dossier `cores` de RetroArch et les fichiers `info/*.info` dans son dossier `info`. Dans RetroArch, ouvrir **Charger un cœur** puis sélectionner RavenGB, RavenGBC ou RavenGBA, et charger une ROM obtenue légalement.
+1. Ouvrez les [exécutions GitHub Actions](https://github.com/GhostPunishR/RavenEmu-Cores/actions/workflows/ci.yml) et choisissez une exécution **réussie**.
+2. Téléchargez l'artefact `ravenemu-libretro-linux-x86_64`.
+3. Extrayez les fichiers `cores/*_libretro.so` vers le répertoire des cœurs de RetroArch, puis les fichiers `info/*_libretro.info` vers son répertoire `info`.
+4. Dans RetroArch, sélectionnez **Charger un cœur**, puis RavenGB, RavenGBC ou RavenGBA. Chargez ensuite votre jeu.
 
-L'artefact est **compilé pour Linux x86-64 uniquement** ; il ne peut pas être installé tel quel dans RetroArch Android, Windows ou macOS. Les autres plateformes exigent une compilation adaptée et des tests spécifiques. Ce dépôt n'est pas encore inclus dans le téléchargeur officiel de cœurs RetroArch.
+| Fichier du cœur (Linux) | Usage |
+| --- | --- |
+| `ravenemu_gb_libretro.so` | Game Boy, mode DMG |
+| `ravenemu_gbc_libretro.so` | Game Boy Color / compatibilité GB |
+| `ravenemu_gba_libretro.so` | Game Boy Advance, expérimental |
 
-**RetroAchievements :** l'adaptateur Libretro ne déclare *pas encore* le support RetroAchievements ; les pointeurs RAM directs et les cartes mémoire exigés par les frontends doivent être implémentés et testés correctement avant toute activation. La prise en charge Hardcore et les classements compétitifs ne sont ni revendiqués ni approuvés. L'intégration RetroAchievements native à l'application Android relève du dépôt principal.
+Les bibliothèques sont produites au format natif du système (`.so`, `.dll` ou `.dylib` selon la plateforme). **L'artefact CI fourni ici cible Linux x86-64** : il n'est pas directement installable sur Android, Windows ou macOS. Ces plateformes exigent une compilation et une validation adaptées.
 
-## Relation au projet Android
+Ces cœurs ne figurent pas automatiquement dans le téléchargeur officiel RetroArch. Leur présence dans un frontend compatible ne constitue pas une approbation officielle de RetroArch.
 
-`GhostPunishR/RavenEmu` garde ses moteurs actuels : ce dépôt est une **distribution indépendante**, non une migration destructrice. Les futures corrections doivent être répercutées avec un commit source identifié afin de ne pas maintenir des divergences involontaires. La PR RetroAchievements #105 du dépôt Android reste indépendante.
+## RetroAchievements
 
-## Licence et attribution
+L'application [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) dispose de sa propre intégration RetroAchievements.
 
-Code des moteurs et nouveaux adaptateurs sous **AGPL-3.0** ; voir [LICENSE](LICENSE) et [NOTICE.md](NOTICE.md). L'en-tête public `libretro.h` est sous licence MIT avec ses propres mentions de copyright. Les anciennes versions de RavenEmu distribuées sous MIT conservent leurs conditions d'origine.
+**Les adaptateurs Libretro de ce dépôt ne déclarent pas encore la prise en charge de RetroAchievements.** Ils n'exposent pas actuellement toutes les zones de mémoire nécessaires à une intégration vérifiée ; ils annoncent donc explicitement cette fonctionnalité comme indisponible.
 
-Le dépôt n'est ni affilié à Nintendo ni approuvé par RetroArch ou RetroAchievements. Aucune ROM ni BIOS protégé n'est inclus.
+Il n'y a **aucune revendication de prise en charge Hardcore ou d'homologation RetroAchievements** pour ces adaptateurs. La compatibilité mémoire doit être implémentée et testée avant d'envisager son activation.
 
-### Compatibilité des sauvegardes
+## Architecture
 
-Les états instantanés GBA utilisent le format version 11, qui conserve les canaux
-PSG, les FIFO Direct Sound, les phases audio et les échantillons en attente. Les
-anciens états GBA version 10 sont refusés ; les sauvegardes batterie restent
-utilisables. Le format des états GB/GBC reste inchangé, avec validation renforcée
-des valeurs audio lors du chargement.
+```text
+RavenEmu-Cores/
+├── cores/
+│   ├── common/       # API et utilitaires partagés
+│   ├── gb/           # Moteur Game Boy
+│   ├── gbc/          # Composants et façade Game Boy Color
+│   └── gba/          # Moteur Game Boy Advance
+├── sdk/
+│   └── include/      # Interface C++ de commodité
+├── libretro/
+│   ├── include/      # En-tête officiel Libretro
+│   ├── src/          # Adaptateurs des trois moteurs
+│   ├── info/         # Métadonnées pour les frontends
+│   └── tests/        # Tests des adaptateurs
+├── .github/workflows/
+│   └── ci.yml
+├── CMakeLists.txt
+├── LICENSE
+└── NOTICE.md
+```
 
-La signature GBA `EEPROM_V` ne distingue pas les EEPROM de 512 octets et 8 Kio.
-En détection automatique, le cœur réserve donc 8 Kio dès le chargement, tandis
-que les transferts DMA sélectionnent le protocole d'adresse approprié. Les
-sauvegardes batterie EEPROM exportées automatiquement font 8 Kio ; les anciens
-fichiers de 512 octets restent importables. L'API C++ permet toujours de forcer
-une EEPROM de 512 octets pour un jeu dont la capacité est connue.
+- **`cores/common/`** contient les composants partagés nécessaires aux moteurs. Ce n'est pas un quatrième émulateur.
+- **`cores/`** reste indépendant de l'interface utilisateur et d'Android.
+- **`sdk/include/ravenemu/sdk.hpp`** propose une fabrique C++ pratique ; ce n'est pas une ABI stable destinée aux plugins binaires.
+- **`libretro/`** adapte les moteurs existants sans remplacer leur implémentation.
+
+L'interface native centrale est [`cores/common/include/ravenemu/core.hpp`](cores/common/include/ravenemu/core.hpp).
+
+## Sauvegardes et compatibilité
+
+Les sauvegardes batterie et les états instantanés sont deux mécanismes distincts. La compatibilité des **états instantanés** entre différentes versions du cœur n'est pas garantie : certains anciens formats sont volontairement refusés pour éviter une restauration incorrecte.
+
+Pour la GBA, l'identification automatique d'une EEPROM ne permet pas toujours de déterminer sa capacité à partir de la seule signature du jeu. Les moteurs disposent de mécanismes de détection et de configuration adaptés, mais les cas particuliers doivent être vérifiés.
+
+En cas de changement de version, **conservez une copie de vos sauvegardes batterie** avant de remplacer un cœur.
+
+## Provenance et développement
+
+Les fichiers initiaux de `cores/` proviennent de [RavenEmu, commit `312e4af`](https://github.com/GhostPunishR/RavenEmu/commit/312e4af765e2005e1f21713f4caf79e96c6f4da5). Ils ont ensuite pu recevoir des corrections propres à ce dépôt.
+
+RavenEmu Android et RavenEmu-Cores sont deux dépôts indépendants : modifier l'un ne met **pas automatiquement** l'autre à jour. Les correctifs doivent être synchronisés et testés explicitement.
+
+La construction et les tests automatisés sont consultables dans [GitHub Actions](https://github.com/GhostPunishR/RavenEmu-Cores/actions/workflows/ci.yml).
+
+## Licence
+
+**RavenEmu-Cores est distribué sous [GNU AGPL-3.0](LICENSE).** Les moteurs sont issus du projet RavenEmu de **GhostPunishR**. La réutilisation et la redistribution, y compris commerciale, sont possibles sous réserve du respect des obligations de cette licence.
+
+L'en-tête `libretro/include/libretro.h` possède sa propre licence MIT et ses mentions de copyright, conservées dans le fichier. Consultez [NOTICE.md](NOTICE.md) pour la provenance et les détails.
+
+Aucune ROM commerciale ni aucun BIOS protégé n'est inclus. Game Boy, Game Boy Color et Game Boy Advance sont des marques de Nintendo. Ce projet n'est affilié ni à Nintendo, ni à RetroArch, ni à RetroAchievements.
