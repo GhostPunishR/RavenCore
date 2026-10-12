@@ -155,6 +155,9 @@ public:
         out.u32(m.bus.bios_latch); out.boolean(m.bus.executing_bios);
         const auto pipeline = m.cpu.pipeline();
         out.i32(pipeline.opcodes[0]); out.i32(pipeline.opcodes[1]); out.boolean(pipeline.valid); out.boolean(pipeline.thumb);
+        out.u32(m.bus.last_fetch);
+        out.i32(m.serial.export_state());
+        out.i32(m.bus.sequential_address());
         return std::move(out).take();
     }
     void load_state(std::span<const std::uint8_t> bytes) override {
@@ -194,6 +197,9 @@ public:
             m.bus.bios_latch = in.u32(); m.bus.executing_bios = in.boolean();
             Cpu::Pipeline pipeline; pipeline.opcodes[0] = in.i32(); pipeline.opcodes[1] = in.i32();
             pipeline.valid = in.boolean(); pipeline.thumb = in.boolean(); m.cpu.restore_pipeline(pipeline);
+            m.bus.last_fetch = in.u32();
+            m.serial.import_state(in.i32());
+            m.bus.restore_sequential_address(in.i32());
         }
         if (!in.exhausted()) throw SaveStateError("État GBA corrompu (données excédentaires)");
         if (auto* save = m.cartridge.save()) {

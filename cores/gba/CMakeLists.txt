@@ -72,6 +72,16 @@ if(RAVENEMU_BUILD_TESTS)
     target_link_libraries(gba_raven_cpu_tests PRIVATE gba_raven_core)
     add_test(NAME gba_raven_cpu COMMAND gba_raven_cpu_tests)
 
+    # Fidélité matérielle d'après GBATEK : BIOS, HALTCNT, port série, capture
+    # vidéo DMA3, temps de rendu des objets, bus ouvert, durées.
+    add_executable(gba_raven_hardware_tests tests/gba_hardware_test.cpp)
+    target_include_directories(gba_raven_hardware_tests PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/src
+        ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support
+    )
+    target_link_libraries(gba_raven_hardware_tests PRIVATE gba_raven_core)
+    add_test(NAME gba_raven_hardware COMMAND gba_raven_hardware_tests)
+
     # Runner des ROMs de test GBA fournies séparément (jamais dans le dépôt).
     # CTest n'enregistre que son auto-test synthétique, sauf si
     # RAVENEMU_GBA_TEST_ROMS désigne un dossier de ROMs : chaque entrée de

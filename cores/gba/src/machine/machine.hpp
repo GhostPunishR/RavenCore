@@ -5,6 +5,7 @@
 #include "dma/dma_controller.hpp"
 #include "apu/apu.hpp"
 #include "timers/timers.hpp"
+#include "serial/serial.hpp"
 
 namespace ravenemu::gba {
 
@@ -15,8 +16,9 @@ public:
     Machine(RomImage rom, RomTraits traits, std::optional<GbaSaveType> forced,
             std::optional<bool> forced_rtc, Rtc::Clock clock)
         : cartridge(rom, traits, forced, forced_rtc, std::move(clock)), bus(cartridge), ppu(bus), timers(interrupts),
-          dma(bus, interrupts), cpu(bus), bios(cpu, bus) {
+          dma(bus, interrupts), serial(bus, interrupts), cpu(bus), bios(cpu, bus) {
         bus.ppu = &ppu; bus.interrupts = &interrupts; bus.timers = &timers; bus.dma = &dma; bus.apu = &apu;
+        bus.serial = &serial;
         ppu.interrupts = &interrupts; ppu.dma = &dma;
         timers.on_overflow = [this](int timer) { apu.timer_overflow(timer); };
         apu.on_fifo_request = [this](int channel) { dma.trigger_sound_fifo(channel); };
@@ -24,6 +26,7 @@ public:
         // périphériques doivent d'abord rattraper les instructions passées.
         cpu.swi_handler = [this](int number) { sync_peripherals(); bios.handle_swi(number); next_event_ = 0; };
         bus.io_sync_context = this;
+        bus.io_halt = [](void* context) { static_cast<Machine*>(context)->bios.halt(); };
         bus.io_sync = [](void* context, bool write) {
             auto& machine = *static_cast<Machine*>(context);
             machine.sync_peripherals();
@@ -51,9 +54,12 @@ public:
                 continue;
             }
             if (cpu.state.halted) {
+                // Une interruption ne peut naître que d'un événement : le CPU
+                // arrêté saute directement au prochain, sans retard.
                 sync_peripherals();
-                advance_now(64); elapsed += 64;
-                bus.diagnostics.wait_step(64, bios.wait_state() ? bios.wait_state()->interrupt_mask : 0);
+                const auto idle = std::max(1, std::min(cycles - elapsed, next_event_));
+                advance_now(idle); elapsed += idle;
+                bus.diagnostics.wait_step(idle, bios.wait_state() ? bios.wait_state()->interrupt_mask : 0);
                 if (bios.should_resume()) { cpu.state.halted = false; bus.diagnostics.wait_resolved(); bus.break_access_sequence(); }
                 continue;
             }
@@ -76,17 +82,22 @@ public:
      */
     void sync_peripherals() {
         if (pending_cycles_ > 0) { const auto cycles = pending_cycles_; pending_cycles_ = 0; advance_peripherals(cycles); }
-        next_event_ = std::min(ppu.cycles_until_next_event(), timers.cycles_until_next_overflow());
+        next_event_ = next_event();
+    }
+    // Prochain changement que le CPU peut observer autrement que par les E/S.
+    [[nodiscard]] int next_event() const noexcept {
+        return std::min({ppu.cycles_until_next_event(), timers.cycles_until_next_overflow(), serial.cycles_until_completion()});
     }
     void advance_now(int cycles) {
         advance_peripherals(cycles);
-        next_event_ = std::min(ppu.cycles_until_next_event(), timers.cycles_until_next_overflow());
+        next_event_ = next_event();
     }
     void advance_peripherals(int cycles) {
         auto remaining = cycles;
         while (remaining > 0) {
-            const auto step = std::max(1, std::min({remaining, timers.cycles_until_next_overflow(), apu.cycles_until_next_sample()}));
-            ppu.tick(step); timers.tick(step); apu.tick(step); remaining -= step;
+            const auto step = std::max(1, std::min({remaining, timers.cycles_until_next_overflow(), apu.cycles_until_next_sample(),
+                                                    serial.cycles_until_completion()}));
+            ppu.tick(step); timers.tick(step); apu.tick(step); serial.tick(step); remaining -= step;
         }
     }
 
@@ -96,6 +107,7 @@ public:
     InterruptController interrupts;
     Timers timers;
     DmaController dma;
+    Serial serial;
     Apu apu;
     Cpu cpu;
     Bios bios;

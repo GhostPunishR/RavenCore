@@ -143,6 +143,17 @@ public:
         return result;
     }
     void set_nz(std::int32_t value) noexcept { state.negative = value < 0; state.zero = value == 0; }
+    // Cycles internes m d'une multiplication sur l'ARM7TDMI : le multiplieur
+    // s'arrête dès que les octets de poids fort de l'opérande sont tous à 0
+    // (ou tous à 1 pour une multiplication signée).
+    static int multiply_cycles(std::uint32_t operand, bool sign_extended) noexcept {
+        auto cycles = 1;
+        for (unsigned shift = 8; shift < 32; shift += 8, ++cycles) {
+            const auto top = operand >> shift;
+            if (top == 0 || (sign_extended && top == (0xffff'ffffU >> shift))) return cycles;
+        }
+        return 4;
+    }
     // Le bus aligne lui-même l'adresse, sauf la SRAM qui lit l'octet visé.
     std::int32_t load_word_rotated(std::int32_t address) {
         const auto word = bus.read32(address);

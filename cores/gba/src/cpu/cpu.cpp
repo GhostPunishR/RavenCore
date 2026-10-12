@@ -73,7 +73,8 @@ int Cpu::arm_data_without_flags(std::uint32_t raw, int opcode) {
     case 14: value = x & ~y; break; default: value = ~y; break;
     }
     write_reg(rd, i32(value));
-    return rd == 15 ? 3 : 1;
+    // Décalage par registre : 1I de plus ; écrire PC recharge le pipeline.
+    return (rd == 15 ? 3 : 1) + (pc_extra != 0 ? 1 : 0);
 }
 
 int Cpu::arm_data(std::int32_t instruction, bool immediate, int opcode, bool set_flags) {
@@ -108,7 +109,7 @@ int Cpu::arm_data(std::int32_t instruction, bool immediate, int opcode, bool set
         else { set_nz(result); state.carry = arithmetic ? last_carry : shifter_carry; if (arithmetic) state.overflow = last_overflow; }
     }
     if (writes) write_reg(rd, result);
-    return rd == 15 && writes ? 3 : 1;
+    return (rd == 15 && writes ? 3 : 1) + (register_shift ? 1 : 0);
 }
 
 std::int32_t Cpu::arm_operand2(std::int32_t instruction, bool immediate, int pc_extra) {
@@ -183,22 +184,29 @@ int Cpu::arm_single_transfer(std::int32_t instruction) {
 
 int Cpu::arm_multiply(std::int32_t instruction) {
     const auto raw = u32(instruction); const auto rd = static_cast<int>((raw >> 16U) & 15U);
-    auto result = i32(u32(read_reg(static_cast<int>(raw & 15U))) * u32(read_reg(static_cast<int>((raw >> 8U) & 15U))));
-    if (((raw >> 21U) & 1U) != 0) result = add32(result, read_reg(static_cast<int>((raw >> 12U) & 15U)));
-    write_reg(rd, result); if (((raw >> 20U) & 1U) != 0) set_nz(result); return 2;
+    const auto multiplier = u32(read_reg(static_cast<int>((raw >> 8U) & 15U)));
+    const auto accumulate = ((raw >> 21U) & 1U) != 0;
+    auto result = i32(u32(read_reg(static_cast<int>(raw & 15U))) * multiplier);
+    if (accumulate) result = add32(result, read_reg(static_cast<int>((raw >> 12U) & 15U)));
+    write_reg(rd, result); if (((raw >> 20U) & 1U) != 0) set_nz(result);
+    // 1S + mI, plus 1I pour MLA.
+    return 1 + multiply_cycles(multiplier, true) + (accumulate ? 1 : 0);
 }
 
 int Cpu::arm_multiply_long(std::int32_t instruction) {
     const auto raw = u32(instruction); const auto hi = static_cast<int>((raw >> 16U) & 15U);
     const auto lo = static_cast<int>((raw >> 12U) & 15U); const auto rs = static_cast<int>((raw >> 8U) & 15U);
     const auto rm = static_cast<int>(raw & 15U); const auto signed_multiply = ((raw >> 22U) & 1U) != 0;
+    const auto multiplier = u32(read_reg(rs));
     std::uint64_t product{};
     if (signed_multiply) product = static_cast<std::uint64_t>(static_cast<std::int64_t>(read_reg(rm)) * read_reg(rs));
     else product = static_cast<std::uint64_t>(u32(read_reg(rm))) * u32(read_reg(rs));
     if (((raw >> 21U) & 1U) != 0) product += (static_cast<std::uint64_t>(u32(read_reg(hi))) << 32U) | u32(read_reg(lo));
     write_reg(lo, i32(static_cast<std::uint32_t>(product))); write_reg(hi, i32(static_cast<std::uint32_t>(product >> 32U)));
     if (((raw >> 20U) & 1U) != 0) { state.negative = (product >> 63U) != 0; state.zero = product == 0; }
-    return 3;
+    // 1S + (m + 1)I, plus 1I pour UMLAL/SMLAL ; m ne s'arrête sur des 1 qu'en signé.
+    const auto accumulate = ((raw >> 21U) & 1U) != 0;
+    return 2 + multiply_cycles(multiplier, signed_multiply) + (accumulate ? 1 : 0);
 }
 
 int Cpu::arm_swap(std::int32_t instruction) {
@@ -343,7 +351,9 @@ int Cpu::execute_thumb(int instruction) {
         set_nz(result);
         if (arithmetic) { state.carry = last_carry; state.overflow = last_overflow; }
         else if (shift) state.carry = shifter_carry;
-        return 1;
+        // MUL : 1S + mI (m selon Rd d'origine) ; décalage par registre : 1S + 1I.
+        if (opcode == 13) return 1 + multiply_cycles(u32(a), true);
+        return shift ? 2 : 1;
     }
     if ((instr & 0xfc00U) == 0x4400U) {
         const auto opcode = static_cast<int>((instr >> 8U) & 3U);

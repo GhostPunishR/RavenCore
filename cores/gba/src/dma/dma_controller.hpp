@@ -37,6 +37,18 @@ public:
         }
     }
 
+    // Capture vidéo (DMA3, déclenchement spécial) : un transfert par ligne de
+    // VCOUNT 2 à 161, comme un DMA d'HBlank, puis arrêt à la ligne 162.
+    void trigger_video_capture(int vcount) {
+        const auto control = read_io_half(control_offsets_[3]);
+        if ((control & 0x8000) == 0 || timing(control) != 3) return;
+        if (vcount == 162) {
+            bus_.io[static_cast<std::size_t>(control_offsets_[3] + 1)] = static_cast<std::uint8_t>((control & ~0x8000) >> 8);
+            return;
+        }
+        if (vcount >= 2 && vcount < 162) request_transfer(3);
+    }
+
     [[nodiscard]] bool active() const noexcept { return active_channel_ >= 0; }
     [[nodiscard]] int cycles_until_event() const noexcept { return active() ? phase_cycles_ : 0; }
 
@@ -87,7 +99,7 @@ public:
         const auto invalid_active = active_channel_valid &&
             (phase < phase_startup || phase > phase_write || values[10] <= 0 ||
              values[10] > 0x10000 || values[13] <= 0 ||
-             (values[11] & 0x8000) == 0 || ((timing(values[11]) == 3) != (values[16] != 0)) ||
+             (values[11] & 0x8000) == 0 || (sound_fifo(active_channel, values[11]) != (values[16] != 0)) ||
              (pending_requests & (1 << active_channel)) != 0);
         if (active_channel < -1 || active_channel > 3 || pending_requests < 0 ||
             pending_requests > 0x0f || values[15] < 0 || values[15] > 1 ||
@@ -117,7 +129,7 @@ public:
                 values[static_cast<std::size_t>(offset + 1)] > 0x10000 ||
                 values[static_cast<std::size_t>(offset + 4)] <= 0 ||
                 (control & 0x8000) == 0 || sequential < 0 || sequential > 1 || fifo < 0 || fifo > 1 ||
-                ((timing(control) == 3) != (fifo != 0)) ||
+                (sound_fifo(channel, control) != (fifo != 0)) ||
                 (pending_requests & (1 << channel)) != 0) {
                 throw SaveStateError("État DMA GBA invalide");
             }
@@ -208,6 +220,8 @@ private:
     }
 
     static int timing(int control) noexcept { return (control >> 12) & 3; }
+    // Le déclenchement spécial n'alimente le son que sur les canaux 1 et 2.
+    static bool sound_fifo(int channel, int control) noexcept { return timing(control) == 3 && (channel == 1 || channel == 2); }
 
     static int delta(int control, int size) noexcept {
         if (control == 0 || control == 3) return size;
@@ -316,7 +330,7 @@ private:
         const auto index = static_cast<std::size_t>(channel);
         active_channel_ = channel;
         active_control_ = control;
-        fifo_transfer_ = timing(control) == 3;
+        fifo_transfer_ = sound_fifo(channel, control);
         remaining_words_ = fifo_transfer_ ? 4 : word_count(channel, read_io_half(count_offsets_[index]));
         current_destination_ = destination_[index];
         sequential_ = false;

@@ -4,6 +4,7 @@
 #include "timers/timers.hpp"
 #include "dma/dma_controller.hpp"
 #include "apu/apu.hpp"
+#include "serial/serial.hpp"
 
 
 namespace ravenemu::gba {
@@ -57,9 +58,10 @@ int Bus::read8_raw(std::int32_t address) {
     const auto raw = u32(address);
     const auto region = (raw >> 24U) & 0xffU;
     switch (region) {
-    case 0x00: case 0x01:
+    case 0x00:
+        if (raw >= 0x4000U) { diagnostics.unsupported_access(address); return open_bus(raw); }
         if (!executing_bios) return static_cast<int>((bios_latch >> ((raw & 3U) * 8U)) & 0xffU);
-        return bios[raw & 0x3fffU];
+        return bios[raw];
     case 0x02: return ewram[raw & 0x3ffffU];
     case 0x03: return iwram[raw & 0x7fffU];
     case 0x04: return read_io(static_cast<int>(raw & 0x3ffU));
@@ -82,7 +84,7 @@ int Bus::read8_raw(std::int32_t address) {
     }
     default:
         diagnostics.unsupported_access(address);
-        return 0;
+        return open_bus(raw);
     }
 }
 
@@ -233,6 +235,7 @@ void Bus::write_io_half(int offset, int value) noexcept {
 }
 
 void Bus::propagate_io_write(int offset, std::int32_t value, int bytes) {
+    if (offset <= 0x301 && offset + bytes > 0x301 && io_halt) io_halt(io_sync_context);
     if (offset >= 0x0a0 && offset <= 0x0a7) {
         if (apu) apu->push_fifo(offset < 0x0a4 ? 0 : 1, value, bytes);
         return;
@@ -257,6 +260,8 @@ void Bus::handle_io_write(int offset, int value) {
     } else if (dma && (offset == 0x0ba || offset == 0x0c6 || offset == 0x0d2 || offset == 0x0de)) {
         const auto channel = offset == 0x0ba ? 0 : offset == 0x0c6 ? 1 : offset == 0x0d2 ? 2 : 3;
         dma_control_write(dma, channel, value);
+    } else if (offset == 0x128) {
+        serial_control_write(serial, value);
     } else if (apu && offset >= 0x060 && offset <= 0x09f) {
         apu->write_register(offset, value);
     }

@@ -12,11 +12,13 @@ class Ppu;
 class Timers;
 class DmaController;
 class Apu;
+class Serial;
 
 int ppu_dispstat_low(const Ppu*) noexcept;
 int ppu_vcount(const Ppu*) noexcept;
 void ppu_affine_reference_write(Ppu*, int) noexcept;
 void dma_control_write(DmaController*, int, int);
+void serial_control_write(Serial*, int);
 
 class Bus {
 public:
@@ -28,24 +30,14 @@ public:
     // Lecture d'instruction : chemin court en ligne pour la RAM, la ROM et la
     // mémoire vidéo ; le BIOS (latch) et le reste passent par le chemin lent.
     int fetch16(std::int32_t address) {
-        const auto aligned = u32(address) & ~1U;
-        if (const auto* data = fetch_window_hit(aligned, 2)) return static_cast<int>(load_le(data, 2));
-        account(i32(aligned), 2, true);
-        if ((aligned >> 24U) != 0U) {
-            executing_bios = false;
-            if (const auto* data = direct_read(aligned, 2)) { open_fetch_window(aligned); return static_cast<int>(load_le(data, 2)); }
-        }
-        return fetch16_slow(i32(aligned));
+        const auto value = fetch16_value(address);
+        last_fetch = u32(value) | u32(value) << 16U;
+        return value;
     }
     std::int32_t fetch32(std::int32_t address) {
-        const auto aligned = u32(address) & ~3U;
-        if (const auto* data = fetch_window_hit(aligned, 4)) return i32(load_le(data, 4));
-        account(i32(aligned), 4, true);
-        if ((aligned >> 24U) != 0U) {
-            executing_bios = false;
-            if (const auto* data = direct_read(aligned, 4)) { open_fetch_window(aligned); return i32(load_le(data, 4)); }
-        }
-        return fetch32_slow(i32(aligned));
+        const auto value = fetch32_value(address);
+        last_fetch = u32(value);
+        return value;
     }
     // À rappeler quand les attentes changent (WAITCNT) ou que l'état est restauré.
     void close_fetch_window() noexcept { fetch_window_ = {}; }
@@ -54,6 +46,10 @@ public:
     void write32(std::int32_t address, std::int32_t value);
     int take_wait_cycles() noexcept { return std::exchange(wait_cycles, 0); }
     void break_access_sequence() noexcept { next_sequential_address = -1; }
+    // Adresse qu'un accès séquentiel viserait : conservée dans les états, sans
+    // quoi le premier accès après un chargement paierait une attente de trop.
+    [[nodiscard]] std::int32_t sequential_address() const noexcept { return next_sequential_address; }
+    void restore_sequential_address(std::int32_t address) noexcept { next_sequential_address = address; }
     void reset_affine_matrices();
     void sync_timing_from_io();
     [[nodiscard]] Eeprom* eeprom() noexcept { return dynamic_cast<Eeprom*>(cartridge.save()); }
@@ -74,6 +70,7 @@ public:
     Timers* timers{};
     DmaController* dma{};
     Apu* apu{};
+    Serial* serial{};
     MemoryTiming timing;
     Diagnostics diagnostics;
     int wait_cycles{};
@@ -83,10 +80,15 @@ public:
     static constexpr std::uint32_t bios_latch_after_swi = 0xe3a0'2004U;
     std::uint32_t bios_latch{bios_latch_after_startup};
     bool executing_bios{};
+    // Bus ouvert : une zone non câblée rend le dernier mot que le pipeline a
+    // lu (en Thumb, le demi-mot répété), pas une valeur fixe.
+    std::uint32_t last_fetch{};
     // Appelé avant chaque accès aux registres d'E/S : la machine y rattrape
     // les périphériques, avancés par lots entre deux événements.
     void (*io_sync)(void* context, bool write){};
     void* io_sync_context{};
+    // Écriture de HALTCNT (0x04000301) : la machine arrête le CPU.
+    void (*io_halt)(void* context){};
 
 private:
     static constexpr int io_mask = 0x3ff;
@@ -132,6 +134,29 @@ private:
         fetch_window_ = window;
     }
     FetchWindow fetch_window_{};
+    int fetch16_value(std::int32_t address) {
+        const auto aligned = u32(address) & ~1U;
+        if (const auto* data = fetch_window_hit(aligned, 2)) return static_cast<int>(load_le(data, 2));
+        account(i32(aligned), 2, true);
+        if ((aligned >> 24U) != 0U) {
+            executing_bios = false;
+            if (const auto* data = direct_read(aligned, 2)) { open_fetch_window(aligned); return static_cast<int>(load_le(data, 2)); }
+        }
+        return fetch16_slow(i32(aligned));
+    }
+    std::int32_t fetch32_value(std::int32_t address) {
+        const auto aligned = u32(address) & ~3U;
+        if (const auto* data = fetch_window_hit(aligned, 4)) return i32(load_le(data, 4));
+        account(i32(aligned), 4, true);
+        if ((aligned >> 24U) != 0U) {
+            executing_bios = false;
+            if (const auto* data = direct_read(aligned, 4)) { open_fetch_window(aligned); return i32(load_le(data, 4)); }
+        }
+        return fetch32_slow(i32(aligned));
+    }
+    [[nodiscard]] int open_bus(std::uint32_t address) const noexcept {
+        return static_cast<int>((last_fetch >> ((address & 3U) * 8U)) & 0xffU);
+    }
     int fetch16_slow(std::int32_t aligned);
     std::int32_t fetch32_slow(std::int32_t aligned);
     // Assemblage petit-boutiste portable ; les compilateurs en font une seule

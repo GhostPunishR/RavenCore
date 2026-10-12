@@ -36,6 +36,7 @@ public:
                     if (irq_enabled(0x10) && interrupts) interrupts->request(InterruptController::hblank);
                     if (dma) dma->trigger_hblank();
                 }
+                if (dma) dma->trigger_video_capture(vcount);
             }
             if (line_cycles_ >= line_cycles_total) {
                 line_cycles_ = 0; in_hblank = false; vcount = (vcount + 1) % total_lines;
@@ -283,7 +284,12 @@ private:
     void render_sprites(int y, int display) {
         if ((display & 0x1000) == 0) return;
         const auto one_dimensional = (display & 0x40) != 0;
-        for (int sprite = 0; sprite < 128; ++sprite) {
+        // Temps de rendu des objets par ligne (GBATEK) : 1210 cycles, 954 si
+        // DISPCNT bit 5 libère le H-Blank. Un objet coûte sa largeur, un objet
+        // affine 10 + 2 × la largeur de sa boîte ; une fois le temps épuisé,
+        // les objets suivants (dans l'ordre de l'OAM) ne sont pas tracés.
+        auto budget = (display & 0x20) != 0 ? 954 : 1210;
+        for (int sprite = 0; sprite < 128 && budget > 0; ++sprite) {
             const auto base = sprite * 8; const auto attr0 = oam16(base); const auto transform = (attr0 >> 8) & 3;
             if (transform == 2 || ((attr0 >> 14) & 3) == 3 || ((attr0 >> 10) & 3) == 3) continue;
             const auto affine = transform == 1 || transform == 3; const auto doubled = transform == 3;
@@ -292,6 +298,8 @@ private:
             const auto width = object_width_[static_cast<std::size_t>(size_key)]; const auto height = object_height_[static_cast<std::size_t>(size_key)];
             const auto box_width = doubled ? width * 2 : width; const auto box_height = doubled ? height * 2 : height;
             const auto sprite_y = (y - (attr0 & 0xff)) & 0xff; if (sprite_y >= box_height) continue;
+            const auto drawable = affine ? std::min(box_width, std::max(0, (budget - 10) / 2)) : std::min(box_width, budget);
+            budget -= affine ? 10 + 2 * box_width : box_width;
             auto sprite_x = attr1 & 0x1ff; if (sprite_x >= 0x100) sprite_x -= 0x200;
             const auto eight_bpp = (attr0 & 0x2000) != 0; const auto palette_bank = (attr2 >> 12) & 15;
             const auto priority = (attr2 >> 10) & 3; const auto tile_base = attr2 & 0x3ff;
@@ -306,7 +314,7 @@ private:
             // position n'est pas un multiple de la taille du bloc.
             const auto mosaic = (attr0 & 0x1000) != 0; const auto mosaic_width = mosaic ? obj_mosaic_width() : 1;
             const auto sample_y = mosaic ? sprite_y - sprite_y % obj_mosaic_height() : sprite_y;
-            for (int column = 0; column < box_width; ++column) {
+            for (int column = 0; column < drawable; ++column) {
                 const auto screen_x = sprite_x + column; if (screen_x < 0 || screen_x >= screen_width) continue;
                 const auto sample_column = mosaic ? column - column % mosaic_width : column;
                 int texture_x{}; int texture_y{};
