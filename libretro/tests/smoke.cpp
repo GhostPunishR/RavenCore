@@ -184,6 +184,25 @@ int main() {
         return 1;
     }
 
+    // MBC5+RAM+BATTERY program: enable RAM, store $77 at $A000, loop. The
+    // write must reach SAVE_RAM, which the frontend persists.
+    auto battery_rom = ravenemu::testing::minimal_game_boy_rom();
+    const std::uint8_t store[] = {0x3e, 0x0a, 0xea, 0x00, 0x00, 0x3e, 0x77, 0xea, 0x00, 0xa0, 0x18, 0xfe};
+    std::copy(std::begin(store), std::end(store), battery_rom.begin() + 0x100);
+    battery_rom[0x147] = 0x1b;
+    battery_rom[0x149] = 0x02;
+    game.data = battery_rom.data();
+    game.size = battery_rom.size();
+    if (!retro_load_game(&game)) return 1;
+    auto* save_ram = static_cast<std::uint8_t*>(retro_get_memory_data(RETRO_MEMORY_SAVE_RAM));
+    if (!save_ram || retro_get_memory_size(RETRO_MEMORY_SAVE_RAM) != 8192 || save_ram[0] == 0x77) return 1;
+    retro_run();
+    if (save_ram[0] != 0x77) {
+        std::cerr << "Battery write not mirrored into SAVE_RAM\n";
+        return 1;
+    }
+    retro_unload_game();
+
     // An MBC7 header announces the accelerometer and polls the left stick.
     auto tilt_rom = ravenemu::testing::minimal_game_boy_rom();
     tilt_rom[0x147] = 0x22;

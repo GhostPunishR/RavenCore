@@ -105,11 +105,17 @@ constexpr std::array<Key, 10> keys{{
     {RETRO_DEVICE_ID_JOYPAD_R, ravenemu::Button::r}
 }};
 
+// SAVE_RAM is the copy the frontend persists, so mirroring the battery there
+// counts as saving it: copy only when the game changed it (a full copy cost up
+// to 75 us per frame with an MBC6's 1 MiB flash), then acknowledge that
+// generation. The MBC3 clock footer is refreshed with each copy; between two
+// copies its registers and timestamp stay consistent, which is all a reload needs.
 void update_save_ram() {
-    if (!core || save_ram.empty()) return;
+    if (!core || save_ram.empty() || !core->battery_ram_dirty()) return;
     auto state = core->snapshot_battery_ram();
-    if (state && state->data.size() == save_ram.size())
-        std::copy(state->data.begin(), state->data.end(), save_ram.begin());
+    if (!state || state->data.size() != save_ram.size()) return;
+    std::copy(state->data.begin(), state->data.end(), save_ram.begin());
+    core->acknowledge_battery_ram_saved(state->generation);
 }
 /* Libretro frontends restore battery files into SAVE_RAM after load_game.
  * Apply this initial write before the first emulated frame or serialization. */
