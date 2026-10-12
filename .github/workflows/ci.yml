@@ -19,6 +19,13 @@ jobs:
         run: cmake --build build --parallel 2
       - name: Run all synthetic tests
         run: ctest --test-dir build --output-on-failure
+      - name: Install and consume the CMake package
+        run: |
+          cmake --install build --prefix "$RUNNER_TEMP/ravenemu"
+          cmake -S sdk/tests/package_consumer -B build/package_consumer \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/ravenemu"
+          cmake --build build/package_consumer
+          build/package_consumer/ravenemu_package_consumer
       - name: Verify Libretro libraries
         run: |
           test -f build/libretro/ravenemu_gb_libretro.so

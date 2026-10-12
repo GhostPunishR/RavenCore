@@ -4,7 +4,7 @@ add_library(gba_raven_core STATIC
     src/memory/bus.cpp
 )
 target_include_directories(gba_raven_core
-    PUBLIC include
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     PRIVATE src
 )
 target_link_libraries(gba_raven_core PUBLIC ravenemu_common)
