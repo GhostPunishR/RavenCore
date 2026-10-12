@@ -3,15 +3,21 @@ project(ravenemu_cores LANGUAGES CXX)
 
 option(RAVENEMU_BUILD_TESTS "Construire les tests des cœurs" OFF)
 
+# Les en-têtes publics exigent C++20 : seule cette exigence se propage aux
+# projets qui consomment les cœurs.
 add_library(ravenemu_options INTERFACE)
 target_compile_features(ravenemu_options INTERFACE cxx_std_20)
+
+# Avertissements stricts réservés aux cibles de ce dépôt. Portés par le
+# répertoire et non par `ravenemu_options`, ils ne s'imposent plus au code
+# d'un consommateur. La variable reste visible de `sdk/` et `libretro/`.
 if(MSVC)
-    target_compile_options(ravenemu_options INTERFACE /W4 /permissive-)
+    set(RAVENEMU_WARNING_OPTIONS /W4 /permissive- CACHE INTERNAL "Avertissements des cibles RavenEmu")
 else()
-    target_compile_options(ravenemu_options INTERFACE
-        -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
-    )
+    set(RAVENEMU_WARNING_OPTIONS -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+        CACHE INTERNAL "Avertissements des cibles RavenEmu")
 endif()
+add_compile_options(${RAVENEMU_WARNING_OPTIONS})
 
 if(RAVENEMU_BUILD_TESTS)
     enable_testing()

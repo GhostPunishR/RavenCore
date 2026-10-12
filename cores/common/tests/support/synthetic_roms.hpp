@@ -6,7 +6,7 @@
 
 namespace ravenemu::testing {
 
-std::vector<std::uint8_t> minimal_game_boy_rom() {
+inline std::vector<std::uint8_t> minimal_game_boy_rom() {
     std::vector<std::uint8_t> rom(0x8000);
     rom[0x0147] = 0x00; // no MBC
     // Endless JP 0100 loop, enough to exercise a complete deterministic frame.
@@ -16,7 +16,7 @@ std::vector<std::uint8_t> minimal_game_boy_rom() {
     return rom;
 }
 
-std::vector<std::uint8_t> minimal_gba_rom() {
+inline std::vector<std::uint8_t> minimal_gba_rom() {
     std::vector<std::uint8_t> rom(0x200);
     // LDR r0, [pc, #8] ; MOV r1, #0x5a ; STRB r1, [r0] ; B .
     const std::array<std::uint32_t, 4> program{
