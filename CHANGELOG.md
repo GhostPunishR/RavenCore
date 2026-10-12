@@ -4,7 +4,11 @@ Ce fichier recense les évolutions notables de RavenEmu Cores. Son format suit [
 
 ## Non publié
 
-Travaux pour sortir RavenGBA de l'état expérimental ([#9](https://github.com/GhostPunishR/RavenEmu-Cores/pull/9)). Le cœur reste marqué expérimental tant qu'il n'a pas été essayé sur un large panel de jeux du commerce.
+Rien pour l'instant.
+
+## 0.1.1 - 2026-10-12
+
+Cette version regroupe les travaux pour sortir RavenGBA de l'état expérimental ([#9](https://github.com/GhostPunishR/RavenEmu-Cores/pull/9)) et la lecture de la mémoire pour RetroAchievements dans l'API C ([#10](https://github.com/GhostPunishR/RavenEmu-Cores/pull/10)). RavenGBA reste marqué expérimental tant qu'il n'a pas été essayé sur un large panel de jeux du commerce.
 
 ### Ajouté
 
@@ -25,11 +29,15 @@ Travaux pour sortir RavenGBA de l'état expérimental ([#9](https://github.com/G
 
 #### API C
 
+- `ravenemu_v3_read_achievement_memory()` lit l'espace d'adresses utilisé par RetroAchievements : carte mémoire de la console, RAM de cartouche et banques de WRAM CGB pour GB/GBC ; IWRAM, EWRAM puis sauvegarde pour GBA. La lecture n'avance pas l'émulation et ne passe pas par le bus ; une zone non exposée donne une lecture plus courte que demandé ([#10](https://github.com/GhostPunishR/RavenEmu-Cores/pull/10)).
 - `ravenemu_v3_set_gba_save_type()` et `ravenemu_v3_set_gba_rtc()` imposent le type de sauvegarde et l'horloge d'un jeu GBA ; le réglage prend effet au prochain chargement ou reset. `ravenemu_v3_rumble_active()` indique si le moteur de vibration de la cartouche (GB MBC5 Rumble ou GBA) tourne. Ces ajouts ne changent pas `RAVENEMU_V3_API_VERSION`.
+
+#### Publication
+
+- Chaque tag `vX.Y.Z` publie une release GitHub : ses notes sont la section de ce journal, et les cœurs Libretro Linux x86-64 y sont joints avec leurs fichiers `.info`.
 
 ### Modifié
 
-- **Format d'état GBA 12.** Il ajoute le verrou de lecture du BIOS, le pipeline du CPU, la valeur du bus ouvert, le transfert série en cours et l'accès séquentiel en attente du bus. Les états au format 11 se rechargent toujours ; un état au format 12 ne se recharge pas dans la version 0.1.0.
 - **Performances GBA.** Une image où le CPU tourne sans arrêt passe de 7,4 ms à 2,5 ms environ sur PC (code Thumb : 1,8 ms). Les périphériques avancent par lots jusqu'au prochain événement, les accès mémoire alignés vont directement au tableau concerné, et les temps d'attente viennent d'une table. Chaque optimisation a été vérifiée au bit près : l'image, le son et l'état de chaque frame sont identiques à ceux du cœur précédent sur les ROMs de test.
 
 ### Corrigé
@@ -54,6 +62,20 @@ Travaux pour sortir RavenGBA de l'état expérimental ([#9](https://github.com/G
 - Les sprites se dessinent dans la limite de 1210 cycles par ligne (954 si l'accès VRAM pendant le H-Blank est libéré).
 - Le DMA3 en mode spécial capture la vidéo des lignes 2 à 161.
 - Un état instantané repartait quelques cycles à côté après son chargement ; la reprise est désormais exacte au cycle près.
+
+### Compatibilité des états instantanés
+
+- **GBA : format 12.** Il ajoute le verrou de lecture du BIOS, le pipeline du CPU, la valeur du bus ouvert, le transfert série en cours et l'accès séquentiel en attente du bus. Les états au format 11 se rechargent toujours ; un état au format 12 ne se recharge pas dans la version 0.1.0.
+- **Drill Dozer et WarioWare: Twisted!** : un état de la version 0.1.0, sans port GPIO, se recharge, moteur au repos.
+- **GB/GBC : format 11**, inchangé.
+- **API C : version 0**, inchangée : les nouvelles fonctions sont des ajouts.
+
+### Limites connues
+
+- GBA reste expérimental : il réussit les suites de tests publiques, mais n'a pas encore été essayé sur un large panel de jeux du commerce.
+- Ne sont pas émulés : les capteurs solaire, gyroscopique et d'inclinaison de certaines cartouches GBA, le câble link GBA et le mode UART du port série, le tampon de préchargement de la cartouche et l'exception d'instruction indéfinie.
+- La sauvegarde GBA est détectée par la signature de la bibliothèque du jeu, sans base de données par jeu ; les options Libretro et l'API C corrigent une détection erronée.
+- RetroAchievements n'est toujours pas activé dans les adaptateurs Libretro.
 
 ## 0.1.0 - 2026-10-12
 

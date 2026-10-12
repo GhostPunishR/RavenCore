@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
-project(RavenEmuCores VERSION 0.1.0 LANGUAGES CXX)
+project(RavenEmuCores VERSION 0.1.1 LANGUAGES CXX)
 
 # An unoptimized emulator is unusable: default to Release when this repository
 # is the main project and no build type was requested.
