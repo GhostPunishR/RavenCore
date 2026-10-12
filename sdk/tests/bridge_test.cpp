@@ -42,6 +42,36 @@ int battery_tracking_test() {
     return 0;
 }
 
+/* state_size met l'état en cache pour save_state : toute modification de la
+ * machine entre les deux doit le rendre caduc, sinon l'état serait périmé. */
+int state_cache_test() {
+    auto rom = ravenemu::testing::minimal_game_boy_rom();
+    Handle handle(ravenemu_v3_create(RAVENEMU_V3_GB), ravenemu_v3_destroy);
+    if (!handle || !ravenemu_v3_load(handle.get(), rom.data(), rom.size(), nullptr, 0)) return 30;
+    std::vector<std::uint32_t> frame(160 * 144);
+    const auto snapshot = [&] {
+        std::vector<std::uint8_t> state(ravenemu_v3_state_size(handle.get()));
+        if (!ravenemu_v3_save_state(handle.get(), state.data(), state.size())) state.clear();
+        return state;
+    };
+    const auto save_only = [&](std::size_t size) {
+        std::vector<std::uint8_t> state(size);
+        if (!ravenemu_v3_save_state(handle.get(), state.data(), state.size())) state.clear();
+        return state;
+    };
+    const auto first = snapshot();
+    if (first.empty() || save_only(first.size()) != first) return 31;
+    if (!ravenemu_v3_run_frame(handle.get(), frame.data(), frame.size())) return 32;
+    const auto after_frame = save_only(first.size());
+    if (after_frame.empty() || after_frame == first) return 33;
+    if (!ravenemu_v3_set_button(handle.get(), RAVENEMU_V3_START, 1)) return 34;
+    const auto after_button = save_only(first.size());
+    if (after_button.empty() || after_button == after_frame) return 35;
+    if (!ravenemu_v3_load_state(handle.get(), first.data(), first.size()) ||
+        save_only(first.size()) != first) return 36;
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -49,6 +79,10 @@ int main() {
         std::string(ravenemu_v3_version()) != RAVENEMU_VERSION) {
         std::cerr << "C API or library version mismatch\n";
         return 1;
+    }
+    if (const int failure = state_cache_test()) {
+        std::cerr << "State cache failed (" << failure << "): " << ravenemu_v3_last_error() << "\n";
+        return failure;
     }
     if (const int failure = battery_tracking_test()) {
         std::cerr << "Battery tracking failed (" << failure << "): " << ravenemu_v3_last_error() << "\n";

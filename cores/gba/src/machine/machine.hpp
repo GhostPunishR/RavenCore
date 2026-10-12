@@ -11,7 +11,10 @@ namespace ravenemu::gba {
 class Machine {
 public:
     Machine(RomImage rom, std::optional<GbaSaveType> forced, std::optional<bool> forced_rtc, Rtc::Clock clock)
-        : cartridge(rom, forced, forced_rtc, std::move(clock)), bus(cartridge), ppu(bus), timers(interrupts),
+        : Machine(rom, RomTraits::detect(*rom), forced, forced_rtc, std::move(clock)) {}
+    Machine(RomImage rom, RomTraits traits, std::optional<GbaSaveType> forced,
+            std::optional<bool> forced_rtc, Rtc::Clock clock)
+        : cartridge(rom, traits, forced, forced_rtc, std::move(clock)), bus(cartridge), ppu(bus), timers(interrupts),
           dma(bus, interrupts), cpu(bus), bios(cpu, bus) {
         bus.ppu = &ppu; bus.interrupts = &interrupts; bus.timers = &timers; bus.dma = &dma; bus.apu = &apu;
         ppu.interrupts = &interrupts; ppu.dma = &dma;

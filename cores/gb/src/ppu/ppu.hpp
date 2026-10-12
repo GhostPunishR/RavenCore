@@ -3,6 +3,10 @@
 #include "interrupt/interrupt_controller.hpp"
 #include <ravenemu/gb/hardware_mode.hpp>
 
+#include <algorithm>
+#include <bit>
+#include <cstring>
+
 namespace ravenemu::cgb {
 
 class Ppu {
@@ -292,7 +296,16 @@ public:
     }
     [[nodiscard]] bool take_hblank_entry() noexcept { const bool value = entered_hblank_; entered_hblank_ = false; return value; }
 
-    void save(BinaryWriter& out) const {
+    /**
+     * Encodage des deux images dans un état. Le format 10 les stockait en
+     * i32 par pixel (69 % d'un état). Un pixel GB tient pourtant sur 16 bits :
+     * teinte DMG 0..3 (ou 0 d'un écran effacé), ou couleur CGB 15 bits que
+     * bgr555_to_argb développe. Chaque image commence par son encodage ; une
+     * image dont un pixel ne se ré-encode pas à l'identique reste en i32.
+     */
+    enum class FrameEncoding : std::uint8_t { raw_i32 = 0, compact_u16 = 1 };
+
+    void save(BinaryWriter& out, bool tagged_frames = true) const {
         constexpr int field_count = 72;
         out.i32(field_count);
         const std::array fields{
@@ -332,11 +345,12 @@ public:
         for (const int sprite : sprite_indices_) out.i32(sprite);
         for (const int y : sprite_y_) out.i32(y);
         for (const int x : sprite_x_) out.i32(x);
-        for (const auto pixel : working_frame_) out.i32(pixel);
-        for (const auto pixel : completed_frame) out.i32(pixel);
+        save_frame(out, working_frame_, tagged_frames);
+        save_frame(out, completed_frame, tagged_frames);
         out.raw(vram); out.raw(oam); out.raw(bg_cram); out.raw(obj_cram);
     }
-    void load(BinaryReader& in) {
+    /** `tagged_frames` vaut false pour un état au format 10 (images en i32). */
+    void load(BinaryReader& in, bool tagged_frames = true) {
         if (in.i32() != 72) throw SaveStateError("État instantané corrompu (PPU)");
         lcdc_ = in.i32(); stat_enable_ = in.i32(); scy_ = in.i32(); scx_ = in.i32();
         ly_ = in.i32(); lyc_ = in.i32(); bgp_ = in.i32(); obp0_ = in.i32(); obp1_ = in.i32();
@@ -422,8 +436,8 @@ public:
                 throw SaveStateError("État instantané corrompu (sprites retenus PPU)");
             }
         }
-        for (auto& pixel : working_frame_) pixel = in.i32();
-        for (auto& pixel : completed_frame) pixel = in.i32();
+        load_frame(in, working_frame_, tagged_frames);
+        load_frame(in, completed_frame, tagged_frames);
         in.raw(vram); in.raw(oam); in.raw(bg_cram); in.raw(obj_cram); rebuild_color_cache();
     }
 
@@ -1213,11 +1227,92 @@ private:
         sprite_y_[slot] = raw_y;
         sprite_x_[slot] = raw_x;
     }
-    static std::int32_t bgr555_to_argb(int value) noexcept {
-        const int r5 = value & 0x1f; const int g5 = (value >> 5) & 0x1f; const int b5 = (value >> 10) & 0x1f;
-        const auto argb = 0xff000000U | static_cast<std::uint32_t>(((r5 << 3) | (r5 >> 2)) << 16) |
-            static_cast<std::uint32_t>(((g5 << 3) | (g5 >> 2)) << 8) | static_cast<std::uint32_t>((b5 << 3) | (b5 >> 2));
-        return static_cast<std::int32_t>(argb);
+    using Frame = std::array<std::int32_t, frame_pixels>;
+    static constexpr std::uint16_t literal_pixel = 0x8000;
+
+    // Nul si le pixel est une teinte DMG (0..3) ou une couleur que
+    // bgr555_to_argb produit : opaque, et dans chaque canal les 3 bits faibles
+    // répètent les 3 bits forts (vérifié sur les 2^32 valeurs). Sans branche,
+    // pour que la boucle d'une image entière se vectorise.
+    [[nodiscard]] static constexpr std::uint32_t compact_miss(std::int32_t pixel) noexcept {
+        const auto argb = static_cast<std::uint32_t>(pixel);
+        const std::uint32_t literal_miss = argb & ~3U;
+        const std::uint32_t color_miss = ((argb >> 24U) ^ 0xffU) | ((argb ^ (argb >> 5U)) & 0x070707U);
+        return std::min(literal_miss, color_miss);
+    }
+    // Pixel compactable vers ses 16 bits, déjà dans l'ordre big-endian du
+    // format une fois en mémoire.
+    [[nodiscard]] static constexpr std::uint16_t encode_pixel(std::int32_t pixel) noexcept {
+        const auto argb = static_cast<std::uint32_t>(pixel);
+        const std::uint32_t literal = 0U - static_cast<std::uint32_t>(argb <= 3U);
+        const std::uint32_t color = ((argb >> 19U) & 31U) | (((argb >> 11U) & 31U) << 5U) |
+            (((argb >> 3U) & 31U) << 10U);
+        return to_big_endian(static_cast<std::uint16_t>((literal & (literal_pixel | argb)) | (~literal & color)));
+    }
+    [[nodiscard]] static constexpr std::uint16_t to_big_endian(std::uint16_t value) noexcept {
+        if constexpr (std::endian::native == std::endian::little) {
+            return static_cast<std::uint16_t>((value << 8U) | (value >> 8U));
+        }
+        return value;
+    }
+    // Les images passent par blocs locaux : le compilateur sait alors que les
+    // octets de l'état ne recouvrent pas l'image, et vectorise dès -O2.
+    static constexpr std::size_t frame_block = 64;
+    static_assert(frame_pixels % frame_block == 0);
+    using FrameBlock = std::array<std::uint16_t, frame_block>;
+
+    static void save_frame(BinaryWriter& out, const Frame& frame, bool tagged) {
+        std::uint32_t miss = 0;
+        if (tagged) for (const auto pixel : frame) miss |= compact_miss(pixel);
+        const bool compact = tagged && miss == 0;
+        if (tagged) {
+            out.u8(static_cast<std::uint8_t>(compact ? FrameEncoding::compact_u16 : FrameEncoding::raw_i32));
+        }
+        if (!compact) {
+            for (const auto pixel : frame) out.i32(pixel);
+            return;
+        }
+        const auto bytes = out.append(frame.size() * 2);
+        for (std::size_t first = 0; first < frame.size(); first += frame_block) {
+            FrameBlock values{};
+            for (std::size_t index = 0; index < frame_block; ++index) values[index] = encode_pixel(frame[first + index]);
+            std::memcpy(bytes.data() + first * 2, values.data(), sizeof values);
+        }
+    }
+    static void load_frame(BinaryReader& in, Frame& frame, bool tagged) {
+        const auto encoding = tagged ? in.u8() : static_cast<std::uint8_t>(FrameEncoding::raw_i32);
+        if (encoding == static_cast<std::uint8_t>(FrameEncoding::raw_i32)) {
+            for (auto& pixel : frame) pixel = in.i32();
+            return;
+        }
+        if (encoding != static_cast<std::uint8_t>(FrameEncoding::compact_u16)) {
+            throw SaveStateError("État instantané corrompu (encodage d'image PPU)");
+        }
+        // Décodage sans branche ; un pixel littéral au-delà de 3 est refusé
+        // après la boucle (l'image décodée n'est installée qu'en cas de succès).
+        const auto bytes = in.view(frame.size() * 2);
+        std::uint32_t invalid = 0;
+        for (std::size_t first = 0; first < frame.size(); first += frame_block) {
+            FrameBlock values{};
+            std::memcpy(values.data(), bytes.data() + first * 2, sizeof values);
+            for (std::size_t index = 0; index < frame_block; ++index) {
+                const std::uint16_t value = to_big_endian(values[index]);
+                const std::uint32_t literal = 0U - (std::uint32_t{value} >> 15U);
+                invalid |= literal & value & 0x7ffcU;
+                frame[first + index] = static_cast<std::int32_t>((literal & (value & 3U)) |
+                    (~literal & static_cast<std::uint32_t>(bgr555_to_argb(value))));
+            }
+        }
+        if (invalid != 0) throw SaveStateError("État instantané corrompu (pixel PPU)");
+    }
+
+    // Chaque canal 5 bits monte en haut de son octet, puis ses 3 bits forts
+    // sont recopiés dessous ((c << 3) | (c >> 2)), les trois canaux d'un coup :
+    // la boucle de décodage d'une image entière se vectorise ainsi.
+    static constexpr std::int32_t bgr555_to_argb(int value) noexcept {
+        const auto bgr = static_cast<std::uint32_t>(value);
+        const std::uint32_t top = ((bgr & 0x1fU) << 19U) | ((bgr & 0x3e0U) << 6U) | ((bgr & 0x7c00U) >> 7U);
+        return static_cast<std::int32_t>(0xff000000U | top | ((top >> 5U) & 0x070707U));
     }
     static void recompute_argb(const std::array<std::uint8_t, 64>& cram,
                                std::array<std::int32_t, 32>& colors, int byte_index) noexcept {

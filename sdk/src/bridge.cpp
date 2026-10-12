@@ -21,6 +21,11 @@ struct ravenemu_v3_bridge {
     std::unique_ptr<ravenemu::Core> core;
     std::vector<std::int32_t> framebuffer;
     bool loaded = false;
+    // État sérialisé par ravenemu_v3_state_size : un frontend appelle presque
+    // toujours save_state juste après, machine inchangée. Toute fonction qui
+    // peut modifier la machine doit appeler machine_may_change().
+    std::vector<std::uint8_t> state_cache;
+    bool state_cache_valid = false;
 };
 
 namespace {
@@ -43,6 +48,10 @@ int attempt(F&& fn) noexcept {
         fail("Unhandled native core error");
     }
     return 0;
+}
+
+void machine_may_change(ravenemu_v3_bridge* handle) noexcept {
+    if (handle) handle->state_cache_valid = false;
 }
 
 void require_loaded(const ravenemu_v3_bridge* handle) {
@@ -87,6 +96,7 @@ const char* ravenemu_v3_last_error(void) { return error_message.c_str(); }
 
 int ravenemu_v3_load(ravenemu_v3_bridge* handle, const uint8_t* rom, size_t rom_size,
                       const uint8_t* battery, size_t battery_size) {
+    machine_may_change(handle);
     return attempt([&] {
         if (!handle || !handle->core) throw std::invalid_argument("Null handle");
         if (!rom || !rom_size || (battery_size && !battery))
@@ -97,9 +107,11 @@ int ravenemu_v3_load(ravenemu_v3_bridge* handle, const uint8_t* rom, size_t rom_
     });
 }
 int ravenemu_v3_reset(ravenemu_v3_bridge* handle) {
+    machine_may_change(handle);
     return attempt([&] { require_loaded(handle); handle->core->reset(); });
 }
 int ravenemu_v3_set_button(ravenemu_v3_bridge* handle, int button, int pressed) {
+    machine_may_change(handle);
     return attempt([&] {
         require_loaded(handle);
         if (button < RAVENEMU_V3_UP || button > RAVENEMU_V3_R)
@@ -120,6 +132,7 @@ int ravenemu_v3_audio_rate(const ravenemu_v3_bridge* handle) {
     return handle && handle->core ? handle->core->audio_spec().sample_rate_hz : 0;
 }
 int ravenemu_v3_run_frame(ravenemu_v3_bridge* handle, uint32_t* argb, size_t pixel_capacity) {
+    machine_may_change(handle);
     return attempt([&] {
         require_loaded(handle);
         if (!argb || pixel_capacity < handle->framebuffer.size())
@@ -134,6 +147,7 @@ int ravenemu_v3_run_frame(ravenemu_v3_bridge* handle, uint32_t* argb, size_t pix
 }
 size_t ravenemu_v3_read_audio(ravenemu_v3_bridge* handle,
                               int16_t* output, size_t sample_capacity) {
+    machine_may_change(handle);
     size_t count = 0;
     attempt([&] {
         require_loaded(handle);
@@ -144,18 +158,28 @@ size_t ravenemu_v3_read_audio(ravenemu_v3_bridge* handle,
 }
 size_t ravenemu_v3_state_size(ravenemu_v3_bridge* handle) {
     size_t count = 0;
-    attempt([&] { require_loaded(handle); count = handle->core->save_state().size(); });
+    attempt([&] {
+        require_loaded(handle);
+        handle->state_cache = handle->core->save_state();
+        handle->state_cache_valid = true;
+        count = handle->state_cache.size();
+    });
     return count;
 }
 int ravenemu_v3_save_state(ravenemu_v3_bridge* handle, uint8_t* output, size_t capacity) {
     return attempt([&] {
         require_loaded(handle);
-        const auto state = handle->core->save_state();
+        if (!handle->state_cache_valid) {
+            handle->state_cache = handle->core->save_state();
+            handle->state_cache_valid = true;
+        }
+        const auto& state = handle->state_cache;
         if (!output || capacity < state.size()) throw std::invalid_argument("Insufficient state buffer");
         std::copy(state.begin(), state.end(), output);
     });
 }
 int ravenemu_v3_load_state(ravenemu_v3_bridge* handle, const uint8_t* state, size_t size) {
+    machine_may_change(handle);
     return attempt([&] {
         require_loaded(handle);
         if (!state || !size) throw std::invalid_argument("Invalid save state");
@@ -163,6 +187,7 @@ int ravenemu_v3_load_state(ravenemu_v3_bridge* handle, const uint8_t* state, siz
     });
 }
 size_t ravenemu_v3_battery_size(ravenemu_v3_bridge* handle) {
+    machine_may_change(handle);
     size_t count = 0;
     attempt([&] {
         require_loaded(handle);
@@ -179,6 +204,7 @@ int ravenemu_v3_battery_dirty(const ravenemu_v3_bridge* handle) {
 }
 int ravenemu_v3_copy_battery_generation(ravenemu_v3_bridge* handle, uint8_t* output,
                                         size_t capacity, uint64_t* generation) {
+    machine_may_change(handle);
     return attempt([&] {
         require_loaded(handle);
         const auto battery = handle->core->snapshot_battery_ram();
@@ -190,6 +216,7 @@ int ravenemu_v3_copy_battery_generation(ravenemu_v3_bridge* handle, uint8_t* out
     });
 }
 int ravenemu_v3_acknowledge_battery(ravenemu_v3_bridge* handle, uint64_t generation) {
+    machine_may_change(handle);
     return attempt([&] {
         require_loaded(handle);
         handle->core->acknowledge_battery_ram_saved(generation);

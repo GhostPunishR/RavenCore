@@ -21,18 +21,23 @@ public:
     void boolean(bool value) { u8(value ? 1U : 0U); }
     void u8(std::uint8_t value) { bytes_.push_back(value); }
 
+    // Les entiers s'ajoutent en un seul agrandissement du tampon : un état
+    // compte des centaines de milliers d'octets, écrits à chaque frame par le
+    // rewind ou le run-ahead d'un frontend. Le format reste big-endian.
     void u16(std::uint16_t value) {
-        u8(static_cast<std::uint8_t>(value >> 8U));
-        u8(static_cast<std::uint8_t>(value));
+        auto* out = grow(2);
+        out[0] = static_cast<std::uint8_t>(value >> 8U);
+        out[1] = static_cast<std::uint8_t>(value);
     }
 
     void i32(std::int32_t value) { u32(static_cast<std::uint32_t>(value)); }
 
     void u32(std::uint32_t value) {
-        u8(static_cast<std::uint8_t>(value >> 24U));
-        u8(static_cast<std::uint8_t>(value >> 16U));
-        u8(static_cast<std::uint8_t>(value >> 8U));
-        u8(static_cast<std::uint8_t>(value));
+        auto* out = grow(4);
+        out[0] = static_cast<std::uint8_t>(value >> 24U);
+        out[1] = static_cast<std::uint8_t>(value >> 16U);
+        out[2] = static_cast<std::uint8_t>(value >> 8U);
+        out[3] = static_cast<std::uint8_t>(value);
     }
 
     void i64(std::int64_t value) { u64(static_cast<std::uint64_t>(value)); }
@@ -56,9 +61,18 @@ public:
         raw(std::span<const std::uint8_t>{bytes});
     }
 
+    /** Réserve `count` octets à remplir sur place (encodages en bloc). */
+    [[nodiscard]] std::span<std::uint8_t> append(std::size_t count) { return {grow(count), count}; }
+
     [[nodiscard]] std::vector<std::uint8_t> take() && { return std::move(bytes_); }
 
 private:
+    [[nodiscard]] std::uint8_t* grow(std::size_t count) {
+        const auto at = bytes_.size();
+        bytes_.resize(at + count);
+        return bytes_.data() + at;
+    }
+
     std::vector<std::uint8_t> bytes_;
 };
 
@@ -73,19 +87,18 @@ public:
         return bytes_[position_++];
     }
 
-    // Chaque lecture fait avancer `position_` : les opérandes d'un `|` ne sont
-    // pas séquencés en C++, d'où une instruction par octet lu. Sinon un
-    // compilateur pourrait lire l'octet de poids faible en premier.
+    // `consume` avance la position une seule fois par valeur ; les octets sont
+    // ensuite combinés sans effet de bord, donc l'ordre big-endian ne dépend
+    // pas de l'ordre d'évaluation choisi par le compilateur.
     [[nodiscard]] std::uint16_t u16() {
-        const auto high = static_cast<std::uint16_t>(u8());
-        const auto low = static_cast<std::uint16_t>(u8());
-        return static_cast<std::uint16_t>((high << 8U) | low);
+        const auto* in = consume(2);
+        return static_cast<std::uint16_t>((in[0] << 8U) | in[1]);
     }
 
     [[nodiscard]] std::uint32_t u32() {
-        const auto high = static_cast<std::uint32_t>(u16());
-        const auto low = static_cast<std::uint32_t>(u16());
-        return (high << 16U) | low;
+        const auto* in = consume(4);
+        return (static_cast<std::uint32_t>(in[0]) << 24U) | (static_cast<std::uint32_t>(in[1]) << 16U) |
+            (static_cast<std::uint32_t>(in[2]) << 8U) | static_cast<std::uint32_t>(in[3]);
     }
 
     [[nodiscard]] std::int32_t i32() { return static_cast<std::int32_t>(u32()); }
@@ -118,10 +131,22 @@ public:
         return result;
     }
 
+    /** Les `count` octets suivants, vérifiés une seule fois (décodages en bloc). */
+    [[nodiscard]] std::span<const std::uint8_t> view(std::size_t count) { return {consume(count), count}; }
+
     [[nodiscard]] std::size_t remaining() const noexcept { return bytes_.size() - position_; }
     [[nodiscard]] bool exhausted() const noexcept { return position_ == bytes_.size(); }
 
 private:
+    // Une seule vérification de bornes par valeur, puis lecture directe :
+    // les octets sont lus dans l'ordre du format, sans effet de bord.
+    [[nodiscard]] const std::uint8_t* consume(std::size_t count) {
+        require(count);
+        const auto* data = bytes_.data() + position_;
+        position_ += count;
+        return data;
+    }
+
     void require(std::size_t count) const {
         if (count > remaining()) throw SaveStateError("État instantané corrompu ou tronqué");
     }
