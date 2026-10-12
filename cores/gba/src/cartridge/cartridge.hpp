@@ -59,7 +59,11 @@ public:
     }
     int read8(int offset) const noexcept {
         const auto index = static_cast<std::size_t>(offset);
-        return index < rom_->size() ? (*rom_)[index] : 0;
+        if (index < rom_->size()) return (*rom_)[index];
+        // Au-delà de la ROM, le bus de la cartouche (adresse et données
+        // multiplexées) rend l'adresse du demi-mot : (adresse / 2) & 0xFFFF.
+        const auto half = (static_cast<unsigned>(offset) >> 1U) & 0xffffU;
+        return static_cast<int>((half >> ((static_cast<unsigned>(offset) & 1U) * 8U)) & 0xffU);
     }
     [[nodiscard]] GbaSaveType save_type() const noexcept { return save_type_; }
     [[nodiscard]] SaveMemory* save() noexcept { return save_.get(); }

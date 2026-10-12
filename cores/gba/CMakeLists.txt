@@ -61,4 +61,14 @@ if(RAVENEMU_BUILD_TESTS)
     )
     target_link_libraries(gba_raven_apu_tests PRIVATE gba_raven_core)
     add_test(NAME gba_raven_apu COMMAND gba_raven_apu_tests)
+
+    # Comportements de l'ARM7TDMI et du bus révélés par les suites publiques :
+    # de petits programmes en IWRAM, exécutés instruction par instruction.
+    add_executable(gba_raven_cpu_tests tests/gba_cpu_test.cpp)
+    target_include_directories(gba_raven_cpu_tests PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/src
+        ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support
+    )
+    target_link_libraries(gba_raven_cpu_tests PRIVATE gba_raven_core)
+    add_test(NAME gba_raven_cpu COMMAND gba_raven_cpu_tests)
 endif()

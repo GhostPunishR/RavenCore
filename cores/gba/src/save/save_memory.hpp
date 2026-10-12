@@ -18,7 +18,8 @@ constexpr std::size_t save_size(GbaSaveType type) noexcept {
 
 class SaveMemory {
 public:
-    explicit SaveMemory(GbaSaveType type) : type_(type), data_(save_size(type)) {}
+    // Une mémoire vierge ou effacée se lit 0xFF, quel que soit le composant.
+    explicit SaveMemory(GbaSaveType type) : type_(type), data_(save_size(type), 0xffU) {}
     virtual ~SaveMemory() = default;
 
     [[nodiscard]] GbaSaveType type() const noexcept { return type_; }

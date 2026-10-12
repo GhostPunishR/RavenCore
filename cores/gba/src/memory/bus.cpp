@@ -52,7 +52,9 @@ int Bus::read8_raw(std::int32_t address) {
     const auto raw = u32(address);
     const auto region = (raw >> 24U) & 0xffU;
     switch (region) {
-    case 0x00: case 0x01: return bios[raw & 0x3fffU];
+    case 0x00: case 0x01:
+        if (!executing_bios) return static_cast<int>((bios_latch >> ((raw & 3U) * 8U)) & 0xffU);
+        return bios[raw & 0x3fffU];
     case 0x02: return ewram[raw & 0x3ffffU];
     case 0x03: return iwram[raw & 0x7fffU];
     case 0x04: return read_io(static_cast<int>(raw & 0x3ffU));
@@ -85,6 +87,7 @@ int Bus::read8(std::int32_t address) {
 }
 
 int Bus::read16(std::int32_t address) {
+    if (save_bus(address)) { account(address, 2); return read8_raw(address) * 0x0101; }
     const auto aligned = i32(u32(address) & ~1U);
     account(aligned, 2);
     if (auto* memory = eeprom(); memory && eeprom_window(aligned)) return memory->read(0);
@@ -95,6 +98,7 @@ int Bus::read16(std::int32_t address) {
 }
 
 std::int32_t Bus::read32(std::int32_t address) {
+    if (save_bus(address)) { account(address, 4); return i32(u32(read8_raw(address)) * 0x0101'0101U); }
     const auto aligned = i32(u32(address) & ~3U);
     account(aligned, 4);
     auto result = static_cast<std::uint32_t>(read8_raw(aligned));
@@ -104,15 +108,27 @@ std::int32_t Bus::read32(std::int32_t address) {
     return i32(result);
 }
 
+void Bus::track_bios_fetch(std::int32_t address) noexcept {
+    // Le pipeline lit PC + 8 : le dernier mot préchargé depuis le BIOS est
+    // exactement ce que rend ensuite une lecture du BIOS depuis l'extérieur.
+    executing_bios = (u32(address) >> 24U) == 0;
+    if (!executing_bios) return;
+    const auto word = u32(address) & 0x3ffcU;
+    bios_latch = static_cast<std::uint32_t>(bios[word]) | static_cast<std::uint32_t>(bios[word + 1]) << 8U |
+                 static_cast<std::uint32_t>(bios[word + 2]) << 16U | static_cast<std::uint32_t>(bios[word + 3]) << 24U;
+}
+
 int Bus::fetch16(std::int32_t address) {
     const auto aligned = i32(u32(address) & ~1U);
     account(aligned, 2, true);
+    track_bios_fetch(aligned);
     return read8_raw(aligned) | read8_raw(add32(aligned, 1)) << 8;
 }
 
 std::int32_t Bus::fetch32(std::int32_t address) {
     const auto aligned = i32(u32(address) & ~3U);
     account(aligned, 4, true);
+    track_bios_fetch(aligned);
     auto result = static_cast<std::uint32_t>(read8_raw(aligned));
     result |= static_cast<std::uint32_t>(read8_raw(add32(aligned, 1))) << 8U;
     result |= static_cast<std::uint32_t>(read8_raw(add32(aligned, 2))) << 16U;
@@ -169,11 +185,19 @@ void Bus::write16_raw(std::int32_t address, int value) {
 }
 
 void Bus::write16(std::int32_t address, int value) {
+    if (save_bus(address)) {
+        account(address, 2); write8_raw(address, static_cast<int>(u32(value) >> ((u32(address) & 1U) * 8U)));
+        return;
+    }
     const auto aligned = i32(u32(address) & ~1U);
     account(aligned, 2); write16_raw(aligned, value);
 }
 
 void Bus::write32(std::int32_t address, std::int32_t value) {
+    if (save_bus(address)) {
+        account(address, 4); write8_raw(address, static_cast<int>(u32(value) >> ((u32(address) & 3U) * 8U)));
+        return;
+    }
     const auto aligned = i32(u32(address) & ~3U);
     account(aligned, 4);
     if ((u32(aligned) >> 24U) == 0x04U) {

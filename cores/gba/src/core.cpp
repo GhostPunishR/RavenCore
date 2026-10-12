@@ -133,7 +133,7 @@ public:
 
     [[nodiscard]] std::vector<std::uint8_t> save_state() const override {
         require_loaded(); auto& m = *machine_; BinaryWriter out(768U * 1024U);
-        out.u32(0x52564e53U); out.u16(11); out.u8(2); out.raw(rom_hash_);
+        out.u32(0x52564e53U); out.u16(state_version); out.u8(2); out.raw(rom_hash_);
         const auto banks = m.cpu.state.export_banks(); for (const auto value : m.cpu.state.regs) out.i32(value);
         out.i32(m.cpu.state.cpsr()); out.boolean(m.cpu.state.halted); out.i32(static_cast<int>(banks.size()));
         for (const auto value : banks) out.i32(value);
@@ -151,12 +151,18 @@ public:
         if (save) save->save_state(out);
         const auto* gpio = m.cartridge.gpio(); out.boolean(gpio != nullptr); if (gpio) for (const auto value : gpio->export_state()) out.i32(value);
         m.apu.save(out);
+        // Format 12 : champs ajoutés en fin d'état, absents du format 11.
+        out.u32(m.bus.bios_latch); out.boolean(m.bus.executing_bios);
+        const auto pipeline = m.cpu.pipeline();
+        out.i32(pipeline.opcodes[0]); out.i32(pipeline.opcodes[1]); out.boolean(pipeline.valid); out.boolean(pipeline.thumb);
         return std::move(out).take();
     }
     void load_state(std::span<const std::uint8_t> bytes) override {
         require_loaded(); if (bytes.size() > (1U << 20U)) throw SaveStateError("État GBA trop volumineux");
         BinaryReader in(bytes); if (in.u32() != 0x52564e53U) throw SaveStateError("Ce fichier n'est pas un état RavenEmu");
-        if (in.u16() != 11) throw SaveStateError("Version d'état GBA non prise en charge");
+        // Le format 11 ne diffère que par les champs ajoutés en fin d'état.
+        const auto version = in.u16();
+        if (version != 11 && version != state_version) throw SaveStateError("Version d'état GBA non prise en charge");
         if (in.u8() != 2) throw SaveStateError("État issu d'une autre console");
         std::array<std::uint8_t, 32> hash{}; in.raw(hash); if (hash != rom_hash_) throw SaveStateError("État issu d'une autre ROM");
         auto replacement = new_machine(loaded_rom_, rom_traits_); auto& m = *replacement;
@@ -184,6 +190,11 @@ public:
         auto* gpio = m.cartridge.gpio(); if (in.boolean() != (gpio != nullptr)) throw SaveStateError("État GBA corrompu (GPIO)");
         if (gpio) { std::array<std::int32_t, Gpio::state_words> gpio_state{}; for (auto& value : gpio_state) value = in.i32(); gpio->import_state(gpio_state); }
         m.apu.load(in);
+        if (version >= 12) {
+            m.bus.bios_latch = in.u32(); m.bus.executing_bios = in.boolean();
+            Cpu::Pipeline pipeline; pipeline.opcodes[0] = in.i32(); pipeline.opcodes[1] = in.i32();
+            pipeline.valid = in.boolean(); pipeline.thumb = in.boolean(); m.cpu.restore_pipeline(pipeline);
+        }
         if (!in.exhausted()) throw SaveStateError("État GBA corrompu (données excédentaires)");
         if (auto* save = m.cartridge.save()) {
             const auto* previous = machine_->cartridge.save();
@@ -193,6 +204,8 @@ public:
     }
 
 private:
+    static constexpr std::uint16_t state_version = 12;
+
     template <std::size_t N>
     static void read_array(BinaryReader& in, std::array<std::uint8_t, N>& output) { in.raw(std::span<std::uint8_t>{output}); }
     static int io_half(const Bus& bus, int offset) noexcept {

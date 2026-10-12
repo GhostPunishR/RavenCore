@@ -13,6 +13,13 @@ public:
     Bios(Cpu& cpu, Bus& bus) : cpu_(cpu), bus_(bus) { install_irq_handler(); }
 
     void handle_swi(int number) {
+        handle_swi_function(number);
+        // Le BIOS d'origine rend la main depuis la même adresse après chaque
+        // SWI ; SoftReset repart comme au démarrage.
+        bus_.bios_latch = number == 0 ? Bus::bios_latch_after_startup : Bus::bios_latch_after_swi;
+        bus_.executing_bios = false;
+    }
+    void handle_swi_function(int number) {
         auto& registers = cpu_.state.regs; bus_.diagnostics.swi(number);
         switch (number) {
         case 0x00: soft_reset(); break; case 0x01: register_ram_reset(registers[0]); break;
@@ -53,8 +60,11 @@ private:
     static constexpr std::int32_t interrupt_flags_address = i32(0x03007ff8U);
     static constexpr std::size_t max_output = 1U << 20U;
     void install_irq_handler() noexcept {
-        constexpr std::array<std::uint32_t, 6> handler{
-            0xe92d500fU, 0xe3a00301U, 0xe28fe000U, 0xe510f004U, 0xe8bd500fU, 0xe25ef004U,
+        // Même séquence que le gestionnaire du BIOS d'origine. Le mot qui le
+        // suit n'est jamais exécuté, mais il est préchargé au retour : c'est
+        // la valeur que GBATEK documente pour une lecture du BIOS après une IRQ.
+        constexpr std::array<std::uint32_t, 8> handler{
+            0xe92d500fU, 0xe3a00301U, 0xe28fe000U, 0xe510f004U, 0xe8bd500fU, 0xe25ef004U, 0, 0xe55ec002U,
         };
         auto offset = 0x18U;
         for (const auto word : handler) for (unsigned byte = 0; byte < 4; ++byte) {

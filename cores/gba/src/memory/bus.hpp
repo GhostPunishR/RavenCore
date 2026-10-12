@@ -55,10 +55,17 @@ public:
     MemoryTiming timing;
     Diagnostics diagnostics;
     int wait_cycles{};
+    // Protection du BIOS : hors du BIOS, le lire rend le dernier mot que le
+    // pipeline a préchargé depuis le BIOS, pas son contenu.
+    static constexpr std::uint32_t bios_latch_after_startup = 0xe129'f000U;
+    static constexpr std::uint32_t bios_latch_after_swi = 0xe3a0'2004U;
+    std::uint32_t bios_latch{bios_latch_after_startup};
+    bool executing_bios{};
 
 private:
     static constexpr int io_mask = 0x3ff;
     void account(std::int32_t address, int width, bool fetch = false) noexcept;
+    void track_bios_fetch(std::int32_t address) noexcept;
     [[nodiscard]] int read8_raw(std::int32_t address);
     void write8_raw(std::int32_t address, int value);
     void write16_raw(std::int32_t address, int value);
@@ -70,6 +77,12 @@ private:
     void handle_io_write(int offset, int value);
     [[nodiscard]] bool eeprom_window(std::int32_t address) const noexcept;
     [[nodiscard]] bool gpio_register(std::int32_t address) const noexcept;
+    // SRAM et Flash sont sur un bus de 8 bits : un accès de 16 ou 32 bits lit
+    // l'octet visé répété, et n'écrit que l'octet que sélectionne l'adresse.
+    [[nodiscard]] static bool save_bus(std::int32_t address) noexcept {
+        const auto region = u32(address) >> 24U;
+        return region == 0x0eU || region == 0x0fU;
+    }
     [[nodiscard]] static int rom_offset(std::int32_t address) noexcept { return static_cast<int>(u32(address) & 0x01ff'ffffU); }
     [[nodiscard]] static int vram_offset(std::int32_t address) noexcept {
         auto offset = static_cast<int>(u32(address) & 0x1ffffU);
