@@ -1,10 +1,12 @@
-# RavenEmu Cores
+# RavenCore
 
-[![CI](https://github.com/GhostPunishR/RavenEmu-Cores/actions/workflows/ci.yml/badge.svg)](https://github.com/GhostPunishR/RavenEmu-Cores/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/GhostPunishR/RavenEmu-Cores?label=Version)](https://github.com/GhostPunishR/RavenEmu-Cores/releases)
+[![CI](https://github.com/GhostPunishR/RavenCore/actions/workflows/ci.yml/badge.svg)](https://github.com/GhostPunishR/RavenCore/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/GhostPunishR/RavenCore?label=Version)](https://github.com/GhostPunishR/RavenCore/releases)
 [![Licence AGPL-3.0](https://img.shields.io/badge/Licence-AGPL--3.0-663399?logo=gnu&logoColor=white)](LICENSE)
 
-**RavenEmu Cores** rassemble les moteurs d'émulation maison de [RavenEmu](https://github.com/GhostPunishR/RavenEmu), développés en **C++20**. Ce dépôt permet de les utiliser indépendamment de l'application Android, notamment avec **Libretro et RetroArch**.
+**RavenCore** rassemble les moteurs d'émulation maison de [RavenEmu](https://github.com/GhostPunishR/RavenEmu), développés en **C++20**. Ce dépôt permet de les utiliser indépendamment de l'application Android, notamment avec **Libretro et RetroArch**.
+
+Le dépôt s'appelait auparavant **RavenEmu-Cores** : les anciens liens redirigent ici. Le paquet CMake garde son nom, `RavenEmuCores`, pour ne pas casser les projets qui l'utilisent.
 
 ## Les cœurs
 
@@ -20,7 +22,7 @@ Le dossier `cores/common/` contient uniquement les outils et interfaces communs 
 
 ## Versions
 
-La version actuelle est la **0.1.1**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenEmu-Cores/releases), avec ses notes et les cœurs Libretro Linux x86-64. Le [journal des modifications](CHANGELOG.md) détaille les évolutions de chaque version, ainsi que les changements de format des états instantanés.
+La version actuelle est la **0.1.1**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases), avec ses notes et les cœurs Libretro Linux x86-64. Le [journal des modifications](CHANGELOG.md) détaille les évolutions de chaque version, ainsi que les changements de format des états instantanés.
 
 Avant la version 1.0, une version peut changer l'API ou le format des états : le journal le signale à chaque fois. Pour publier une version :
 
@@ -34,8 +36,8 @@ Le workflow `Release` vérifie alors la version, compile, teste et publie la rel
 Prérequis : **CMake 3.22.1+** et un compilateur **C++20**.
 
 ```bash
-git clone https://github.com/GhostPunishR/RavenEmu-Cores.git
-cd RavenEmu-Cores
+git clone https://github.com/GhostPunishR/RavenCore.git
+cd RavenCore
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
@@ -76,7 +78,7 @@ Trois adaptateurs indépendants utilisent directement les moteurs RavenEmu :
 | `ravenemu_gbc_libretro.so` | GBC, compatible GB |
 | `ravenemu_gba_libretro.so` | GBA |
 
-**Tester sur Linux x86-64 :** télécharger l'archive `ravenemu-libretro-vX.Y.Z-linux-x86_64.tar.gz` d'une [release](https://github.com/GhostPunishR/RavenEmu-Cores/releases), ou l'artefact `ravenemu-libretro-linux-x86_64` d'une [exécution CI réussie](https://github.com/GhostPunishR/RavenEmu-Cores/actions/workflows/ci.yml) pour la version en cours de développement. Copier les fichiers `cores/*.so` dans le dossier des cœurs de RetroArch et les fichiers `info/*.info` dans son dossier `info`. Charger ensuite le cœur souhaité.
+**Tester sur Linux x86-64 :** télécharger l'archive `ravenemu-libretro-vX.Y.Z-linux-x86_64.tar.gz` d'une [release](https://github.com/GhostPunishR/RavenCore/releases), ou l'artefact `ravenemu-libretro-linux-x86_64` d'une [exécution CI réussie](https://github.com/GhostPunishR/RavenCore/actions/workflows/ci.yml) pour la version en cours de développement. Copier les fichiers `cores/*.so` dans le dossier des cœurs de RetroArch et les fichiers `info/*.info` dans son dossier `info`. Charger ensuite le cœur souhaité.
 
 Les adaptateurs nomment leurs boutons dans RetroArch, transmettent la vibration des cartouches à la manette (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) et pilotent l'accéléromètre des cartouches MBC7 (Kirby Tilt 'n' Tumble, Command Master) avec le stick analogique gauche. Le sens de cette inclinaison découle de la physique de l'accéléromètre et reste à confirmer en jeu.
 
@@ -118,4 +120,4 @@ Les contributions sont les bienvenues. Consultez le [guide de contribution](CONT
 
 Projet développé par **GhostPunishR**, distribué sous [GNU AGPL-3.0](LICENSE). Le fichier `libretro.h` conserve sa licence MIT. Voir [NOTICE.md](NOTICE.md) pour les attributions et la provenance des sources.
 
-Aucune ROM ni aucun BIOS commercial n'est fourni. RavenEmu Cores n'est affilié ni à Nintendo, ni à RetroArch, ni à RetroAchievements.
+Aucune ROM ni aucun BIOS commercial n'est fourni. RavenCore n'est affilié ni à Nintendo, ni à RetroArch, ni à RetroAchievements.

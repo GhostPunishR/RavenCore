@@ -1,4 +1,4 @@
-# Contribuer à RavenEmu Cores
+# Contribuer à RavenCore
 
 Merci de contribuer aux cœurs maison GB, GBC et GBA de RavenEmu. Les petites corrections documentées et les tests de régression sont aussi utiles que les nouvelles fonctions.
 
@@ -17,8 +17,8 @@ Ne publiez jamais de ROM commerciale, de BIOS, de sauvegarde personnelle, de cl�
 Prérequis : CMake 3.22.1 ou plus, Git et un compilateur C++20.
 
 ```bash
-git clone https://github.com/GhostPunishR/RavenEmu-Cores.git
-cd RavenEmu-Cores
+git clone https://github.com/GhostPunishR/RavenCore.git
+cd RavenCore
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure

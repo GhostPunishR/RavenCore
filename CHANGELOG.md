@@ -1,14 +1,16 @@
 # Journal des modifications
 
-Ce fichier recense les évolutions notables de RavenEmu Cores. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
+Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
 ## Non publié
 
-Rien pour l'instant.
+### Modifié
+
+- Le dépôt s'appelle désormais **RavenCore** (`GhostPunishR/RavenCore`) ; les anciennes adresses `RavenEmu-Cores` redirigent. Le paquet CMake garde le nom `RavenEmuCores` et ses cibles `RavenEmu::`, pour ne pas casser les projets existants.
 
 ## 0.1.1 - 2026-10-12
 
-Cette version regroupe les travaux pour sortir RavenGBA de l'état expérimental ([#9](https://github.com/GhostPunishR/RavenEmu-Cores/pull/9)) et la lecture de la mémoire pour RetroAchievements dans l'API C ([#10](https://github.com/GhostPunishR/RavenEmu-Cores/pull/10)). RavenGBA reste marqué expérimental tant qu'il n'a pas été essayé sur un large panel de jeux du commerce.
+Cette version regroupe les travaux pour sortir RavenGBA de l'état expérimental ([#9](https://github.com/GhostPunishR/RavenCore/pull/9)) et la lecture de la mémoire pour RetroAchievements dans l'API C ([#10](https://github.com/GhostPunishR/RavenCore/pull/10)). RavenGBA reste marqué expérimental tant qu'il n'a pas été essayé sur un large panel de jeux du commerce.
 
 ### Ajouté
 
@@ -29,7 +31,7 @@ Cette version regroupe les travaux pour sortir RavenGBA de l'état expérimental
 
 #### API C
 
-- `ravenemu_v3_read_achievement_memory()` lit l'espace d'adresses utilisé par RetroAchievements : carte mémoire de la console, RAM de cartouche et banques de WRAM CGB pour GB/GBC ; IWRAM, EWRAM puis sauvegarde pour GBA. La lecture n'avance pas l'émulation et ne passe pas par le bus ; une zone non exposée donne une lecture plus courte que demandé ([#10](https://github.com/GhostPunishR/RavenEmu-Cores/pull/10)).
+- `ravenemu_v3_read_achievement_memory()` lit l'espace d'adresses utilisé par RetroAchievements : carte mémoire de la console, RAM de cartouche et banques de WRAM CGB pour GB/GBC ; IWRAM, EWRAM puis sauvegarde pour GBA. La lecture n'avance pas l'émulation et ne passe pas par le bus ; une zone non exposée donne une lecture plus courte que demandé ([#10](https://github.com/GhostPunishR/RavenCore/pull/10)).
 - `ravenemu_v3_set_gba_save_type()` et `ravenemu_v3_set_gba_rtc()` imposent le type de sauvegarde et l'horloge d'un jeu GBA ; le réglage prend effet au prochain chargement ou reset. `ravenemu_v3_rumble_active()` indique si le moteur de vibration de la cartouche (GB MBC5 Rumble ou GBA) tourne. Ces ajouts ne changent pas `RAVENEMU_V3_API_VERSION`.
 
 #### Publication
@@ -79,7 +81,7 @@ Cette version regroupe les travaux pour sortir RavenGBA de l'état expérimental
 
 ## 0.1.0 - 2026-10-12
 
-Première version de RavenEmu Cores : les moteurs GB, GBC et GBA de [RavenEmu](https://github.com/GhostPunishR/RavenEmu), importés depuis le commit `312e4af` et rendus utilisables sans l'application Android. Ils sont livrés avec trois adaptateurs Libretro, une API C et un paquet CMake.
+Première version de RavenCore, alors nommé RavenEmu Cores : les moteurs GB, GBC et GBA de [RavenEmu](https://github.com/GhostPunishR/RavenEmu), importés depuis le commit `312e4af` et rendus utilisables sans l'application Android. Ils sont livrés avec trois adaptateurs Libretro, une API C et un paquet CMake.
 
 ### Ajouté
 
@@ -98,25 +100,25 @@ Première version de RavenEmu Cores : les moteurs GB, GBC et GBA de [RavenEmu](h
 #### Libretro / RetroArch
 
 - Trois cœurs : `ravenemu_gb_libretro`, `ravenemu_gbc_libretro` et `ravenemu_gba_libretro`, avec leurs fichiers `.info` pour RetroArch.
-- Noms des boutons dans l'écran de configuration des touches de RetroArch ([#7](https://github.com/GhostPunishR/RavenEmu-Cores/pull/7)).
-- Vibration des cartouches MBC5 Rumble transmise à la manette ([#7](https://github.com/GhostPunishR/RavenEmu-Cores/pull/7)).
-- Inclinaison des cartouches MBC7 (Kirby Tilt 'n' Tumble, Command Master) pilotée par le stick analogique gauche ([#7](https://github.com/GhostPunishR/RavenEmu-Cores/pull/7)).
+- Noms des boutons dans l'écran de configuration des touches de RetroArch ([#7](https://github.com/GhostPunishR/RavenCore/pull/7)).
+- Vibration des cartouches MBC5 Rumble transmise à la manette ([#7](https://github.com/GhostPunishR/RavenCore/pull/7)).
+- Inclinaison des cartouches MBC7 (Kirby Tilt 'n' Tumble, Command Master) pilotée par le stick analogique gauche ([#7](https://github.com/GhostPunishR/RavenCore/pull/7)).
 
 #### API C et SDK
 
-- API C `bridge.h` pour les frontends non C++ : chargement de ROM, image ARGB8888, audio PCM16, boutons, sauvegardes batterie et états instantanés ([#3](https://github.com/GhostPunishR/RavenEmu-Cores/pull/3)).
-- Vérification de version : `ravenemu_v3_api_version()`, `RAVENEMU_V3_API_VERSION` et `ravenemu_v3_version()` ([#7](https://github.com/GhostPunishR/RavenEmu-Cores/pull/7)).
-- Suivi des écritures batterie : `ravenemu_v3_battery_dirty()`, `ravenemu_v3_copy_battery_generation()` et `ravenemu_v3_acknowledge_battery()`. Un frontend n'écrit la sauvegarde que si elle a changé ([#7](https://github.com/GhostPunishR/RavenEmu-Cores/pull/7)).
+- API C `bridge.h` pour les frontends non C++ : chargement de ROM, image ARGB8888, audio PCM16, boutons, sauvegardes batterie et états instantanés ([#3](https://github.com/GhostPunishR/RavenCore/pull/3)).
+- Vérification de version : `ravenemu_v3_api_version()`, `RAVENEMU_V3_API_VERSION` et `ravenemu_v3_version()` ([#7](https://github.com/GhostPunishR/RavenCore/pull/7)).
+- Suivi des écritures batterie : `ravenemu_v3_battery_dirty()`, `ravenemu_v3_copy_battery_generation()` et `ravenemu_v3_acknowledge_battery()`. Un frontend n'écrit la sauvegarde que si elle a changé ([#7](https://github.com/GhostPunishR/RavenCore/pull/7)).
 - En-tête C++ `sdk.hpp` avec une fabrique simplifiée.
-- Paquet CMake installable : `find_package(RavenEmuCores)`, puis les cibles `RavenEmu::ravenemu_cores` ou `RavenEmu::ravenemu_c_api` ([#5](https://github.com/GhostPunishR/RavenEmu-Cores/pull/5)).
+- Paquet CMake installable : `find_package(RavenEmuCores)`, puis les cibles `RavenEmu::ravenemu_cores` ou `RavenEmu::ravenemu_c_api` ([#5](https://github.com/GhostPunishR/RavenCore/pull/5)).
 
 #### Build, CI et documentation
 
-- Le build se fait en Release par défaut quand ce dépôt est le projet principal ([#5](https://github.com/GhostPunishR/RavenEmu-Cores/pull/5)).
-- Une seule source de version, `project(VERSION)` de CMake : elle alimente les cœurs Libretro et leurs fichiers `.info` ([#7](https://github.com/GhostPunishR/RavenEmu-Cores/pull/7)).
-- CI sur Linux, Windows (MSVC), macOS (Apple Clang) et Android (arm64-v8a et armeabi-v7a), avec une passe ASan/UBSan et l'installation du paquet CMake ([#4](https://github.com/GhostPunishR/RavenEmu-Cores/pull/4), [#6](https://github.com/GhostPunishR/RavenEmu-Cores/pull/6)).
-- Les actions GitHub tierces sont épinglées sur un commit précis ([#6](https://github.com/GhostPunishR/RavenEmu-Cores/pull/6)).
-- Test de mutation des états instantanés : des états GB, GBC et GBA altérés doivent être refusés proprement ou s'exécuter sans erreur ([#4](https://github.com/GhostPunishR/RavenEmu-Cores/pull/4)).
+- Le build se fait en Release par défaut quand ce dépôt est le projet principal ([#5](https://github.com/GhostPunishR/RavenCore/pull/5)).
+- Une seule source de version, `project(VERSION)` de CMake : elle alimente les cœurs Libretro et leurs fichiers `.info` ([#7](https://github.com/GhostPunishR/RavenCore/pull/7)).
+- CI sur Linux, Windows (MSVC), macOS (Apple Clang) et Android (arm64-v8a et armeabi-v7a), avec une passe ASan/UBSan et l'installation du paquet CMake ([#4](https://github.com/GhostPunishR/RavenCore/pull/4), [#6](https://github.com/GhostPunishR/RavenCore/pull/6)).
+- Les actions GitHub tierces sont épinglées sur un commit précis ([#6](https://github.com/GhostPunishR/RavenCore/pull/6)).
+- Test de mutation des états instantanés : des états GB, GBC et GBA altérés doivent être refusés proprement ou s'exécuter sans erreur ([#4](https://github.com/GhostPunishR/RavenCore/pull/4)).
 - README, guide de contribution, code de conduite, politique de sécurité, modèles d'issue et de pull request, et `NOTICE.md` sur la provenance des sources.
 
 ### Corrigé
@@ -125,38 +127,38 @@ Première version de RavenEmu Cores : les moteurs GB, GBC et GBA de [RavenEmu](h
 
 Un état instantané ou une sauvegarde peut venir d'un tiers. Ces corrections empêchent un fichier forgé de planter ou de corrompre l'application hôte.
 
-- Canaux audio GB/GBC : les valeurs restaurées sont bornées, et un filtre audio non fini est refusé ([#1](https://github.com/GhostPunishR/RavenEmu-Cores/pull/1)).
-- FIFO d'arrière-plan du PPU GB/GBC : une couleur ou une palette hors limites est refusée ([#2](https://github.com/GhostPunishR/RavenEmu-Cores/pull/2)).
-- Sprites retenus par le PPU GB/GBC : un index forgé lisait hors de l'OAM et plantait l'hôte à la frame suivante ([#4](https://github.com/GhostPunishR/RavenEmu-Cores/pull/4)).
-- Timers GBA : un rechargement de `0x10000` provoquait une division par zéro ([#4](https://github.com/GhostPunishR/RavenEmu-Cores/pull/4)).
-- Horloge GBA : la position de transfert, restaurée sans contrôle, indexait hors du tampon ([#4](https://github.com/GhostPunishR/RavenEmu-Cores/pull/4)).
-- MBC1, MBC2, MBC3 et MBC5 : un numéro de banque extrême débordait l'arithmétique signée. L'horloge MBC3 calcule désormais le temps écoulé sans débordement ([#4](https://github.com/GhostPunishR/RavenEmu-Cores/pull/4)).
-- Registres restants bornés aux valeurs que le matériel peut produire ([#5](https://github.com/GhostPunishR/RavenEmu-Cores/pull/5)) :
+- Canaux audio GB/GBC : les valeurs restaurées sont bornées, et un filtre audio non fini est refusé ([#1](https://github.com/GhostPunishR/RavenCore/pull/1)).
+- FIFO d'arrière-plan du PPU GB/GBC : une couleur ou une palette hors limites est refusée ([#2](https://github.com/GhostPunishR/RavenCore/pull/2)).
+- Sprites retenus par le PPU GB/GBC : un index forgé lisait hors de l'OAM et plantait l'hôte à la frame suivante ([#4](https://github.com/GhostPunishR/RavenCore/pull/4)).
+- Timers GBA : un rechargement de `0x10000` provoquait une division par zéro ([#4](https://github.com/GhostPunishR/RavenCore/pull/4)).
+- Horloge GBA : la position de transfert, restaurée sans contrôle, indexait hors du tampon ([#4](https://github.com/GhostPunishR/RavenCore/pull/4)).
+- MBC1, MBC2, MBC3 et MBC5 : un numéro de banque extrême débordait l'arithmétique signée. L'horloge MBC3 calcule désormais le temps écoulé sans débordement ([#4](https://github.com/GhostPunishR/RavenCore/pull/4)).
+- Registres restants bornés aux valeurs que le matériel peut produire ([#5](https://github.com/GhostPunishR/RavenCore/pull/5)) :
   - GB : SP, PC, IF, IE, timer et compteurs du PPU.
   - GBA : touches, IE, IF et GPIO.
 - Les états existants restent chargeables.
 
 #### Sauvegardes, audio et horloge
 
-- GBA : les états conservent maintenant les canaux PSG, les FIFO Direct Sound et les échantillons en attente. Le son reprend exactement après un chargement ([#1](https://github.com/GhostPunishR/RavenEmu-Cores/pull/1)).
-- GBA : une EEPROM détectée par sa signature réserve 8 Kio dès le chargement, car la signature ne distingue pas 512 o de 8 Kio. Les anciens fichiers de 512 o restent importables ([#1](https://github.com/GhostPunishR/RavenEmu-Cores/pull/1)).
-- GBA : la lecture audio ne coupe plus une trame stéréo en deux. Avant, une capacité impaire inversait la gauche et la droite pour toute la suite ([#4](https://github.com/GhostPunishR/RavenEmu-Cores/pull/4)).
-- MBC3 : sauvegarder la batterie ne remplace plus les registres d'horloge verrouillés par le jeu ([#2](https://github.com/GhostPunishR/RavenEmu-Cores/pull/2)).
+- GBA : les états conservent maintenant les canaux PSG, les FIFO Direct Sound et les échantillons en attente. Le son reprend exactement après un chargement ([#1](https://github.com/GhostPunishR/RavenCore/pull/1)).
+- GBA : une EEPROM détectée par sa signature réserve 8 Kio dès le chargement, car la signature ne distingue pas 512 o de 8 Kio. Les anciens fichiers de 512 o restent importables ([#1](https://github.com/GhostPunishR/RavenCore/pull/1)).
+- GBA : la lecture audio ne coupe plus une trame stéréo en deux. Avant, une capacité impaire inversait la gauche et la droite pour toute la suite ([#4](https://github.com/GhostPunishR/RavenCore/pull/4)).
+- MBC3 : sauvegarder la batterie ne remplace plus les registres d'horloge verrouillés par le jeu ([#2](https://github.com/GhostPunishR/RavenCore/pull/2)).
 
 #### Build et portabilité
 
-- L'en-tête public `ravenemu/gba/core.hpp` ne compilait pas ([#4](https://github.com/GhostPunishR/RavenEmu-Cores/pull/4)).
-- La lecture des entiers big-endian ne dépend plus de l'ordre d'évaluation du compilateur : avec MSVC, elle pouvait rendre tous les états illisibles ([#5](https://github.com/GhostPunishR/RavenEmu-Cores/pull/5)).
-- Les cœurs Libretro n'exportent plus que les fonctions `retro_*`. Avant, deux cœurs chargés dans le même frontend pouvaient lier les symboles C++ l'un de l'autre ([#5](https://github.com/GhostPunishR/RavenEmu-Cores/pull/5)).
-- Les avertissements stricts (`-Wconversion`, `/W4`…) ne s'imposent plus aux projets qui utilisent les cœurs ([#5](https://github.com/GhostPunishR/RavenEmu-Cores/pull/5)).
-- Windows : les tests des moteurs disposent d'une pile de 16 Mio, car la pile par défaut de 1 Mio débordait ([#6](https://github.com/GhostPunishR/RavenEmu-Cores/pull/6)).
-- Cibles 32 bits (armeabi-v7a, x86) : la lecture de la mémoire des succès ne produit plus d'avertissements de conversion ([#6](https://github.com/GhostPunishR/RavenEmu-Cores/pull/6)).
-- MSVC : les tests Libretro sont compilés en C++20 ([#6](https://github.com/GhostPunishR/RavenEmu-Cores/pull/6)).
+- L'en-tête public `ravenemu/gba/core.hpp` ne compilait pas ([#4](https://github.com/GhostPunishR/RavenCore/pull/4)).
+- La lecture des entiers big-endian ne dépend plus de l'ordre d'évaluation du compilateur : avec MSVC, elle pouvait rendre tous les états illisibles ([#5](https://github.com/GhostPunishR/RavenCore/pull/5)).
+- Les cœurs Libretro n'exportent plus que les fonctions `retro_*`. Avant, deux cœurs chargés dans le même frontend pouvaient lier les symboles C++ l'un de l'autre ([#5](https://github.com/GhostPunishR/RavenCore/pull/5)).
+- Les avertissements stricts (`-Wconversion`, `/W4`…) ne s'imposent plus aux projets qui utilisent les cœurs ([#5](https://github.com/GhostPunishR/RavenCore/pull/5)).
+- Windows : les tests des moteurs disposent d'une pile de 16 Mio, car la pile par défaut de 1 Mio débordait ([#6](https://github.com/GhostPunishR/RavenCore/pull/6)).
+- Cibles 32 bits (armeabi-v7a, x86) : la lecture de la mémoire des succès ne produit plus d'avertissements de conversion ([#6](https://github.com/GhostPunishR/RavenCore/pull/6)).
+- MSVC : les tests Libretro sont compilés en C++20 ([#6](https://github.com/GhostPunishR/RavenCore/pull/6)).
 - Métadonnées du cœur Libretro Game Boy Color corrigées.
 
 ### Performances
 
-Ces gains ont été mesurés sur Linux x86-64, en gardant la meilleure de 7 séries ([#8](https://github.com/GhostPunishR/RavenEmu-Cores/pull/8)).
+Ces gains ont été mesurés sur Linux x86-64, en gardant la meilleure de 7 séries ([#8](https://github.com/GhostPunishR/RavenCore/pull/8)).
 
 | Cas | Avant | Après |
 | --- | --- | --- |
@@ -176,8 +178,8 @@ Voici l'origine de ces gains :
 
 ### Compatibilité des états instantanés
 
-- **GB/GBC : format 11.** Les états au format 10 se rechargent toujours. Un état au format 11 ne se recharge pas dans une version antérieure ([#8](https://github.com/GhostPunishR/RavenEmu-Cores/pull/8)).
-- **GBA : format 11.** Il inclut désormais l'audio. Les états GBA au format 10 sont refusés, mais les sauvegardes batterie restent utilisables ([#1](https://github.com/GhostPunishR/RavenEmu-Cores/pull/1)).
+- **GB/GBC : format 11.** Les états au format 10 se rechargent toujours. Un état au format 11 ne se recharge pas dans une version antérieure ([#8](https://github.com/GhostPunishR/RavenCore/pull/8)).
+- **GBA : format 11.** Il inclut désormais l'audio. Les états GBA au format 10 sont refusés, mais les sauvegardes batterie restent utilisables ([#1](https://github.com/GhostPunishR/RavenCore/pull/1)).
 - **API C : version 0.** C'est une préversion : son ABI n'est pas encore stabilisée.
 
 ### Limites connues

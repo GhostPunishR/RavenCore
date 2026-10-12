@@ -54,5 +54,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >
           gh release create "$TAG" "ravenemu-libretro-$TAG-linux-x86_64.tar.gz"
-          --title "RavenEmu Cores ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md"
+          --title "RavenCore ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md"
           --target "$GITHUB_SHA"

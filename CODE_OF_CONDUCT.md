@@ -1,6 +1,6 @@
 # Code de conduite
 
-RavenEmu Cores accueille les contributions techniques de tous les niveaux, dans un cadre respectueux.
+RavenCore accueille les contributions techniques de tous les niveaux, dans un cadre respectueux.
 
 ## Comportement attendu
 
@@ -19,4 +19,4 @@ Ces règles s'appliquent aux issues, pull requests, revues et autres espaces de 
 
 Pour un problème de comportement, utilisez un moyen de contact privé disponible sur le [profil GitHub du mainteneur](https://github.com/GhostPunishR) ou les outils de signalement de GitHub. N'exposez pas d'informations personnelles dans une issue publique.
 
-Ce code de conduite est propre à RavenEmu Cores.
+Ce code de conduite est propre à RavenCore.
