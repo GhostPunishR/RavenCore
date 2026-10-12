@@ -6,7 +6,7 @@
 
 **RavenCore** rassemble les moteurs d'émulation maison de [RavenEmu](https://github.com/GhostPunishR/RavenEmu), développés en **C++20**. Ce dépôt permet de les utiliser indépendamment de l'application Android, notamment avec **Libretro et RetroArch**.
 
-Le dépôt s'appelait auparavant **RavenEmu-Cores** : les anciens liens redirigent ici. Le paquet CMake garde son nom, `RavenEmuCores`, pour ne pas casser les projets qui l'utilisent.
+Le dépôt s'appelait auparavant **RavenEmu-Cores** : les anciens liens redirigent ici. Le paquet CMake s'appelle désormais `RavenCore` ; l'ancien nom `RavenEmuCores` reste accepté jusqu'à la version 1.0, avec un avertissement.
 
 ## Les cœurs
 
@@ -61,7 +61,7 @@ ctest --test-dir build --output-on-failure
 
 Le script télécharge chaque ROM depuis un commit figé et vérifie son SHA-256. Voir les [tests GBA](cores/gba/tests/README.md).
 
-L'interface C++ publique est définie dans [`core.hpp`](cores/common/include/ravenemu/core.hpp). Un en-tête [SDK](sdk/include/ravenemu/sdk.hpp) fournit une fabrique simplifiée, et [`bridge.h`](sdk/include/ravenemu/bridge.h) une API C pour les frontends non C++. Après `cmake --install`, les deux s'utilisent via `find_package(RavenEmuCores)` (voir le [README du SDK](sdk/README.md)).
+L'interface C++ publique est définie dans [`core.hpp`](cores/common/include/ravenemu/core.hpp). Un en-tête [SDK](sdk/include/ravenemu/sdk.hpp) fournit une fabrique simplifiée, et [`bridge.h`](sdk/include/ravenemu/bridge.h) une API C pour les frontends non C++. Après `cmake --install`, les deux s'utilisent via `find_package(RavenCore)` (voir le [README du SDK](sdk/README.md)).
 
 L'API C couvre le chargement de ROM, l'image, l'audio, les boutons, les sauvegardes batterie et les états instantanés. Elle permet aussi :
 - d'imposer le type de sauvegarde et l'horloge d'un jeu GBA ;

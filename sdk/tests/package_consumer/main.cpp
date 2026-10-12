@@ -23,6 +23,6 @@ int main() {
         }
         ravenemu_v3_destroy(handle);
     }
-    std::puts("paquet RavenEmuCores consommé avec succès");
+    std::puts("paquet RavenCore consommé avec succès");
     return 0;
 }
