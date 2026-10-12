@@ -67,6 +67,14 @@ int ravenemu_v3_run_frame(ravenemu_v3_bridge* handle,
 size_t ravenemu_v3_read_audio(ravenemu_v3_bridge* handle,
                              int16_t* output, size_t sample_capacity);
 
+/* Read-only RetroAchievements address space. Returns the number of bytes
+ * really available, never clocks the emulation bus or changes state.
+ * Unmapped addresses return short reads; frontend/SDK must respect count.
+ * Call serially on the same handle as run_frame/load_state. */
+size_t ravenemu_v3_read_achievement_memory(const ravenemu_v3_bridge* handle,
+                                           uint32_t address, uint8_t* output,
+                                           size_t capacity);
+
 /* Caller owns buffers. Check size, allocate and then copy.
  * Save states can change size between frames and between core versions. */
 size_t ravenemu_v3_state_size(ravenemu_v3_bridge* handle);
