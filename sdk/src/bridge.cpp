@@ -8,7 +8,9 @@
 #include <exception>
 #include <memory>
 #include <new>
+#include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -52,6 +54,11 @@ int attempt(F&& fn) noexcept {
 
 void machine_may_change(ravenemu_v3_bridge* handle) noexcept {
     if (handle) handle->state_cache_valid = false;
+}
+
+void require_gba(const ravenemu_v3_bridge* handle) {
+    if (!handle || !handle->core) throw std::invalid_argument("Null handle");
+    if (handle->core->console() != ravenemu::Console::game_boy_advance) throw std::invalid_argument("Not a GBA handle");
 }
 
 void require_loaded(const ravenemu_v3_bridge* handle) {
@@ -221,5 +228,27 @@ int ravenemu_v3_acknowledge_battery(ravenemu_v3_bridge* handle, uint64_t generat
         require_loaded(handle);
         handle->core->acknowledge_battery_ram_saved(generation);
     });
+}
+int ravenemu_v3_set_gba_save_type(ravenemu_v3_bridge* handle, int save_type) {
+    return attempt([&] {
+        require_gba(handle);
+        static constexpr std::array<std::optional<ravenemu::GbaSaveType>, 7> types{
+            std::nullopt, ravenemu::GbaSaveType::none, ravenemu::GbaSaveType::sram,
+            ravenemu::GbaSaveType::flash_64k, ravenemu::GbaSaveType::flash_128k,
+            ravenemu::GbaSaveType::eeprom_512, ravenemu::GbaSaveType::eeprom_8k};
+        if (save_type < 0 || save_type >= static_cast<int>(types.size())) throw std::invalid_argument("Invalid GBA save type");
+        handle->core->set_gba_forced_save_type(types[static_cast<std::size_t>(save_type)]);
+    });
+}
+int ravenemu_v3_set_gba_rtc(ravenemu_v3_bridge* handle, int rtc) {
+    return attempt([&] {
+        require_gba(handle);
+        if (rtc < RAVENEMU_V3_GBA_RTC_AUTO || rtc > RAVENEMU_V3_GBA_RTC_ON) throw std::invalid_argument("Invalid GBA RTC mode");
+        handle->core->set_gba_forced_rtc(rtc == RAVENEMU_V3_GBA_RTC_AUTO ? std::nullopt
+                                                                         : std::optional<bool>{rtc == RAVENEMU_V3_GBA_RTC_ON});
+    });
+}
+int ravenemu_v3_rumble_active(const ravenemu_v3_bridge* handle) {
+    return handle && handle->core && handle->loaded && handle->core->rumble_active() ? 1 : 0;
 }
 } // extern "C"

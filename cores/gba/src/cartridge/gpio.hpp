@@ -11,18 +11,25 @@ public:
     static constexpr int control_offset = 0xc8;
     static constexpr int state_words = 23;
 
-    explicit Gpio(Rtc::Clock clock) : rtc_(std::move(clock)) {}
+    /**
+     * Port GPIO de la cartouche (0x080000C4..C9). Il porte l'horloge Seiko
+     * (broches 0 à 2) et/ou un moteur de vibration (broche 3, sortie) ; un
+     * composant absent ne répond pas.
+     */
+    Gpio(Rtc::Clock clock, bool rtc, bool rumble) : rtc_(std::move(clock)), has_rtc_(rtc), has_rumble_(rumble) {}
+    [[nodiscard]] bool has_rtc() const noexcept { return has_rtc_; }
+    [[nodiscard]] bool rumble_active() const noexcept { return has_rumble_ && (direction_ & data_ & 8) != 0; }
     static bool covers(int offset) noexcept { return offset >= 0xc4 && offset <= 0xc9; }
     int read16(int offset) const noexcept {
-        if (offset == data_offset) return rtc_.pin_state(data_, direction_);
+        if (offset == data_offset) return has_rtc_ ? rtc_.pin_state(data_, direction_) : data_ & direction_;
         if (offset == direction_offset) return direction_;
         if (offset == control_offset) return readable_ ? 1 : 0;
         return 0;
     }
     [[nodiscard]] bool readable() const noexcept { return readable_; }
     void write16(int offset, int value) {
-        if (offset == data_offset) { data_ = value & 15; rtc_.write(data_, direction_); }
-        else if (offset == direction_offset) { direction_ = value & 15; rtc_.write(data_, direction_); }
+        if (offset == data_offset) { data_ = value & 15; if (has_rtc_) rtc_.write(data_, direction_); }
+        else if (offset == direction_offset) { direction_ = value & 15; if (has_rtc_) rtc_.write(data_, direction_); }
         else if (offset == control_offset) readable_ = (value & 1) != 0;
     }
     std::array<std::int32_t, state_words> export_state() const noexcept {
@@ -43,6 +50,8 @@ public:
 
 private:
     Rtc rtc_;
+    bool has_rtc_{};
+    bool has_rumble_{};
     int data_{};
     int direction_{};
     bool readable_{};

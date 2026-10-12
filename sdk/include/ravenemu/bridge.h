@@ -86,6 +86,31 @@ int ravenemu_v3_copy_battery_generation(ravenemu_v3_bridge* handle,
                                         uint64_t* generation);
 int ravenemu_v3_acknowledge_battery(ravenemu_v3_bridge* handle, uint64_t generation);
 
+/* GBA cartridge hardware, for games whose detection fails. Each setting takes
+ * effect at the next ravenemu_v3_load or ravenemu_v3_reset. Returns 1 on
+ * success, 0 for a GB/GBC handle or an unknown value. */
+enum ravenemu_v3_gba_save_type {
+    RAVENEMU_V3_GBA_SAVE_AUTO = 0,
+    RAVENEMU_V3_GBA_SAVE_NONE = 1,
+    RAVENEMU_V3_GBA_SAVE_SRAM = 2,
+    RAVENEMU_V3_GBA_SAVE_FLASH_64K = 3,
+    RAVENEMU_V3_GBA_SAVE_FLASH_128K = 4,
+    RAVENEMU_V3_GBA_SAVE_EEPROM_512 = 5,
+    RAVENEMU_V3_GBA_SAVE_EEPROM_8K = 6
+};
+int ravenemu_v3_set_gba_save_type(ravenemu_v3_bridge* handle, int save_type);
+
+enum ravenemu_v3_gba_rtc {
+    RAVENEMU_V3_GBA_RTC_AUTO = 0,
+    RAVENEMU_V3_GBA_RTC_OFF = 1,
+    RAVENEMU_V3_GBA_RTC_ON = 2
+};
+int ravenemu_v3_set_gba_rtc(ravenemu_v3_bridge* handle, int rtc);
+
+/* 1 while the cartridge's rumble motor runs (GB MBC5 Rumble, GBA Drill Dozer
+ * and WarioWare: Twisted!). Sample it after each ravenemu_v3_run_frame. */
+int ravenemu_v3_rumble_active(const ravenemu_v3_bridge* handle);
+
 #ifdef __cplusplus
 }
 #endif

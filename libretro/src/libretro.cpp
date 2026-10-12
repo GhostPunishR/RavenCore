@@ -18,7 +18,9 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -90,6 +92,46 @@ bool has_tilt_sensor([[maybe_unused]] const std::vector<std::uint8_t>& image) {
     return image.size() > 0x147 && image[0x147] == 0x22; // MBC7 header type
 #endif
 }
+
+#if defined(RAVENEMU_LIBRETRO_GBA)
+// Core options for games whose cartridge detection fails. They are read when a
+// game loads: the SAVE_RAM size must not change while the frontend holds it.
+const char* option(const char* key) {
+    retro_variable variable{key, nullptr};
+    return env_cb && env_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &variable) ? variable.value : nullptr;
+}
+void apply_options(ravenemu::Core& machine) {
+    using ravenemu::GbaSaveType;
+    struct SaveChoice { std::string_view value; GbaSaveType type; };
+    constexpr std::array<SaveChoice, 6> save_choices{{
+        {"sram", GbaSaveType::sram}, {"flash64", GbaSaveType::flash_64k},
+        {"flash128", GbaSaveType::flash_128k}, {"eeprom512", GbaSaveType::eeprom_512},
+        {"eeprom8k", GbaSaveType::eeprom_8k}, {"none", GbaSaveType::none},
+    }};
+    std::optional<GbaSaveType> save_type;
+    if (const char* value = option("ravenemu_gba_save_type"))
+        for (const auto& choice : save_choices) if (choice.value == value) save_type = choice.type;
+    machine.set_gba_forced_save_type(save_type);
+    std::optional<bool> rtc;
+    if (const char* value = option("ravenemu_gba_rtc")) {
+        if (std::string_view(value) == "enabled") rtc = true;
+        else if (std::string_view(value) == "disabled") rtc = false;
+    }
+    machine.set_gba_forced_rtc(rtc);
+}
+void declare_options() {
+    std::array<retro_variable, 3> variables{{
+        {"ravenemu_gba_save_type",
+         "Save type (applied on game load); auto|sram|flash64|flash128|eeprom512|eeprom8k|none"},
+        {"ravenemu_gba_rtc", "Real-time clock (applied on game load); auto|enabled|disabled"},
+        {nullptr, nullptr},
+    }};
+    env_cb(RETRO_ENVIRONMENT_SET_VARIABLES, variables.data());
+}
+#else
+void apply_options(ravenemu::Core&) {}
+void declare_options() {}
+#endif
 
 struct Key { unsigned id; ravenemu::Button button; };
 constexpr std::array<Key, 10> keys{{
@@ -206,7 +248,9 @@ void retro_set_environment(retro_environment_t callback) {
     // No direct writable system memory mappings yet: never falsely claim
     // RetroAchievements (including Hardcore) support.
     bool achievements = false;
-    if (env_cb) env_cb(RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS, &achievements);
+    if (!env_cb) return;
+    env_cb(RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS, &achievements);
+    declare_options();
 }
 void retro_set_video_refresh(retro_video_refresh_t callback) { video_cb = callback; }
 void retro_set_audio_sample(retro_audio_sample_t callback) { sample_cb = callback; }
@@ -247,6 +291,7 @@ bool retro_load_game(const struct retro_game_info* game) {
         const auto* bytes = static_cast<const std::uint8_t*>(game->data);
         rom.assign(bytes, bytes + game->size);
         auto machine = new_core();
+        apply_options(*machine);
         machine->load_rom(rom, {});
         const auto size = machine->video_spec().pixel_count();
         native_frame.resize(size);

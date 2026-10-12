@@ -86,7 +86,10 @@ public:
      * jeu voit. C'est cette valeur-là qu'une interface doit montrer.
      */
     [[nodiscard]] bool gba_rtc_active() const noexcept override {
-        return machine_ != nullptr && machine_->cartridge.gpio() != nullptr;
+        return machine_ != nullptr && machine_->cartridge.gpio() != nullptr && machine_->cartridge.gpio()->has_rtc();
+    }
+    [[nodiscard]] bool rumble_active() const noexcept override {
+        return machine_ != nullptr && machine_->cartridge.gpio() != nullptr && machine_->cartridge.gpio()->rumble_active();
     }
     void set_gba_forced_rtc(std::optional<bool> value) noexcept override {
         forced_rtc_ = value;
@@ -190,8 +193,12 @@ public:
             throw SaveStateError("État GBA issu d'un autre type de mémoire de sauvegarde");
         }
         if (auto* save = m.cartridge.save()) save->load_state(in);
-        auto* gpio = m.cartridge.gpio(); if (in.boolean() != (gpio != nullptr)) throw SaveStateError("État GBA corrompu (GPIO)");
-        if (gpio) { std::array<std::int32_t, Gpio::state_words> gpio_state{}; for (auto& value : gpio_state) value = in.i32(); gpio->import_state(gpio_state); }
+        auto* gpio = m.cartridge.gpio(); const auto saved_gpio = in.boolean();
+        // Un état antérieur au moteur de vibration n'a pas de GPIO : la broche
+        // repart au repos. Toute autre différence trahit un état d'une autre ROM.
+        if (saved_gpio != (gpio != nullptr) && !(gpio && !saved_gpio && !gpio->has_rtc()))
+            throw SaveStateError("État GBA corrompu (GPIO)");
+        if (gpio && saved_gpio) { std::array<std::int32_t, Gpio::state_words> gpio_state{}; for (auto& value : gpio_state) value = in.i32(); gpio->import_state(gpio_state); }
         m.apu.load(in);
         if (version >= 12) {
             m.bus.bios_latch = in.u32(); m.bus.executing_bios = in.boolean();

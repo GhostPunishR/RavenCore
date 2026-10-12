@@ -1,6 +1,10 @@
 # Tests GBA
 
-Les tests synthétiques (`gba_*_test.cpp`) n'ont besoin d'aucune ROM. `gba_cpu_test.cpp` vérifie les comportements de l'ARM7TDMI et du bus : de petits programmes ARM et Thumb sont placés en IWRAM, puis exécutés instruction par instruction.
+Les tests synthétiques (`gba_*_test.cpp`) n'ont besoin d'aucune ROM :
+
+- `gba_cpu_test.cpp` vérifie les comportements de l'ARM7TDMI et du bus : de petits programmes ARM et Thumb sont placés en IWRAM, puis exécutés instruction par instruction ;
+- `gba_hardware_test.cpp` vérifie le matériel décrit par GBATEK : appels du BIOS, HALTCNT, port série sans câble, capture vidéo par DMA3, temps de rendu des sprites, bus ouvert, durée des multiplications et reprise exacte d'un état instantané ;
+- `gba_core_test.cpp` passe par l'interface publique `ravenemu::Core` : détection des sauvegardes, vibration du GPIO, compatibilité des anciens états.
 
 ## ROMs de test publiques
 
