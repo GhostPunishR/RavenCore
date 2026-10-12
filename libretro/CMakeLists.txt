@@ -29,6 +29,9 @@ foreach(system IN ITEMS gb gbc gba)
         target_include_directories(libretro_smoke_${system} PRIVATE
             include ${PROJECT_SOURCE_DIR}/cores/common/tests/support)
         target_compile_definitions(libretro_smoke_${system} PRIVATE RAVENEMU_LIBRETRO_${system_upper}=1)
+        # The smoke test only links the shared core, whose private C++20
+        # requirement does not propagate; MSVC would otherwise build it as C++14.
+        target_compile_features(libretro_smoke_${system} PRIVATE cxx_std_20)
         target_link_libraries(libretro_smoke_${system} PRIVATE ${target})
         add_test(NAME libretro_smoke_${system} COMMAND libretro_smoke_${system})
     endif()

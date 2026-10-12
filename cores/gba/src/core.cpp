@@ -48,9 +48,11 @@ public:
         std::size_t count = 0;
         for (auto& value : out) {
             const auto a = static_cast<std::uint64_t>(address) + count;
-            if (a < 0x8000) value = machine_->bus.iwram[a];
-            else if (a < 0x48000) value = machine_->bus.ewram[a - 0x8000];
-            else if (a < 0x58000 && save && a - 0x48000 < save->data().size()) value = save->data()[a - 0x48000];
+            // Chaque branche borne `a` : l'index tient dans size_t, même sur 32 bits.
+            const auto at = [a](std::uint64_t base) { return static_cast<std::size_t>(a - base); };
+            if (a < 0x8000) value = machine_->bus.iwram[at(0)];
+            else if (a < 0x48000) value = machine_->bus.ewram[at(0x8000)];
+            else if (a < 0x58000 && save && a - 0x48000 < save->data().size()) value = save->data()[at(0x48000)];
             else break;
             ++count;
         }

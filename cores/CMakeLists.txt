@@ -21,6 +21,17 @@ add_compile_options(${RAVENEMU_WARNING_OPTIONS})
 
 if(RAVENEMU_BUILD_TESTS)
     enable_testing()
+    # Les tests construisent des machines complètes sur la pile (une machine
+    # GBA pèse ~640 Kio, un banc RTC ~470 Kio). Linux et macOS donnent 8 Mio
+    # au fil principal, Windows seulement 1 Mio : plusieurs tests y
+    # débordaient. Seuls les exécutables de ce répertoire, des tests, sont liés.
+    if(WIN32)
+        if(MSVC)
+            add_link_options(/STACK:16777216)
+        else()
+            add_link_options(LINKER:--stack,16777216)
+        endif()
+    endif()
 endif()
 
 add_subdirectory(common)

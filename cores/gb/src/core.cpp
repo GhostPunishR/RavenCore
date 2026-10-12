@@ -58,16 +58,18 @@ public:
         std::size_t count = 0;
         for (auto& value : out) {
             const auto a = static_cast<std::uint64_t>(address) + count;
+            // Chaque branche borne `a` : l'index tient dans size_t, même sur 32 bits.
+            const auto at = [a](std::uint64_t base) { return static_cast<std::size_t>(a - base); };
             if (a < 0x8000) value = static_cast<std::uint8_t>(m.cartridge->read_rom(static_cast<int>(a)));
-            else if (a < 0xa000) value = m.ppu.vram[a - 0x8000];
-            else if (a < 0xc000 && a - 0xa000 < ram.size()) value = ram[a - 0xa000];
-            else if (a >= 0xc000 && a < 0xe000) value = m.bus.wram[a - 0xc000];
-            else if (a >= 0xe000 && a < 0xfe00) value = m.bus.wram[a - 0xe000];
-            else if (a >= 0xfe00 && a < 0xfea0) value = m.ppu.oam[a - 0xfe00];
-            else if (a >= 0xff80 && a < 0xffff) value = m.bus.hram[a - 0xff80];
+            else if (a < 0xa000) value = m.ppu.vram[at(0x8000)];
+            else if (a < 0xc000 && a - 0xa000 < ram.size()) value = ram[at(0xa000)];
+            else if (a >= 0xc000 && a < 0xe000) value = m.bus.wram[at(0xc000)];
+            else if (a >= 0xe000 && a < 0xfe00) value = m.bus.wram[at(0xe000)];
+            else if (a >= 0xfe00 && a < 0xfea0) value = m.ppu.oam[at(0xfe00)];
+            else if (a >= 0xff80 && a < 0xffff) value = m.bus.hram[at(0xff80)];
             else if (a == 0xffff) value = static_cast<std::uint8_t>(m.interrupts.enable);
-            else if (a >= 0x10000 && a < 0x16000 && gb::is_cgb_hardware(m.hardware_mode)) value = m.bus.wram[a - 0x10000 + 0x2000];
-            else if (a >= 0x16000 && a < 0x34000 && a - 0x14000 < ram.size()) value = ram[a - 0x14000];
+            else if (a >= 0x10000 && a < 0x16000 && gb::is_cgb_hardware(m.hardware_mode)) value = m.bus.wram[at(0x10000) + 0x2000];
+            else if (a >= 0x16000 && a < 0x34000 && a - 0x14000 < ram.size()) value = ram[at(0x14000)];
             else break; // Unsupported IO/mapper memory invalidates dependent achievements.
             ++count;
         }
