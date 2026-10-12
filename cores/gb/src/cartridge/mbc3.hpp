@@ -127,15 +127,32 @@ public:
         rtc_hours_ = in.i32(); rtc_days_ = in.i32(); rtc_halt_ = in.boolean();
         rtc_day_carry_ = in.boolean(); latch_seconds_ = in.i32(); latch_minutes_ = in.i32();
         latch_hours_ = in.i32(); latch_day_low_ = in.i32(); latch_day_high_ = in.i32();
-        last_sync_epoch_ = in.i64(); in.raw(ram_);
+        last_sync_epoch_ = in.i64();
+        const auto in_range = [](int value, int maximum) { return value >= 0 && value <= maximum; };
+        if (rom_bank_ < 1 || rom_bank_ > 0x7f || !in_range(ram_bank_or_rtc_, 0x0f) ||
+            !in_range(rtc_seconds_, 0x3f) || !in_range(rtc_minutes_, 0x3f) ||
+            !in_range(rtc_hours_, 0x1f) || !in_range(rtc_days_, 0x1ff) ||
+            !in_range(latch_seconds_, 0x3f) || !in_range(latch_minutes_, 0x3f) ||
+            !in_range(latch_hours_, 0x1f) || !in_range(latch_day_low_, 0xff) ||
+            !in_range(latch_day_high_, 0xff)) {
+            throw SaveStateError("État instantané corrompu (registres MBC3)");
+        }
+        in.raw(ram_);
     }
 
 private:
     void sync_rtc() {
         const auto now = clock_();
-        auto elapsed = now - last_sync_epoch_;
-        last_sync_epoch_ = now;
-        if (rtc_halt_ || elapsed <= 0) return;
+        const auto previous = std::exchange(last_sync_epoch_, now);
+        if (rtc_halt_ || now <= previous) return;
+        // L'horodatage vient d'un fichier batterie ou d'un état : la
+        // différence est calculée en non signé (exacte puisque now > previous)
+        // puis plafonnée, ce qui garde l'accumulation ci-dessous sans
+        // débordement. Le plafond (2^40 s) dépasse de loin les 512 jours du
+        // compteur : le report de jours est posé comme pour l'écart réel.
+        constexpr std::uint64_t max_elapsed = std::uint64_t{1} << 40U;
+        auto elapsed = static_cast<std::int64_t>(std::min(
+            static_cast<std::uint64_t>(now) - static_cast<std::uint64_t>(previous), max_elapsed));
         elapsed += rtc_seconds_ + 60LL * rtc_minutes_ + 3600LL * rtc_hours_ + 86400LL * rtc_days_;
         rtc_seconds_ = static_cast<int>(elapsed % 60); elapsed /= 60;
         rtc_minutes_ = static_cast<int>(elapsed % 60); elapsed /= 60;

@@ -43,7 +43,12 @@ public:
     }
     void load_state(BinaryReader& in) override {
         ram_enabled_ = in.boolean(); rom_bank_low_ = in.i32(); rom_bank_high_ = in.i32();
-        ram_bank_ = in.i32(); rumble_active_ = in.boolean(); in.raw(ram_);
+        ram_bank_ = in.i32(); rumble_active_ = in.boolean();
+        if (rom_bank_low_ < 0 || rom_bank_low_ > 0xff || rom_bank_high_ < 0 || rom_bank_high_ > 1 ||
+            ram_bank_ < 0 || ram_bank_ > (has_rumble_ ? 0x07 : 0x0f)) {
+            throw SaveStateError("État instantané corrompu (registres MBC5)");
+        }
+        in.raw(ram_);
     }
 private:
     bool ram_enabled_{};

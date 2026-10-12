@@ -2,7 +2,9 @@
 #include "check.hpp"
 
 #include <array>
+#include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 using ravenemu::testing::check;
@@ -437,9 +439,88 @@ void mbc3_export_preserves_latch_test() {
     }
 }
 
+std::vector<std::uint8_t> make_mapper_rom(int type, int ram_size_code) {
+    std::vector<std::uint8_t> rom(0x100000);
+    rom[0x147] = static_cast<std::uint8_t>(type);
+    rom[0x149] = static_cast<std::uint8_t>(ram_size_code);
+    return rom;
+}
+
+void put_i32(std::vector<std::uint8_t>& bytes, std::size_t offset, std::int32_t value) {
+    const auto raw = static_cast<std::uint32_t>(value);
+    for (std::size_t i = 0; i < 4; ++i) {
+        bytes[offset + i] = static_cast<std::uint8_t>(raw >> (24U - 8U * i));
+    }
+}
+
+/**
+ * Les registres de banque restaurés entraient tels quels dans
+ * `banque * taille` : une valeur hostile y provoquait un débordement signé.
+ * Chaque cas est un champ i32 de l'état propre au contrôleur.
+ */
+void legacy_mapper_state_validation_test() {
+    struct Case {
+        int type;
+        int ram_size_code;
+        std::vector<std::pair<std::size_t, std::int32_t>> corruptions;
+    };
+    std::int64_t epoch = 1'700'000'000;
+    const std::array<Case, 5> cases{{
+        {0x03, 0x03, {{1, 0}, {1, 0x20}, {5, 4}, {5, 0x4000'0000}}},             // MBC1
+        {0x06, 0x00, {{1, 0}, {1, 0x10}, {1, -1}}},                               // MBC2
+        {0x10, 0x03, {{1, 0x80}, {5, 0x10}, {5, 0x4000'0000}, {10, 64},          // MBC3
+                      {22, 0x200}, {28, -1}, {44, 0x100}}},
+        {0x1b, 0x04, {{1, 0x100}, {5, 2}, {9, 0x10}, {9, 0x4000'0000}}},         // MBC5
+        {0x1e, 0x03, {{9, 8}}},                                                  // MBC5 rumble
+    }};
+    for (const auto& test : cases) {
+        auto image = std::make_shared<const std::vector<std::uint8_t>>(
+            make_mapper_rom(test.type, test.ram_size_code));
+        auto cartridge = Cartridge::create(image, [&epoch] { return epoch; });
+        detail::BinaryWriter out; cartridge->save_state(out);
+        const auto valid = std::move(out).take();
+        {
+            detail::BinaryReader in(valid); cartridge->load_state(in);
+            check(in.exhausted(), "état de mappeur valide refusé ou incomplet");
+        }
+        for (const auto& [offset, value] : test.corruptions) {
+            auto corrupt = valid;
+            put_i32(corrupt, offset, value);
+            expect_failure<SaveStateError>([&] {
+                detail::BinaryReader in(corrupt); cartridge->load_state(in);
+            }, "registre de mappeur hors limites accepté");
+        }
+    }
+}
+
+/**
+ * L'horodatage MBC3 provient du fichier batterie : une valeur extrême ne
+ * doit ni déborder ni figer l'horloge. Très loin dans le passé, le compteur
+ * de jours déborde et pose son report ; dans le futur, l'horloge ne recule pas.
+ */
+void mbc3_hostile_battery_timestamp_test() {
+    std::int64_t epoch = 1'700'000'000;
+    for (const auto& [high_byte, expect_carry] : std::array<std::pair<std::uint8_t, bool>, 2>{{
+             {0x80, true}, {0x7f, false}}}) {
+        auto source = create_rtc(epoch);
+        auto battery = *source->export_battery();
+        // Horodatage sur 8 octets petit-boutiste en fin de pied RTC.
+        std::fill(battery.end() - 8, battery.end(),
+                  static_cast<std::uint8_t>(high_byte == 0x80 ? 0x00 : 0xff));
+        battery.back() = high_byte;
+        auto cartridge = create_rtc(epoch);
+        cartridge->import_battery(battery);
+        rtc_latch(*cartridge);
+        const bool carry = (rtc_read(*cartridge, 0x0c) & 0x80) != 0;
+        check(carry == expect_carry, "horodatage MBC3 extrême mal interprété");
+    }
+}
+
 } // namespace ravenemu::cgb::testing
 
 int main() {
+    ravenemu::cgb::testing::legacy_mapper_state_validation_test();
+    ravenemu::cgb::testing::mbc3_hostile_battery_timestamp_test();
     ravenemu::cgb::testing::mbc3_export_preserves_latch_test();
     ravenemu::cgb::testing::mbc1m_detection_and_banking_test();
     ravenemu::cgb::testing::mbc1m_state_and_persistence_test();

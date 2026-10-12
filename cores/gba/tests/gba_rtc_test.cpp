@@ -3,10 +3,12 @@
 #include "check.hpp"
 
 #include <algorithm>
+#include <array>
 #include <ctime>
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 /**
@@ -25,6 +27,7 @@
 namespace ravenemu::gba::testing {
 
 using ravenemu::testing::check;
+using ravenemu::testing::expect_failure;
 
 namespace {
 
@@ -338,6 +341,47 @@ void absent_rtc_reads_rom_test() {
     check(fixture.bus.read16(data_register) == expected, "cartouche sans RTC : lecture GPIO inattendue");
 }
 
+/**
+ * Un état restauré au milieu d'une lecture série doit reprendre le dialogue
+ * à l'identique ; un état dont l'index d'octet sort du tampon de transfert
+ * (sept octets) est refusé, faute de quoi le prochain front d'horloge lisait
+ * ou écrivait hors du tableau.
+ */
+void mid_transfer_state_validation_test() {
+    Fixture source;
+    source.master.begin();
+    source.master.command(cmd_read_date_time);
+    static_cast<void>(source.master.read_byte());
+    static_cast<void>(source.master.read_byte());
+    const auto state = source.cartridge.gpio()->export_state();
+
+    Fixture restored;
+    restored.cartridge.gpio()->import_state(state);
+    for (int index = 2; index < 7; ++index) {
+        check(restored.master.read_byte() == source.master.read_byte(),
+              "lecture RTC reprise depuis un état différente de l'original");
+    }
+
+    // Indices GPIO : 0-2 broches du port, puis l'état RTC à partir de 3.
+    constexpr std::size_t rtc = 3;
+    for (const auto& [field, value] : std::array<std::pair<std::size_t, std::int32_t>, 10>{{
+             {rtc + 8, 7}, {rtc + 8, 100'000}, {rtc + 8, -1},   // byte_index_
+             {rtc + 9, 8},                                       // byte_count_
+             {rtc + 4, 4},                                       // phase_
+             {rtc + 6, 8},                                       // bit_index_
+             {rtc + 0, 2},                                       // SCK
+             {rtc + 5, 0x100},                                   // shift_
+             {rtc + 13, 0x100},                                  // octet de transfert
+             {rtc + 11, 0x7fff'ffff}}}) {                        // décalage d'horloge
+        auto corrupt = state;
+        corrupt[field] = value;
+        Fixture target;
+        expect_failure<SaveStateError>(
+            [&] { target.cartridge.gpio()->import_state(corrupt); },
+            "état RTC GBA hors limites accepté");
+    }
+}
+
 } // namespace
 
 } // namespace ravenemu::gba::testing
@@ -354,5 +398,6 @@ int main() {
     reset_test();
     write_only_until_enabled_test();
     absent_rtc_reads_rom_test();
+    mid_transfer_state_validation_test();
     return 0;
 }

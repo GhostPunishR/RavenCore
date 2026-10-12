@@ -46,6 +46,7 @@ public:
         offset_seconds_ = static_cast<std::int64_t>(
             (static_cast<std::uint64_t>(u32(values[11])) << 32U) | u32(values[12]));
         std::copy_n(values.begin() + 13, 7, transfer_.begin());
+        validate_state();
     }
 
 private:
@@ -61,6 +62,30 @@ private:
         unsigned result{};
         for (unsigned bit = 0; bit < 8; ++bit) result |= ((input >> bit) & 1U) << (7U - bit);
         return static_cast<int>(result);
+    }
+    // `byte_index_` indexe `transfer_` pendant une lecture ou une écriture
+    // série : un état restauré doit respecter les invariants du protocole,
+    // faute de quoi le prochain front d'horloge accéderait hors du tableau.
+    void validate_state() const {
+        const auto bit = [](int value) { return value == 0 || value == 1; };
+        const auto in_range = [](auto value, auto minimum, auto maximum) {
+            return value >= minimum && value <= maximum;
+        };
+        const bool transferring = phase_ == reading || phase_ == writing;
+        // Une heure lointaine de plusieurs millénaires reste représentable
+        // sans que `clock_() + offset_seconds_` puisse déborder.
+        constexpr std::int64_t max_offset = std::int64_t{1} << 40;
+        const bool valid = bit(sck_) && bit(sio_) && bit(chip_select_) && bit(sio_out_) &&
+            in_range(phase_, idle, writing) && in_range(shift_, 0, 0xff) &&
+            in_range(bit_index_, 0, 7) && in_range(command_, 0, 7) &&
+            in_range(byte_count_, 0, static_cast<int>(transfer_.size())) &&
+            in_range(byte_index_, 0, byte_count_) &&
+            (!transferring || byte_index_ < byte_count_) &&
+            in_range(status_, 0, 0xff) &&
+            in_range(offset_seconds_, -max_offset, max_offset) &&
+            std::all_of(transfer_.begin(), transfer_.end(),
+                        [&](int value) { return in_range(value, 0, 0xff); });
+        if (!valid) throw SaveStateError("État RTC GBA invalide");
     }
     static int bcd(int value) noexcept { return ((value / 10) << 4) | (value % 10); }
     static int from_bcd(int value) noexcept { return ((value >> 4) & 15) * 10 + (value & 15); }
