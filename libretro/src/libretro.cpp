@@ -36,6 +36,9 @@ std::vector<std::int32_t> native_frame;
 std::vector<std::uint32_t> output_frame;
 std::size_t state_capacity = 0;
 bool pending_save_import = false;
+retro_set_rumble_state_t rumble_cb = nullptr;
+bool rumble_on = false;
+bool tilt_cartridge = false;
 
 #if defined(RAVENEMU_LIBRETRO_GB)
 constexpr const char* label = "RavenGB";
@@ -62,6 +65,32 @@ std::unique_ptr<ravenemu::Core> new_core() { return ravenemu::make_gba_core(std:
 constexpr std::array<std::uint32_t, 4> dmg_shades{
     0x00e0f8d0, 0x0088c070, 0x00346856, 0x00081820
 };
+// MBC7 accelerometer (Kirby Tilt 'n' Tumble, Command Master) driven by the
+// left analog stick. The cartridge reads 0x81D0 at rest and moves by about
+// 0x70 per g; a full deflection is a 1 g tilt. Signs follow accelerometer
+// physics with the sensor's X axis to the cartridge's right and Y to its top:
+// tilting right (stick right) lowers X, tilting the top away (stick up)
+// lowers Y. Not yet checked in game: flip the signs here if it plays mirrored.
+struct Tilt { int x; int y; };
+constexpr int tilt_units_per_g = 0x70;
+constexpr int scale_tilt(int stick) { return stick * tilt_units_per_g / 0x7fff; }
+constexpr Tilt tilt_from_stick(int stick_x, int stick_y) {
+    return {-scale_tilt(stick_x), scale_tilt(stick_y)};
+}
+static_assert(tilt_from_stick(0, 0).x == 0 && tilt_from_stick(0, 0).y == 0);
+static_assert(tilt_from_stick(0x7fff, 0).x == -tilt_units_per_g);
+static_assert(tilt_from_stick(-0x8000, 0).x == tilt_units_per_g);
+static_assert(tilt_from_stick(0, -0x8000).y == -tilt_units_per_g);
+static_assert(tilt_from_stick(0, 0x7fff).y == tilt_units_per_g);
+
+bool has_tilt_sensor([[maybe_unused]] const std::vector<std::uint8_t>& image) {
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    return false;
+#else
+    return image.size() > 0x147 && image[0x147] == 0x22; // MBC7 header type
+#endif
+}
+
 struct Key { unsigned id; ravenemu::Button button; };
 constexpr std::array<Key, 10> keys{{
     {RETRO_DEVICE_ID_JOYPAD_UP, ravenemu::Button::up},
@@ -91,7 +120,43 @@ void import_save_ram_once() {
         core->load_rom(rom, save_ram);
     initial_save_ram.clear();
 }
+void update_rumble() {
+    if (!core || !rumble_cb) return;
+    const bool active = core->rumble_active();
+    if (active == rumble_on) return;
+    rumble_on = active;
+    rumble_cb(0, RETRO_RUMBLE_STRONG, active ? 0xffff : 0);
+}
+void set_input_descriptors() {
+    std::vector<retro_input_descriptor> descriptors{
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "D-Pad Left"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "D-Pad Up"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN, "D-Pad Down"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "B"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "A"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start"},
+    };
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    descriptors.push_back({0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L"});
+    descriptors.push_back({0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R"});
+#endif
+    if (tilt_cartridge) {
+        descriptors.push_back({0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
+                               RETRO_DEVICE_ID_ANALOG_X, "Tilt Left/Right"});
+        descriptors.push_back({0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
+                               RETRO_DEVICE_ID_ANALOG_Y, "Tilt Forward/Back"});
+    }
+    descriptors.push_back({0, 0, 0, 0, nullptr});
+    env_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, descriptors.data());
+}
 void clear_game() {
+    // Never leave a gamepad motor running after the game that started it.
+    if (rumble_cb && rumble_on) rumble_cb(0, RETRO_RUMBLE_STRONG, 0);
+    rumble_cb = nullptr;
+    rumble_on = false;
+    tilt_cartridge = false;
     core.reset();
     rom.clear();
     save_ram.clear();
@@ -193,6 +258,10 @@ bool retro_load_game(const struct retro_game_info* game) {
             throw std::runtime_error("Save state exceeds limits");
         state_capacity = state_bytes + 65544U;
         core = std::move(machine);
+        tilt_cartridge = has_tilt_sensor(rom);
+        set_input_descriptors();
+        retro_rumble_interface rumble{};
+        if (env_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumble)) rumble_cb = rumble.set_rumble_state;
         return true;
     } catch (const std::exception&) { clear_game(); return false; }
 }
@@ -200,7 +269,7 @@ bool retro_load_game_special(unsigned, const struct retro_game_info*, std::size_
 void retro_unload_game(void) { clear_game(); }
 void retro_reset(void) {
     if (!core) return;
-    try { import_save_ram_once(); core->reset(); update_save_ram(); }
+    try { import_save_ram_once(); core->reset(); update_save_ram(); update_rumble(); }
     catch (const std::exception&) {}
 }
 void retro_run(void) {
@@ -211,8 +280,17 @@ void retro_run(void) {
         if (input_cb) for (const auto& key : keys)
             core->set_button(key.button,
                 input_cb(0, RETRO_DEVICE_JOYPAD, 0, key.id) != 0);
+        if (tilt_cartridge && input_cb) {
+            const int stick_x = input_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
+                                         RETRO_DEVICE_ID_ANALOG_X);
+            const int stick_y = input_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
+                                         RETRO_DEVICE_ID_ANALOG_Y);
+            const auto tilt = tilt_from_stick(stick_x, stick_y);
+            core->set_game_boy_acceleration(tilt.x, tilt.y);
+        }
         core->run_frame(native_frame, true);
         update_save_ram();
+        update_rumble();
         refresh_video();
         refresh_audio();
     } catch (const std::exception&) {
@@ -250,6 +328,7 @@ bool retro_unserialize(const void* data, std::size_t size) {
         import_save_ram_once();
         core->load_state({bytes + 8, static_cast<std::size_t>(length)});
         update_save_ram();
+        update_rumble();
         return true;
     } catch (const std::exception&) { return false; }
 }
