@@ -15,8 +15,14 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Public GBA test suites (MIT, GPL-3.0): pinned commits, SHA-256
+      # checked, never stored in the repository.
+      - name: Fetch public GBA test ROMs
+        run: cores/gba/tests/fetch_test_roms.sh "$RUNNER_TEMP/gba-test-roms"
       - name: Configure CMake
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          "-DRAVENEMU_GBA_TEST_ROMS=$RUNNER_TEMP/gba-test-roms"
       - name: Build native engines and Libretro
         run: cmake --build build --parallel 2
       - name: Run all synthetic tests
@@ -65,9 +71,12 @@ jobs:
       UBSAN_OPTIONS: print_stacktrace=1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Fetch public GBA test ROMs
+        run: cores/gba/tests/fetch_test_roms.sh "$RUNNER_TEMP/gba-test-roms"
       - name: Configure CMake
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
+          "-DRAVENEMU_GBA_TEST_ROMS=$RUNNER_TEMP/gba-test-roms"
           "-DCMAKE_CXX_FLAGS=$SANITIZE -D_GLIBCXX_ASSERTIONS"
           "-DCMAKE_EXE_LINKER_FLAGS=$SANITIZE"
           "-DCMAKE_SHARED_LINKER_FLAGS=$SANITIZE"
