@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
-project(RavenEmuCores VERSION 0.1.1 LANGUAGES CXX)
+project(RavenCore VERSION 0.1.1 LANGUAGES CXX)
 
 # An unoptimized emulator is unusable: default to Release when this repository
 # is the main project and no build type was requested.
@@ -22,36 +22,46 @@ if(RAVENEMU_BUILD_LIBRETRO)
 endif()
 
 if(RAVENEMU_INSTALL)
-    # find_package(RavenEmuCores) then link RavenEmu::ravenemu_cores (C++)
+    # find_package(RavenCore) then link RavenEmu::ravenemu_cores (C++)
     # or RavenEmu::ravenemu_c_api (C ABI). Libretro cores are not installed:
     # they belong in the frontend's own directories.
     include(GNUInstallDirs)
     include(CMakePackageConfigHelpers)
-    set(RAVENEMU_PACKAGE_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/RavenEmuCores")
+    set(RAVENEMU_PACKAGE_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/RavenCore")
 
     install(TARGETS
             ravenemu_options ravenemu_common gbc_hardware gb_raven_core gbc_raven_core
             gba_raven_core ravenemu_cores ravenemu_c_api
-        EXPORT RavenEmuCoresTargets
+        EXPORT RavenCoreTargets
         ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
         INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
     install(DIRECTORY
             cores/common/include/ cores/gb/include/ cores/gbc/include/ cores/gba/include/
             sdk/include/
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
-    install(EXPORT RavenEmuCoresTargets
+    install(EXPORT RavenCoreTargets
         NAMESPACE RavenEmu::
         DESTINATION "${RAVENEMU_PACKAGE_DIR}")
 
-    configure_package_config_file(cmake/RavenEmuCoresConfig.cmake.in
-        "${CMAKE_CURRENT_BINARY_DIR}/RavenEmuCoresConfig.cmake"
+    configure_package_config_file(cmake/RavenCoreConfig.cmake.in
+        "${CMAKE_CURRENT_BINARY_DIR}/RavenCoreConfig.cmake"
         INSTALL_DESTINATION "${RAVENEMU_PACKAGE_DIR}")
     # Pre-1.0: the C ABI and save states may change between minor versions.
+    write_basic_package_version_file(
+        "${CMAKE_CURRENT_BINARY_DIR}/RavenCoreConfigVersion.cmake"
+        COMPATIBILITY SameMinorVersion)
+    install(FILES
+            "${CMAKE_CURRENT_BINARY_DIR}/RavenCoreConfig.cmake"
+            "${CMAKE_CURRENT_BINARY_DIR}/RavenCoreConfigVersion.cmake"
+        DESTINATION "${RAVENEMU_PACKAGE_DIR}")
+
+    # Former package name, kept until 1.0: it loads RavenCore from the same
+    # installation and asks its users to switch.
     write_basic_package_version_file(
         "${CMAKE_CURRENT_BINARY_DIR}/RavenEmuCoresConfigVersion.cmake"
         COMPATIBILITY SameMinorVersion)
     install(FILES
-            "${CMAKE_CURRENT_BINARY_DIR}/RavenEmuCoresConfig.cmake"
+            cmake/RavenEmuCoresConfig.cmake
             "${CMAKE_CURRENT_BINARY_DIR}/RavenEmuCoresConfigVersion.cmake"
-        DESTINATION "${RAVENEMU_PACKAGE_DIR}")
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/RavenEmuCores")
 endif()

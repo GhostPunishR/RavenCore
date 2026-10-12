@@ -31,8 +31,10 @@ cmake --install build --prefix /chemin/ravenemu
 ```
 
 ```cmake
-find_package(RavenEmuCores 0.1 REQUIRED)
+find_package(RavenCore 0.1 REQUIRED)
 target_link_libraries(mon_app PRIVATE RavenEmu::ravenemu_c_api)  # ou RavenEmu::ravenemu_cores en C++
 ```
 
 Passer `-DCMAKE_PREFIX_PATH=/chemin/ravenemu` à la configuration du projet consommateur. Avant la version 1.0, seules les versions de même mineure sont déclarées compatibles. Les adaptateurs Libretro ne sont pas installés : ils se copient dans les dossiers du frontend.
+
+L'ancien nom du paquet, `find_package(RavenEmuCores)`, fonctionne jusqu'à la version 1.0 : il charge `RavenCore` et affiche un avertissement de dépréciation. Les cibles `RavenEmu::` sont les mêmes.

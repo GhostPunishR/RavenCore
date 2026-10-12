@@ -27,7 +27,7 @@ jobs:
             echo "Tag $TAG is not vX.Y.Z"; exit 1
           fi
           version="${TAG#v}"
-          if ! grep -Fq "project(RavenEmuCores VERSION $version " CMakeLists.txt; then
+          if ! grep -Fq "project(RavenCore VERSION $version " CMakeLists.txt; then
             echo "CMakeLists.txt does not declare version $version"; exit 1
           fi
           # Lines between "## X.Y.Z - date" and the next second-level heading.
