@@ -5,6 +5,28 @@
 
 namespace ravenemu::gba {
 
+/**
+ * Ce que la ROM révèle d'elle-même : type de sauvegarde et présence de la
+ * bibliothèque RTC Seiko. La détection parcourt toute la ROM (jusqu'à 32 Mio) ;
+ * comme elle ne dépend que de son contenu, le cœur la fait une fois au
+ * chargement et la réutilise pour chaque machine (reset, état instantané).
+ */
+struct RomTraits {
+    GbaSaveType save_type{GbaSaveType::none};
+    bool rtc{};
+
+    [[nodiscard]] static RomTraits detect(std::span<const std::uint8_t> rom) {
+        // La détection cherche la bibliothèque Seiko que les cartouches d'origine
+        // embarquent. Elle ne peut rien affirmer d'une ROM modifiée : un jeu peut
+        // piloter le composant sans porter cette chaîne, et une ROM peut la
+        // contenir sans que le matériel soit présent. Le choix explicite de
+        // l'appelant prime donc, dans les deux sens.
+        constexpr std::string_view rtc_marker = "SIIRTC_V";
+        return {detect_save(rom),
+                std::search(rom.begin(), rom.end(), rtc_marker.begin(), rtc_marker.end()) != rom.end()};
+    }
+};
+
 class Cartridge {
 public:
     static constexpr std::size_t max_rom_size = 0x0200'0000U;
@@ -14,20 +36,23 @@ public:
         std::optional<bool> forced_rtc,
         Rtc::Clock clock
     )
+        : Cartridge(rom, RomTraits::detect(*rom), forced, forced_rtc, std::move(clock)) {}
+
+    Cartridge(
+        RomImage rom,
+        RomTraits traits,
+        std::optional<GbaSaveType> forced,
+        std::optional<bool> forced_rtc,
+        Rtc::Clock clock
+    )
         : rom_(std::move(rom)),
-          save_type_(forced.value_or(detect_save(std::span<const std::uint8_t>{*rom_}))),
-          save_(make_save(save_type_)) {
+          save_type_(forced.value_or(traits.save_type)),
+          save_(make_save(save_type_)),
+          rtc_detected_(traits.rtc) {
         const auto view = std::span<const std::uint8_t>{*rom_};
         if (view.size() > max_rom_size) throw RomLoadError("ROM GBA trop volumineuse");
         if (view.size() < 0xc0U) throw RomLoadError("ROM GBA trop courte");
         if (view[0xb2] != 0x96U) throw RomLoadError("Marqueur GBA 0x96 absent");
-        // La détection cherche la bibliothèque Seiko que les cartouches d'origine
-        // embarquent. Elle ne peut rien affirmer d'une ROM modifiée : un jeu peut
-        // piloter le composant sans porter cette chaîne, et une ROM peut la
-        // contenir sans que le matériel soit présent. Le choix explicite de
-        // l'appelant prime donc, dans les deux sens.
-        constexpr std::string_view rtc_marker = "SIIRTC_V";
-        rtc_detected_ = std::search(view.begin(), view.end(), rtc_marker.begin(), rtc_marker.end()) != view.end();
         if (forced_rtc.value_or(rtc_detected_)) {
             gpio_ = std::make_unique<Gpio>(std::move(clock));
         }

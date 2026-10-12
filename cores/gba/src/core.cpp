@@ -19,14 +19,16 @@ public:
         if (rom.size() < 0xc0U) throw RomLoadError("ROM GBA trop courte");
         if (rom[0xb2] != 0x96U) throw RomLoadError("Marqueur GBA 0x96 absent");
         auto image = std::make_shared<const std::vector<std::uint8_t>>(rom.begin(), rom.end());
-        auto replacement = new_machine(image);
+        const auto traits = RomTraits::detect(rom);
+        auto replacement = new_machine(image, traits);
         if (!battery.empty() && replacement->cartridge.save()) replacement->cartridge.save()->import(battery);
-        loaded_rom_ = std::move(image); rom_hash_ = detail::sha256(rom); machine_ = std::move(replacement);
+        loaded_rom_ = std::move(image); rom_traits_ = traits; rom_hash_ = detail::sha256(rom);
+        machine_ = std::move(replacement);
     }
     void reset() override {
         require_loaded(); std::vector<std::uint8_t> battery;
         if (const auto* save = machine_->cartridge.save()) battery = save->data();
-        auto replacement = new_machine(loaded_rom_);
+        auto replacement = new_machine(loaded_rom_, rom_traits_);
         if (!battery.empty() && replacement->cartridge.save()) replacement->cartridge.save()->import(battery);
         configure_measurement(*replacement, measuring_time_); machine_ = std::move(replacement);
     }
@@ -157,7 +159,7 @@ public:
         if (in.u16() != 11) throw SaveStateError("Version d'état GBA non prise en charge");
         if (in.u8() != 2) throw SaveStateError("État issu d'une autre console");
         std::array<std::uint8_t, 32> hash{}; in.raw(hash); if (hash != rom_hash_) throw SaveStateError("État issu d'une autre ROM");
-        auto replacement = new_machine(loaded_rom_); auto& m = *replacement;
+        auto replacement = new_machine(loaded_rom_, rom_traits_); auto& m = *replacement;
         std::array<std::int32_t, 16> registers{}; for (auto& value : registers) value = in.i32();
         const auto cpsr = in.i32(); m.cpu.state.halted = in.boolean(); if (in.i32() != 28) throw SaveStateError("État GBA corrompu (banques)");
         std::array<std::int32_t, 28> banks{}; for (auto& value : banks) value = in.i32(); m.cpu.state.import_banks(banks); m.cpu.state.set_control_raw(cpsr); m.cpu.state.regs = registers;
@@ -209,8 +211,8 @@ private:
         if (clock_override_) return *clock_override_;
         return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     }
-    [[nodiscard]] std::unique_ptr<Machine> new_machine(RomImage rom) const {
-        return std::make_unique<Machine>(rom, forced_, forced_rtc_, [this] { return current_epoch(); });
+    [[nodiscard]] std::unique_ptr<Machine> new_machine(RomImage rom, const RomTraits& traits) const {
+        return std::make_unique<Machine>(rom, traits, forced_, forced_rtc_, [this] { return current_epoch(); });
     }
     void require_loaded() const { if (!machine_) throw std::logic_error("Aucune ROM chargée"); }
 
@@ -218,6 +220,7 @@ private:
     std::optional<bool> forced_rtc_;
     std::unique_ptr<Machine> machine_;
     RomImage loaded_rom_;
+    RomTraits rom_traits_{};
     std::array<std::uint8_t, 32> rom_hash_{};
     std::optional<std::int64_t> clock_override_;
     bool measuring_time_{};
