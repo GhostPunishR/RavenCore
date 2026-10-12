@@ -24,6 +24,13 @@ jobs:
           test -f build/libretro/ravenemu_gb_libretro.so
           test -f build/libretro/ravenemu_gbc_libretro.so
           test -f build/libretro/ravenemu_gba_libretro.so
+          # Only the Libretro interface may leave a core.
+          for core in build/libretro/*_libretro.so; do
+            extra=$(nm -D --defined-only "$core" | awk '{print $3}' | grep -v '^retro_' || true)
+            if [ -n "$extra" ]; then
+              echo "$core exports non-Libretro symbols:"; echo "$extra"; exit 1
+            fi
+          done
       - name: Package cores and RetroArch information
         run: |
           mkdir -p dist/cores dist/info
