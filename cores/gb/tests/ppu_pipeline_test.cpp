@@ -1082,6 +1082,120 @@ void corrupt_background_fifo_is_rejected() {
 }
 
 /**
+ * Format 11 : chaque image PPU porte un octet d'encodage puis 16 bits par
+ * pixel quand tous ses pixels se ré-encodent à l'identique. Le format 10
+ * (i32 sans octet d'encodage) reste lisible, et une image non compactable
+ * repasse en i32 sans perte.
+ */
+void frame_encoding_save_state_test() {
+    constexpr auto pixels = static_cast<std::size_t>(Ppu::frame_pixels);
+    InterruptController interrupts;
+    Ppu source(interrupts, gb::HardwareMode::cgb_native);
+    for (std::size_t index = 0; index < pixels; ++index) {
+        // Teintes DMG, puis couleurs CGB développées depuis 15 bits.
+        const auto bgr = static_cast<std::uint32_t>(index * 37U) & 0x7fffU;
+        const auto expand = [](std::uint32_t c5) { return (c5 << 3U) | (c5 >> 2U); };
+        const auto argb = 0xff000000U | (expand(bgr & 31U) << 16U) |
+            (expand((bgr >> 5U) & 31U) << 8U) | expand((bgr >> 10U) & 31U);
+        source.completed_frame[index] = index % 3 == 0 ? static_cast<std::int32_t>(index % 4)
+                                                       : static_cast<std::int32_t>(argb);
+    }
+    const std::size_t tail = source.vram.size() + source.oam.size() +
+        source.bg_cram.size() + source.obj_cram.size();
+
+    detail::BinaryWriter legacy_writer;
+    source.save(legacy_writer, false);
+    const auto legacy = std::move(legacy_writer).take();
+    const auto compact = snapshot(source);
+    check(compact.size() + 2 * pixels * 2 == legacy.size() + 2,
+          "images PPU non compactées en 16 bits par pixel");
+
+    const auto restore = [](std::span<const std::uint8_t> bytes, bool tagged) {
+        InterruptController restored_interrupts;
+        auto restored = std::make_unique<Ppu>(restored_interrupts, gb::HardwareMode::cgb_native);
+        detail::BinaryReader reader(bytes);
+        restored->load(reader, tagged);
+        check(reader.exhausted(), "état PPU laisse des données non consommées");
+        return snapshot(*restored);
+    };
+    check_snapshot_equal(compact, restore(compact, true), "images PPU compactes altérées");
+    check_snapshot_equal(compact, restore(legacy, false), "état PPU au format 10 mal relu");
+
+    // Les 32768 couleurs CGB se compactent toutes sans perte.
+    Ppu odd(interrupts, gb::HardwareMode::cgb_native);
+    for (std::size_t first = 0; first < 0x8000; first += pixels) {
+        for (std::size_t index = 0; index < pixels; ++index) {
+            const auto bgr = static_cast<std::uint32_t>((first + index) & 0x7fffU);
+            const auto expand = [](std::uint32_t c5) { return (c5 << 3U) | (c5 >> 2U); };
+            odd.completed_frame[index] = static_cast<std::int32_t>(0xff000000U | (expand(bgr & 31U) << 16U) |
+                (expand((bgr >> 5U) & 31U) << 8U) | expand((bgr >> 10U) & 31U));
+        }
+        const auto colors = snapshot(odd);
+        check(colors.size() == compact.size(), "couleur CGB non compactée");
+        check_snapshot_equal(colors, restore(colors, true), "couleur CGB altérée par la compaction");
+    }
+    // Un pixel hors des deux familles garde son image en i32, sans perte.
+    for (const std::uint32_t near_miss : {0x12345678U, 0x00000004U, 0xfeffffffU, 0xfff80000U,
+                                          0xff000001U, 0xff00f800U, 0x7fffffffU}) {
+        odd.completed_frame = source.completed_frame;
+        odd.completed_frame[pixels / 2] = static_cast<std::int32_t>(near_miss);
+        const auto mixed = snapshot(odd);
+        check(mixed.size() == compact.size() + pixels * 2, "image non compactable mal encodée");
+        check_snapshot_equal(mixed, restore(mixed, true), "image PPU en i32 altérée");
+    }
+
+    // Octets d'encodage : image de travail, puis image terminée.
+    const auto working_tag = compact.size() - tail - 2 * (1 + pixels * 2);
+    const auto completed_tag = working_tag + 1 + pixels * 2;
+    check(compact[working_tag] == 1 && compact[completed_tag] == 1, "octet d'encodage PPU introuvable");
+    for (const auto tag : {working_tag, completed_tag}) {
+        auto unknown = compact;
+        unknown[tag] = 2;
+        expect_failure<SaveStateError>([&] { (void)restore(unknown, true); },
+                                       "encodage d'image PPU inconnu accepté");
+        auto bad_pixel = compact;
+        bad_pixel[tag + 1] = 0x80;
+        bad_pixel[tag + 2] = 0x04;
+        expect_failure<SaveStateError>([&] { (void)restore(bad_pixel, true); },
+                                       "pixel PPU compact invalide accepté");
+    }
+}
+
+/**
+ * Un état complet au format 10 se recharge et se réécrit au format 11 sans
+ * rien perdre d'autre que ses octets d'images.
+ */
+void legacy_core_state_loads_test() {
+    for (auto mode : {gb::HardwareMode::dmg, gb::HardwareMode::cgb_native}) {
+        auto rom = ravenemu::testing::minimal_game_boy_rom();
+        if (mode == gb::HardwareMode::cgb_native) rom[0x143] = 0x80;
+        auto core = gb::make_core(); core->load_rom(rom, {});
+        auto image = std::make_shared<const std::vector<std::uint8_t>>(rom);
+        Machine reference(image, [] { return std::int64_t{0}; }, mode);
+        const auto ppu_v11 = snapshot(reference.ppu);
+        detail::BinaryWriter legacy_writer;
+        reference.ppu.save(legacy_writer, false);
+        const auto ppu_v10 = std::move(legacy_writer).take();
+
+        const auto state = core->save_state();
+        check(state[4] == 0 && state[5] == 11, "version d'état GB inattendue");
+        const auto found = std::search(state.begin(), state.end(), ppu_v11.begin(), ppu_v11.end());
+        check(found != state.end(), "PPU fixture not found in full state");
+        std::vector<std::uint8_t> legacy(state.begin(), found);
+        legacy.insert(legacy.end(), ppu_v10.begin(), ppu_v10.end());
+        legacy.insert(legacy.end(), found + static_cast<std::ptrdiff_t>(ppu_v11.size()), state.end());
+        legacy[5] = 10;
+
+        std::vector<std::int32_t> frame(Ppu::frame_pixels);
+        core->run_frame(frame, true);
+        core->load_state(legacy);
+        check(core->save_state() == state, "état GB au format 10 mal relu");
+        legacy[5] = 12;
+        expect_failure<SaveStateError>([&] { core->load_state(legacy); }, "version d'état future acceptée");
+    }
+}
+
+/**
  * Le scan OAM retient jusqu'à dix sprites dont l'index sert ensuite, en
  * mode 3, à lire `oam[index * 4 + 2]`. Restaurés sans contrôle, ces index
  * permettaient à un état forgé de lire hors du tableau et de faire planter
@@ -1212,5 +1326,7 @@ int main() {
     ppu_timing_state_validation_test();
     retained_sprite_state_validation_test();
     register_state_validation_test();
+    frame_encoding_save_state_test();
+    legacy_core_state_loads_test();
     return 0;
 }

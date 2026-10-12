@@ -58,7 +58,7 @@ Les fichiers CI Linux ne fonctionnent pas directement sur Android, Windows ou ma
 
 **RetroAchievements n'est pas encore activé dans les adaptateurs Libretro.** Leur exposition mémoire doit être complétée et vérifiée. Le mode Hardcore n'est pas pris en charge.
 
-GB et GBC ne sont pas parfaitement fidèles à chaque détail matériel. GBA reste expérimental, avec des limites de compatibilité et de performances. Les sauvegardes d'état peuvent être incompatibles entre versions.
+GB et GBC ne sont pas parfaitement fidèles à chaque détail matériel. GBA reste expérimental, avec des limites de compatibilité et de performances. Les sauvegardes d'état peuvent être incompatibles entre versions. Depuis le format 11, GB et GBC stockent les images de l'écran sur 16 bits par pixel (un état passe d'environ 268 à 176 ko) et relisent toujours les états au format 10 ; un état au format 11 ne se recharge pas dans une version antérieure.
 
 L'intégration RetroAchievements de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte de celle de Libretro.
 

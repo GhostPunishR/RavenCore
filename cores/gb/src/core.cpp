@@ -110,15 +110,19 @@ public:
     }
 
     [[nodiscard]] std::vector<std::uint8_t> save_state() const override {
-        require_loaded(); BinaryWriter out(64 * 1024);
-        out.u32(0x52564e53U); out.u16(10); out.u8(static_cast<std::uint8_t>(Console::game_boy)); out.raw(rom_hash_);
+        // Réserver la taille du dernier état évite plusieurs réallocations par
+        // sauvegarde (176 ko au moins, 1,2 Mo avec un MBC6).
+        require_loaded(); BinaryWriter out(state_size_hint_);
+        out.u32(0x52564e53U); out.u16(state_version); out.u8(static_cast<std::uint8_t>(Console::game_boy)); out.raw(rom_hash_);
         out.u8(static_cast<std::uint8_t>(machine_->hardware_mode));
         machine_->cpu.save(out);
         out.i32(machine_->interrupts.flags); out.i32(machine_->interrupts.enable);
         machine_->timer.save(out); machine_->serial.save(out); machine_->joypad.save(out);
         machine_->ppu.save(out); machine_->speed.save(out); machine_->bus.save(out);
         machine_->apu.save(out); machine_->cartridge->save_state(out);
-        return std::move(out).take();
+        auto bytes = std::move(out).take();
+        state_size_hint_ = bytes.size();
+        return bytes;
     }
     void load_state(std::span<const std::uint8_t> state) override {
         require_loaded();
@@ -127,7 +131,9 @@ public:
         if (state.size() > (2U << 20U)) throw SaveStateError("État instantané trop volumineux");
         BinaryReader in(state);
         if (in.u32() != 0x52564e53U) throw SaveStateError("Ce fichier n'est pas un état RavenEmu");
-        const auto version = in.u16(); if (version != 10) throw SaveStateError("Version d'état non prise en charge");
+        // Le format 10 ne diffère que par ses images PPU en i32 : il reste lisible.
+        const auto version = in.u16();
+        if (version != 10 && version != state_version) throw SaveStateError("Version d'état non prise en charge");
         if (in.u8() != static_cast<std::uint8_t>(Console::game_boy)) throw SaveStateError("État issu d'une autre console");
         std::array<std::uint8_t, 32> hash{}; in.raw(hash);
         if (hash != rom_hash_) throw SaveStateError("État issu d'une autre ROM");
@@ -140,7 +146,7 @@ public:
         replacement->interrupts.flags = in.bounded_i32(0, 0xff);
         replacement->interrupts.enable = in.bounded_i32(0, 0xff);
         replacement->timer.load(in); replacement->serial.load(in); replacement->joypad.load(in);
-        replacement->ppu.load(in); replacement->speed.load(in); replacement->bus.load(in);
+        replacement->ppu.load(in, version >= 11); replacement->speed.load(in); replacement->bus.load(in);
         replacement->apu.load(in); replacement->cartridge->load_state(in);
         if (!in.exhausted()) throw SaveStateError("État instantané corrompu (données excédentaires)");
         replacement->cartridge->mark_restored_after(machine_->cartridge->generation());
@@ -149,6 +155,8 @@ public:
     void set_clock_epoch(std::optional<std::int64_t> epoch) noexcept override { clock_override_ = epoch; }
 
 private:
+    static constexpr std::uint16_t state_version = 11;
+
     [[nodiscard]] std::int64_t current_epoch() const noexcept {
         if (clock_override_) return *clock_override_;
         return std::chrono::duration_cast<std::chrono::seconds>(
@@ -206,6 +214,7 @@ private:
     std::unique_ptr<Machine> machine_;
     RomImage loaded_rom_;
     std::array<std::uint8_t, 32> rom_hash_{};
+    mutable std::size_t state_size_hint_{64 * 1024};
     std::optional<std::int64_t> clock_override_;
     gb::HardwareModel requested_hardware_{gb::HardwareModel::automatic};
     std::vector<std::uint8_t> boot_rom_;
