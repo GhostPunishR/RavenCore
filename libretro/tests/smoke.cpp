@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <string>
 #include <vector>
 
 namespace {
@@ -46,7 +47,8 @@ int main() {
     retro_system_info system{};
     retro_get_system_info(&system);
     if (retro_api_version() != RETRO_API_VERSION || !system.library_name ||
-        !system.valid_extensions || achievements_advertised) {
+        !system.valid_extensions || achievements_advertised ||
+        !system.library_version || std::string(system.library_version) != RAVENEMU_VERSION) {
         std::cerr << "Invalid Libretro API metadata or unsupported achievements flag\n";
         return 1;
     }

@@ -8,6 +8,9 @@
 #else
 #error "Choose exactly one Libretro core"
 #endif
+#ifndef RAVENEMU_VERSION
+#error "RAVENEMU_VERSION comes from the CMake project version"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -147,7 +150,7 @@ void retro_deinit(void) { clear_game(); }
 void retro_get_system_info(struct retro_system_info* info) {
     if (!info) return;
     info->library_name = label;
-    info->library_version = "0.1.0";
+    info->library_version = RAVENEMU_VERSION;
     info->valid_extensions = extensions;
     info->need_fullpath = false;
     info->block_extract = false;
