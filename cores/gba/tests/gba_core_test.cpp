@@ -1,4 +1,5 @@
 #include "ravenemu/core.hpp"
+#include "ravenemu/gba/core.hpp"
 
 #include "check.hpp"
 #include "synthetic_roms.hpp"
@@ -172,9 +173,34 @@ void invalid_rom_test() {
     );
 }
 
+void public_header_factory_test() {
+    // L'en-tête public `ravenemu/gba/core.hpp` ne compilait plus : sa fabrique
+    // appelait `make_gba_core` sans l'argument désormais obligatoire.
+    auto core = ravenemu::gba::make_core();
+    core->load_rom(minimal_gba_rom(), {});
+    check(core->console() == ravenemu::Console::game_boy_advance, "fabrique publique GBA incorrecte");
+}
+
+void odd_audio_capacity_keeps_stereo_frames_test() {
+    auto core = ravenemu::make_gba_core(std::nullopt);
+    core->load_rom(minimal_gba_rom(), {});
+    std::vector<std::int32_t> frame(core->video_spec().pixel_count());
+    core->run_frame(frame, true);
+    // Une capacité impaire ne doit jamais couper une trame stéréo : sinon
+    // gauche et droite restent inversées pour toutes les lectures suivantes.
+    std::array<std::int16_t, 101> odd{};
+    const auto first = core->read_audio(odd);
+    check(first > 0, "aucun échantillon GBA produit");
+    check(first % 2 == 0, "lecture audio GBA impaire : trame stéréo coupée");
+    std::array<std::int16_t, 1> single{};
+    check(core->read_audio(single) == 0, "un échantillon isolé GBA a été rendu");
+}
+
 } // namespace
 
 int main() {
+    public_header_factory_test();
+    odd_audio_capacity_keeps_stereo_frames_test();
     audio_state_continuation_test();
     invalid_rom_test();
     gba_smoke_test();
