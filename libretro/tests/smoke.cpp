@@ -1,9 +1,11 @@
 #include <libretro.h>
 #include <synthetic_roms.hpp>
 #include <algorithm>
+#include <iterator>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <string>
 #include <vector>
 
 namespace {
@@ -11,8 +13,37 @@ unsigned video_frames = 0;
 unsigned last_width = 0, last_height = 0;
 bool pixel_format_requested = false;
 bool achievements_advertised = true;
+unsigned rumble_calls = 0;
+std::uint16_t rumble_strength = 0;
+unsigned descriptor_count = 0;
+bool descriptors_have_lr = false;
+bool descriptors_have_tilt = false;
+unsigned analog_queries = 0;
+
+bool rumble(unsigned port, retro_rumble_effect effect, std::uint16_t strength) {
+    if (port == 0 && effect == RETRO_RUMBLE_STRONG) {
+        ++rumble_calls;
+        rumble_strength = strength;
+    }
+    return true;
+}
 
 bool environment(unsigned command, void* value) {
+    if (command == RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE) {
+        static_cast<retro_rumble_interface*>(value)->set_rumble_state = rumble;
+        return true;
+    }
+    if (command == RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS) {
+        descriptor_count = 0;
+        descriptors_have_lr = descriptors_have_tilt = false;
+        for (auto* d = static_cast<const retro_input_descriptor*>(value); d->description; ++d) {
+            ++descriptor_count;
+            descriptors_have_lr |= d->device == RETRO_DEVICE_JOYPAD &&
+                (d->id == RETRO_DEVICE_ID_JOYPAD_L || d->id == RETRO_DEVICE_ID_JOYPAD_R);
+            descriptors_have_tilt |= d->device == RETRO_DEVICE_ANALOG;
+        }
+        return true;
+    }
     if (command == RETRO_ENVIRONMENT_SET_PIXEL_FORMAT) {
         pixel_format_requested = true;
         return *static_cast<retro_pixel_format*>(value) == RETRO_PIXEL_FORMAT_XRGB8888;
@@ -32,7 +63,10 @@ void video(const void* data, unsigned width, unsigned height, std::size_t pitch)
 }
 std::size_t audio(const std::int16_t*, std::size_t count) { return count; }
 void input_poll() {}
-std::int16_t input_state(unsigned, unsigned, unsigned, unsigned) { return 0; }
+std::int16_t input_state(unsigned, unsigned device, unsigned, unsigned) {
+    if (device == RETRO_DEVICE_ANALOG) ++analog_queries;
+    return 0;
+}
 }
 
 int main() {
@@ -46,7 +80,8 @@ int main() {
     retro_system_info system{};
     retro_get_system_info(&system);
     if (retro_api_version() != RETRO_API_VERSION || !system.library_name ||
-        !system.valid_extensions || achievements_advertised) {
+        !system.valid_extensions || achievements_advertised ||
+        !system.library_version || std::string(system.library_version) != RAVENEMU_VERSION) {
         std::cerr << "Invalid Libretro API metadata or unsupported achievements flag\n";
         return 1;
     }
@@ -73,6 +108,16 @@ int main() {
     }
     retro_system_av_info av{};
     retro_get_system_av_info(&av);
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    constexpr unsigned expected_descriptors = 10;
+#else
+    constexpr unsigned expected_descriptors = 8;
+#endif
+    if (descriptor_count != expected_descriptors || descriptors_have_tilt ||
+        descriptors_have_lr != (expected_descriptors == 10)) {
+        std::cerr << "Unexpected input descriptors\n";
+        return 1;
+    }
     if (av.geometry.base_width != expected_width ||
         av.geometry.base_height != expected_height || av.timing.sample_rate <= 0) {
         std::cerr << "Invalid Libretro AV metadata\n";
@@ -90,6 +135,10 @@ int main() {
 #endif
     if (video_frames != 2 || last_width != expected_width || last_height != expected_height) {
         std::cerr << "Libretro video callback missing\n";
+        return 1;
+    }
+    if (analog_queries != 0 || rumble_calls != 0) {
+        std::cerr << "Stick polled or motor driven without a tilt or rumble cartridge\n";
         return 1;
     }
     if (retro_get_memory_data(RETRO_MEMORY_SYSTEM_RAM) ||
@@ -115,6 +164,43 @@ int main() {
         std::cerr << "State still present after unload\n";
         return 1;
     }
+#if !defined(RAVENEMU_LIBRETRO_GBA)
+    // MBC5+RUMBLE program: LD A,$08 ; LD ($4000),A ; JR $ (motor on, then loop).
+    auto rumble_rom = ravenemu::testing::minimal_game_boy_rom();
+    const std::uint8_t motor_on[] = {0x3e, 0x08, 0xea, 0x00, 0x40, 0x18, 0xfe};
+    std::copy(std::begin(motor_on), std::end(motor_on), rumble_rom.begin() + 0x100);
+    rumble_rom[0x147] = 0x1c;
+    game.data = rumble_rom.data();
+    game.size = rumble_rom.size();
+    if (!retro_load_game(&game)) return 1;
+    retro_run();
+    if (rumble_calls != 1 || rumble_strength != 0xffff) {
+        std::cerr << "Rumble motor not started\n";
+        return 1;
+    }
+    retro_unload_game();
+    if (rumble_calls != 2 || rumble_strength != 0) {
+        std::cerr << "Rumble motor left running after unload\n";
+        return 1;
+    }
+
+    // An MBC7 header announces the accelerometer and polls the left stick.
+    auto tilt_rom = ravenemu::testing::minimal_game_boy_rom();
+    tilt_rom[0x147] = 0x22;
+    game.data = tilt_rom.data();
+    game.size = tilt_rom.size();
+    if (!retro_load_game(&game) || !descriptors_have_tilt || descriptor_count != 10) {
+        std::cerr << "MBC7 tilt not announced\n";
+        return 1;
+    }
+    analog_queries = 0;
+    retro_run();
+    if (analog_queries != 2) {
+        std::cerr << "MBC7 tilt not polled\n";
+        return 1;
+    }
+    retro_unload_game();
+#endif
     retro_deinit();
     std::cout << system.library_name << " Libretro smoke test passed\n";
 }

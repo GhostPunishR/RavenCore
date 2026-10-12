@@ -13,6 +13,10 @@
 #include <utility>
 #include <vector>
 
+#ifndef RAVENEMU_VERSION
+#error "RAVENEMU_VERSION comes from the CMake project version"
+#endif
+
 struct ravenemu_v3_bridge {
     std::unique_ptr<ravenemu::Core> core;
     std::vector<std::int32_t> framebuffer;
@@ -52,6 +56,9 @@ constexpr std::array<std::uint32_t, 4> dmg_palette = {
 } // namespace
 
 extern "C" {
+
+int ravenemu_v3_api_version(void) { return RAVENEMU_V3_API_VERSION; }
+const char* ravenemu_v3_version(void) { return RAVENEMU_VERSION; }
 
 ravenemu_v3_bridge* ravenemu_v3_create(int system) {
     ravenemu_v3_bridge* result = nullptr;
@@ -165,6 +172,13 @@ size_t ravenemu_v3_battery_size(ravenemu_v3_bridge* handle) {
     return count;
 }
 int ravenemu_v3_copy_battery(ravenemu_v3_bridge* handle, uint8_t* output, size_t capacity) {
+    return ravenemu_v3_copy_battery_generation(handle, output, capacity, nullptr);
+}
+int ravenemu_v3_battery_dirty(const ravenemu_v3_bridge* handle) {
+    return handle && handle->core && handle->loaded && handle->core->battery_ram_dirty() ? 1 : 0;
+}
+int ravenemu_v3_copy_battery_generation(ravenemu_v3_bridge* handle, uint8_t* output,
+                                        size_t capacity, uint64_t* generation) {
     return attempt([&] {
         require_loaded(handle);
         const auto battery = handle->core->snapshot_battery_ram();
@@ -172,6 +186,13 @@ int ravenemu_v3_copy_battery(ravenemu_v3_bridge* handle, uint8_t* output, size_t
         if (!output || capacity < battery->data.size())
             throw std::invalid_argument("Insufficient battery buffer");
         std::copy(battery->data.begin(), battery->data.end(), output);
+        if (generation) *generation = battery->generation;
+    });
+}
+int ravenemu_v3_acknowledge_battery(ravenemu_v3_bridge* handle, uint64_t generation) {
+    return attempt([&] {
+        require_loaded(handle);
+        handle->core->acknowledge_battery_ram_saved(generation);
     });
 }
 } // extern "C"

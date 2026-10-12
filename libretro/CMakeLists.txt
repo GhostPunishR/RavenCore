@@ -9,7 +9,10 @@ foreach(system IN ITEMS gb gbc gba)
     set(target "ravenemu_${system}_libretro")
     add_library(${target} SHARED src/libretro.cpp)
     string(TOUPPER "${system}" system_upper)
-    target_compile_definitions(${target} PRIVATE RAVENEMU_LIBRETRO_${system_upper}=1)
+    # The project version is the single source for every version string.
+    target_compile_definitions(${target} PRIVATE
+        RAVENEMU_LIBRETRO_${system_upper}=1 RAVENEMU_VERSION="${PROJECT_VERSION}")
+    configure_file(info/${target}.info.in "${CMAKE_CURRENT_BINARY_DIR}/info/${target}.info" @ONLY)
     target_include_directories(${target} PRIVATE include)
     if(system STREQUAL "gb")
         target_link_libraries(${target} PRIVATE gb_raven_core)
@@ -28,7 +31,8 @@ foreach(system IN ITEMS gb gbc gba)
         add_executable(libretro_smoke_${system} tests/smoke.cpp)
         target_include_directories(libretro_smoke_${system} PRIVATE
             include ${PROJECT_SOURCE_DIR}/cores/common/tests/support)
-        target_compile_definitions(libretro_smoke_${system} PRIVATE RAVENEMU_LIBRETRO_${system_upper}=1)
+        target_compile_definitions(libretro_smoke_${system} PRIVATE
+            RAVENEMU_LIBRETRO_${system_upper}=1 RAVENEMU_VERSION="${PROJECT_VERSION}")
         # The smoke test only links the shared core, whose private C++20
         # requirement does not propagate; MSVC would otherwise build it as C++14.
         target_compile_features(libretro_smoke_${system} PRIVATE cxx_std_20)

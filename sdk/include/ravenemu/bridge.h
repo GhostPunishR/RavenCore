@@ -15,6 +15,14 @@ extern "C" {
 
 typedef struct ravenemu_v3_bridge ravenemu_v3_bridge;
 
+/* Version of this C API, bumped on every breaking change (0 = pre-release).
+ * Compare ravenemu_v3_api_version() with this macro before any other call:
+ * a mismatch means the header and the linked library disagree. */
+#define RAVENEMU_V3_API_VERSION 0
+int ravenemu_v3_api_version(void);
+/* Version of the RavenEmu Cores library, for example "0.1.0". */
+const char* ravenemu_v3_version(void);
+
 enum ravenemu_v3_system {
     RAVENEMU_V3_GB = 0,
     RAVENEMU_V3_GBC = 1,
@@ -68,6 +76,15 @@ int ravenemu_v3_load_state(ravenemu_v3_bridge* handle,
 size_t ravenemu_v3_battery_size(ravenemu_v3_bridge* handle);
 int ravenemu_v3_copy_battery(ravenemu_v3_bridge* handle,
                             uint8_t* output, size_t capacity);
+
+/* Battery persistence without needless writes: when ravenemu_v3_battery_dirty
+ * returns 1, copy the battery with its generation, store it, then acknowledge
+ * that generation. Writes made by the game after the copy keep it dirty. */
+int ravenemu_v3_battery_dirty(const ravenemu_v3_bridge* handle);
+int ravenemu_v3_copy_battery_generation(ravenemu_v3_bridge* handle,
+                                        uint8_t* output, size_t capacity,
+                                        uint64_t* generation);
+int ravenemu_v3_acknowledge_battery(ravenemu_v3_bridge* handle, uint64_t generation);
 
 #ifdef __cplusplus
 }

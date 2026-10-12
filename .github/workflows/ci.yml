@@ -44,7 +44,7 @@ jobs:
         run: |
           mkdir -p dist/cores dist/info
           cp build/libretro/*_libretro.so dist/cores/
-          cp libretro/info/*_libretro.info dist/info/
+          cp build/libretro/info/*_libretro.info dist/info/
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ravenemu-libretro-linux-x86_64

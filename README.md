@@ -50,6 +50,8 @@ Trois adaptateurs indépendants utilisent directement les moteurs RavenEmu :
 
 **Tester sur Linux x86-64 :** télécharger l'artefact `ravenemu-libretro-linux-x86_64` depuis une [exécution CI réussie](https://github.com/GhostPunishR/RavenEmu-Cores/actions/workflows/ci.yml). Copier les fichiers `cores/*.so` dans le dossier des cœurs de RetroArch et les fichiers `info/*.info` dans son dossier `info`. Charger ensuite le cœur souhaité.
 
+Les adaptateurs nomment leurs boutons dans RetroArch, transmettent la vibration des cartouches MBC5 Rumble à la manette et pilotent l'accéléromètre des cartouches MBC7 (Kirby Tilt 'n' Tumble, Command Master) avec le stick analogique gauche. Le sens de cette inclinaison découle de la physique de l'accéléromètre et reste à confirmer en jeu.
+
 Les fichiers CI Linux ne fonctionnent pas directement sur Android, Windows ou macOS. Les adaptateurs ne sont pas distribués par le téléchargeur officiel de RetroArch.
 
 ## RetroAchievements et limites
