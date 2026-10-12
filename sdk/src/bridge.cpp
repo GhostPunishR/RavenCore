@@ -156,6 +156,21 @@ size_t ravenemu_v3_read_audio(ravenemu_v3_bridge* handle,
     });
     return count;
 }
+size_t ravenemu_v3_read_achievement_memory(const ravenemu_v3_bridge* handle,
+                                           uint32_t address, uint8_t* output,
+                                           size_t capacity) {
+    size_t read = 0;
+    attempt([&] {
+        require_loaded(handle);
+        if (capacity > 0x58000 || (capacity && !output))
+            throw std::invalid_argument("Invalid achievement memory buffer");
+        if (!capacity) return;
+        read = handle->core->read_achievement_memory(address, {output, capacity});
+        if (read > capacity) throw std::runtime_error("Invalid achievement read count");
+    });
+    return read;
+}
+
 size_t ravenemu_v3_state_size(ravenemu_v3_bridge* handle) {
     size_t count = 0;
     attempt([&] {
