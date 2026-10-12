@@ -33,14 +33,6 @@ cmake -S . -B build/cores -DRAVENEMU_BUILD_LIBRETRO=OFF -DBUILD_TESTING=OFF
 cmake --build build/cores --parallel
 ```
 
-Le binaire `ravenemu_minimal_player` est un exemple C++ en ligne de commande, **pas** un frontend graphique :
-
-```sh
-./build/ravenemu_minimal_player gb chemin/vers/jeu.gb
-./build/ravenemu_minimal_player gbc chemin/vers/jeu.gbc
-./build/ravenemu_minimal_player gba chemin/vers/jeu.gba
-```
-
 ## Libretro / RetroArch
 
 Les bibliothèques partagées générées sont :
