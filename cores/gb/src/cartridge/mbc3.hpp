@@ -64,7 +64,9 @@ public:
     std::optional<std::vector<std::uint8_t>> export_battery() override {
         if (!header_.has_battery) return std::nullopt;
         if (!has_rtc_) return Cartridge::export_battery();
-        sync_rtc(); latch_rtc();
+        // Persist the live clock without replacing the registers latched by
+        // the game. Only a cartridge latch command may update those registers.
+        sync_rtc();
         std::vector<std::uint8_t> output(ram_.size() + rtc_footer_size);
         std::copy(ram_.begin(), ram_.end(), output.begin());
         std::size_t position = ram_.size();

@@ -44,7 +44,7 @@ if(RAVENEMU_BUILD_TESTS)
         ${CMAKE_CURRENT_LIST_DIR}/src
         ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support
     )
-    target_link_libraries(gb_ppu_pipeline_tests PRIVATE gb_raven_core)
+    target_link_libraries(gb_ppu_pipeline_tests PRIVATE gb_raven_core gbc_hardware)
     add_test(NAME gb_ppu_pipeline COMMAND gb_ppu_pipeline_tests)
 
     add_executable(gb_cartridge_mbc_tests tests/cartridge_mbc_test.cpp)

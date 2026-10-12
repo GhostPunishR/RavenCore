@@ -404,9 +404,43 @@ void mbc3_rtc_battery_and_state_test() {
           "RTC MBC3 échoue après une période supérieure à deux tours de compteur");
 }
 
+void mbc3_export_preserves_latch_test() {
+    std::int64_t epoch = 1000;
+    auto source = create_rtc(epoch);
+    rtc_write(*source, 0x08, 58); rtc_write(*source, 0x09, 59);
+    rtc_write(*source, 0x0a, 23); rtc_latch(*source);
+    const auto frozen = std::array{58, 59, 23, 0, 0};
+    auto check_frozen = [&](Cartridge& cart) {
+        cart.write_control(0, 0x0a);
+        for (int reg = 8; reg <= 12; ++reg)
+            check(rtc_read(cart, reg) == frozen[static_cast<std::size_t>(reg - 8)], "battery export changed RTC latch");
+    };
+    epoch += 5;
+    const auto first = source->export_battery(); check(first.has_value(), "missing RTC battery");
+    check_frozen(*source);
+    epoch += 2;
+    const auto battery = source->export_battery(); check_frozen(*source);
+    // Import/reset-style reconstruction retains frozen registers while the
+    // live clock keeps the elapsed seconds, including the day rollover.
+    auto imported = create_rtc(epoch); imported->import_battery(*battery);
+    check_frozen(*imported);
+    const auto roundtrip = imported->export_battery(); check_frozen(*imported);
+    check(roundtrip == battery, "RTC battery roundtrip changed persisted registers");
+    detail::BinaryWriter out; source->save_state(out); const auto bytes = std::move(out).take();
+    auto restored = create_rtc(epoch); detail::BinaryReader in(bytes); restored->load_state(in);
+    check(in.exhausted(), "RTC state trailing bytes"); check_frozen(*restored);
+    for (auto* cart : {source.get(), imported.get(), restored.get()}) {
+        rtc_latch(*cart);
+        check(rtc_read(*cart, 8) == 5 && rtc_read(*cart, 9) == 0 &&
+              rtc_read(*cart, 10) == 0 && rtc_read(*cart, 11) == 1,
+              "export failed to persist live RTC independently of latch");
+    }
+}
+
 } // namespace ravenemu::cgb::testing
 
 int main() {
+    ravenemu::cgb::testing::mbc3_export_preserves_latch_test();
     ravenemu::cgb::testing::mbc1m_detection_and_banking_test();
     ravenemu::cgb::testing::mbc1m_state_and_persistence_test();
     ravenemu::cgb::testing::mmm01_header_and_startup_mapping_test();

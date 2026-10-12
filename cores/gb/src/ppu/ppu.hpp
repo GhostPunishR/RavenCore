@@ -380,6 +380,9 @@ public:
         }
         for (auto& pixel : bg_fifo_) {
             pixel.color = in.u8(); pixel.palette = in.u8(); pixel.priority = in.boolean();
+            if (pixel.color > 3 || pixel.palette > 7) {
+                throw SaveStateError("État instantané corrompu (FIFO BG PPU)");
+            }
         }
         for (auto& pixel : obj_fifo_) {
             pixel.color = in.u8(); pixel.palette = in.u8(); pixel.behind_background = in.boolean();
