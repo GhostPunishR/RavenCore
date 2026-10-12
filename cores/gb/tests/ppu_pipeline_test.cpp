@@ -1,5 +1,8 @@
 #include "ppu/ppu.hpp"
 #include "check.hpp"
+#include "machine/machine.hpp"
+#include "synthetic_roms.hpp"
+#include <ravenemu/gb/core.hpp>
 #include <ravenemu/binary_io.hpp>
 
 using ravenemu::testing::check;
@@ -1040,10 +1043,49 @@ void ppu_timing_state_validation_test() {
         "retard de publication PPU invalide accepté au lieu d'être refusé");
 }
 
+void corrupt_background_fifo_is_rejected() {
+    constexpr std::size_t fifo_offset = 4 + 72 * 4; // PPU layout 72.
+    for (auto mode : {gb::HardwareMode::dmg, gb::HardwareMode::cgb_native}) {
+        auto rom = ravenemu::testing::minimal_game_boy_rom();
+        if (mode == gb::HardwareMode::cgb_native) rom[0x143] = 0x80;
+        auto core = gb::make_core(); core->load_rom(rom, {});
+        auto image = std::make_shared<const std::vector<std::uint8_t>>(rom);
+        Machine reference(image, [] { return std::int64_t{0}; }, mode);
+        const auto initial_ppu = snapshot(reference.ppu);
+        auto state = core->save_state();
+        const auto found = std::search(state.begin(), state.end(), initial_ppu.begin(), initial_ppu.end());
+        check(found != state.end(), "PPU fixture not found in full state");
+        const auto base = static_cast<std::size_t>(found - state.begin());
+        // Restore a live transfer rather than an empty FIFO at startup.
+        reference.ppu.tick(100);
+        const auto transfer = snapshot(reference.ppu);
+        std::copy(transfer.begin(), transfer.end(), state.begin() + static_cast<std::ptrdiff_t>(base));
+        core->load_state(state);
+        const auto unchanged = core->save_state();
+        for (std::size_t slot = 0; slot < 16; ++slot) {
+            for (const auto& [field, invalid] : std::array<std::pair<std::size_t, std::uint8_t>, 4>{{
+                     {0, 4}, {0, 255}, {1, 8}, {1, 255}}}) {
+                auto bad = state;
+                bad[base + fifo_offset + slot * 3 + field] = invalid;
+                expect_failure<SaveStateError>([&] { core->load_state(bad); }, "unsafe BG FIFO accepted");
+                check(core->save_state() == unchanged, "rejected PPU state changed current machine");
+            }
+        }
+        // Maximum legal palette/color values remain loadable and renderable.
+        for (std::size_t slot = 0; slot < 16; ++slot) {
+            state[base + fifo_offset + slot * 3] = 3;
+            state[base + fifo_offset + slot * 3 + 1] = 7;
+        }
+        core->load_state(state);
+        std::vector<std::int32_t> frame(Ppu::frame_pixels); core->run_frame(frame, true);
+    }
+}
+
 } // namespace ravenemu::cgb::testing
 
 int main() {
     using namespace ravenemu::cgb::testing;
+    corrupt_background_fifo_is_rejected();
     fifo_baseline_and_scx_test();
     window_restart_and_line_counter_test();
     window_horizontal_scroll_independence_test();
