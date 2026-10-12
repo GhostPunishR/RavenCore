@@ -7,6 +7,7 @@ include(CTest)
 # The imported cores independently use RAVENEMU_BUILD_TESTS.
 set(RAVENEMU_BUILD_TESTS ${BUILD_TESTING} CACHE BOOL "Build imported core tests" FORCE)
 add_subdirectory(cores)
+add_subdirectory(sdk)
 
 if(RAVENEMU_BUILD_LIBRETRO)
     add_subdirectory(libretro)
