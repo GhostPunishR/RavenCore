@@ -1130,6 +1130,49 @@ void retained_sprite_state_validation_test() {
     }
 }
 
+/**
+ * Registres 8 bits et compteurs du fetcher : aucun n'indexe un tableau, mais
+ * des valeurs extrêmes faisaient déborder l'arithmétique signée. Chaque
+ * valeur ci-dessous était acceptée avant validation (LCDC garde son bit 7).
+ */
+void register_state_validation_test() {
+    InterruptController interrupts;
+    Ppu source(interrupts, gb::HardwareMode::dmg);
+    source.write_lcdc(0x11);
+    source.write_lcdc(0x91);
+    while (source.mode() != Ppu::mode_transfer) source.tick(1);
+    source.tick(20);
+    const auto valid = snapshot(source);
+    {
+        InterruptController restored_interrupts;
+        Ppu restored(restored_interrupts, gb::HardwareMode::dmg);
+        detail::BinaryReader in(valid);
+        restored.load(in);
+    }
+
+    // Index des champs i32 de la disposition PPU 72 (après le compteur).
+    constexpr std::size_t lcdc = 0, wx = 10, window_line = 21, scx_latched = 35;
+    constexpr std::size_t startup_dots = 36, fetcher_tile = 46, fetcher_address = 49;
+    for (const auto& [field, value] : std::array<std::pair<std::size_t, std::int32_t>, 7>{{
+             {lcdc, 0x191}, {wx, -1}, {window_line, -1}, {scx_latched, 0x100},
+             {startup_dots, 0x10000}, {fetcher_tile, 0x100}, {fetcher_address, -1}}}) {
+        auto corrupt = valid;
+        const auto offset = 4 + field * 4;
+        const auto raw = static_cast<std::uint32_t>(value);
+        for (std::size_t i = 0; i < 4; ++i) {
+            corrupt[offset + i] = static_cast<std::uint8_t>(raw >> (24U - 8U * i));
+        }
+        expect_failure<SaveStateError>(
+            [&] {
+                InterruptController restored_interrupts;
+                Ppu restored(restored_interrupts, gb::HardwareMode::dmg);
+                detail::BinaryReader in(corrupt);
+                restored.load(in);
+            },
+            "registre ou compteur PPU hors limites accepté");
+    }
+}
+
 } // namespace ravenemu::cgb::testing
 
 int main() {
@@ -1168,5 +1211,6 @@ int main() {
     object_fifo_state_validation_test();
     ppu_timing_state_validation_test();
     retained_sprite_state_validation_test();
+    register_state_validation_test();
     return 0;
 }

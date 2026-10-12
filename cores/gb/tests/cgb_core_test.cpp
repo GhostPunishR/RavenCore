@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 using ravenemu::testing::check;
@@ -236,7 +237,45 @@ void invalid_rom_test() {
 
 } // namespace
 
+/**
+ * Registres CPU, interruptions et timer d'un état complet : tous sont des
+ * registres 8 ou 16 bits que le cœur masque toujours. Des valeurs hors de ces
+ * plages étaient restaurées telles quelles et faisaient déborder
+ * l'arithmétique signée (`pc + 1`, décompte de recharge...).
+ */
+void cpu_interrupt_timer_state_validation_test() {
+    auto core = ravenemu::make_game_boy_core();
+    core->load_rom(minimal_game_boy_rom(), {});
+    const auto valid = core->save_state();
+    // En-tête 39 octets + mode matériel ; CPU : AF BC DE HL SP PC (i32)
+    // puis six booléens ; IF, IE ; timer : DIV TIMA TMA TAC recharge.
+    constexpr std::size_t sp = 56, pc = 60, interrupt_flags = 70, interrupt_enable = 74;
+    constexpr std::size_t tac = 90, reload_delay = 94;
+    const auto i32_at = [&valid](std::size_t offset) {
+        return static_cast<std::int32_t>(
+            (static_cast<std::uint32_t>(valid[offset]) << 24U) |
+            (static_cast<std::uint32_t>(valid[offset + 1]) << 16U) |
+            (static_cast<std::uint32_t>(valid[offset + 2]) << 8U) | valid[offset + 3]);
+    };
+    check(i32_at(sp) == 0xfffe && i32_at(pc) == 0x0100, "disposition CPU de l'état GB inattendue");
+    check(i32_at(tac) == 0xf8 && i32_at(reload_delay) == -1, "disposition timer de l'état GB inattendue");
+
+    for (const auto& [offset, value] : std::array<std::pair<std::size_t, std::int32_t>, 8>{{
+             {sp, 0x10000}, {pc, 0x10000}, {pc, -1}, {interrupt_flags, 0x100},
+             {interrupt_enable, -1}, {tac, 0x100}, {reload_delay, 5}, {reload_delay, -2}}}) {
+        auto corrupt = valid;
+        const auto raw = static_cast<std::uint32_t>(value);
+        for (std::size_t i = 0; i < 4; ++i) {
+            corrupt[offset + i] = static_cast<std::uint8_t>(raw >> (24U - 8U * i));
+        }
+        expect_failure<ravenemu::SaveStateError>([&] { core->load_state(corrupt); },
+                                                 "registre CPU/IRQ/timer GB hors limites accepté");
+    }
+    core->load_state(valid);
+}
+
 int main() {
+    cpu_interrupt_timer_state_validation_test();
     invalid_rom_test();
     game_boy_smoke_test();
     game_boy_color_and_battery_test();

@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 using ravenemu::testing::check;
@@ -196,9 +197,35 @@ void odd_audio_capacity_keeps_stereo_frames_test() {
     check(core->read_audio(single) == 0, "un échantillon isolé GBA a été rendu");
 }
 
+void keypad_interrupt_state_validation_test() {
+    auto core = ravenemu::make_gba_core(std::nullopt);
+    core->load_rom(minimal_gba_rom(), {});
+    const auto valid = core->save_state();
+    // En-tête 39 + registres 64 + CPSR 4 + halt 1 + marqueur 4 + banques 112,
+    // puis EWRAM, IWRAM, IO, palette, VRAM, OAM, SRAM de repli et touches.
+    constexpr std::size_t keypad = 224 + 0x40000 + 0x8000 + 0x400 + 0x400 + 0x18000 + 0x400 + 0x10000;
+    constexpr std::size_t ppu_field_count = keypad + 4;
+    constexpr std::size_t interrupt_enable = ppu_field_count + 4 + 9 * 4 + 240 * 160 * 4;
+    constexpr std::size_t interrupt_flags = interrupt_enable + 4;
+    check(valid[ppu_field_count + 3] == 9, "disposition de l'état GBA inattendue");
+
+    for (const auto& [offset, value] : std::array<std::pair<std::size_t, std::int32_t>, 4>{{
+             {keypad, 0x400}, {keypad, -1}, {interrupt_enable, 0x10000}, {interrupt_flags, -1}}}) {
+        auto corrupt = valid;
+        const auto raw = static_cast<std::uint32_t>(value);
+        for (std::size_t i = 0; i < 4; ++i) {
+            corrupt[offset + i] = static_cast<std::uint8_t>(raw >> (24U - 8U * i));
+        }
+        expect_failure<ravenemu::SaveStateError>([&] { core->load_state(corrupt); },
+                                                 "touches ou IE/IF GBA hors limites acceptés");
+    }
+    core->load_state(valid);
+}
+
 } // namespace
 
 int main() {
+    keypad_interrupt_state_validation_test();
     public_header_factory_test();
     odd_audio_capacity_keeps_stereo_frames_test();
     audio_state_continuation_test();

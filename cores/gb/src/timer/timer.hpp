@@ -88,7 +88,8 @@ public:
     }
     void load(BinaryReader& in) {
         div_counter_ = word(in.i32()); tima_ = byte(in.i32()); tma_ = byte(in.i32());
-        tac_ = in.i32() | 0xf8; reload_delay_ = in.i32(); reload_cycle_ = in.boolean();
+        tac_ = in.bounded_i32(0, 0xff) | 0xf8; reload_delay_ = in.bounded_i32(-1, 4);
+        reload_cycle_ = in.boolean();
     }
 
 private:

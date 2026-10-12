@@ -382,6 +382,23 @@ void mid_transfer_state_validation_test() {
     }
 }
 
+/** Broches et directions GPIO sont des registres 4 bits. */
+void gpio_pin_state_validation_test() {
+    Fixture source;
+    source.master.begin();
+    const auto state = source.cartridge.gpio()->export_state();
+    Fixture{}.cartridge.gpio()->import_state(state);
+    for (const auto& [field, value] : std::array<std::pair<std::size_t, std::int32_t>, 4>{{
+             {0, 16}, {0, -1}, {1, 16}, {1, -1}}}) {
+        auto corrupt = state;
+        corrupt[field] = value;
+        Fixture target;
+        expect_failure<SaveStateError>(
+            [&] { target.cartridge.gpio()->import_state(corrupt); },
+            "broches GPIO GBA hors limites acceptées");
+    }
+}
+
 } // namespace
 
 } // namespace ravenemu::gba::testing
@@ -399,5 +416,6 @@ int main() {
     write_only_until_enabled_test();
     absent_rtc_reads_rom_test();
     mid_transfer_state_validation_test();
+    gpio_pin_state_validation_test();
     return 0;
 }
