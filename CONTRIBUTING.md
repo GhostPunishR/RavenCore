@@ -24,7 +24,7 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-Pour ne compiler que les moteurs, désactivez Libretro avec `-DRAVENEMU_BUILD_LIBRETRO=OFF`. La CI vérifie les moteurs et les trois adaptateurs Libretro sur Linux.
+Pour ne compiler que les moteurs, désactivez Libretro avec `-DRAVENEMU_BUILD_LIBRETRO=OFF`. La CI compile et teste les moteurs et les trois adaptateurs Libretro sur Linux, y compris sous ASan/UBSan.
 
 Les tests GB/GBC disposent aussi d'un [runner de conformité](cores/gb/tests/README.md). Ses ROMs de test sont externes au dépôt. N'annoncez pas une suite comme réussie sans l'avoir exécutée et sans indiquer les résultats.
 
@@ -37,7 +37,7 @@ Les tests GB/GBC disposent aussi d'un [runner de conformité](cores/gb/tests/REA
 | `cores/gbc/` | Composants CGB et façade du cœur couleur |
 | `cores/gba/` | Moteur Game Boy Advance |
 | `libretro/` | Adaptateurs, métadonnées et tests Libretro |
-| `sdk/` | Interface C++ complémentaire |
+| `sdk/` | API C (`bridge.h`), fabrique C++ et paquet CMake |
 
 Conservez la séparation entre la logique matérielle et les frontends. Les dossiers `cores/` ne doivent pas dépendre d'Android, de JNI ou de RetroArch.
 

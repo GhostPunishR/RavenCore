@@ -36,7 +36,7 @@ cmake -S . -B build/cores -DRAVENEMU_BUILD_LIBRETRO=OFF -DBUILD_TESTING=OFF
 cmake --build build/cores --parallel
 ```
 
-L'interface C++ publique est définie dans [`core.hpp`](cores/common/include/ravenemu/core.hpp). Un en-tête [SDK](sdk/include/ravenemu/sdk.hpp) fournit une fabrique simplifiée.
+L'interface C++ publique est définie dans [`core.hpp`](cores/common/include/ravenemu/core.hpp). Un en-tête [SDK](sdk/include/ravenemu/sdk.hpp) fournit une fabrique simplifiée, et [`bridge.h`](sdk/include/ravenemu/bridge.h) une API C pour les frontends non C++. Après `cmake --install`, les deux s'utilisent via `find_package(RavenEmuCores)` (voir le [README du SDK](sdk/README.md)).
 
 ## Libretro / RetroArch
 
