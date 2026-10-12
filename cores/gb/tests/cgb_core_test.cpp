@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -274,7 +275,42 @@ void cpu_interrupt_timer_state_validation_test() {
     core->load_state(valid);
 }
 
+/**
+ * Carte mémoire exposée aux succès (disposition rcheevos GB/GBC) : bornes de
+ * chaque région et contenu de la RAM de cartouche, importée avec un motif.
+ */
+void achievement_memory_map_test() {
+    for (const bool color : {false, true}) {
+        auto rom = minimal_game_boy_rom();
+        rom[0x143] = color ? 0x80 : 0x00;
+        rom[0x147] = 0x1b; // MBC5 + RAM + batterie
+        rom[0x149] = 0x03; // 32 Kio
+        std::vector<std::uint8_t> battery(32U * 1024U);
+        for (std::size_t i = 0; i < battery.size(); ++i) battery[i] = static_cast<std::uint8_t>(i * 7U + 3U);
+        auto core = ravenemu::make_game_boy_core();
+        core->load_rom(rom, battery);
+
+        std::vector<std::uint8_t> out(0x20000);
+        const auto read = [&](std::uint32_t address, std::size_t size) {
+            return core->read_achievement_memory(address, std::span{out}.first(size));
+        };
+        check(read(0x0000, 0x8000) == 0x8000, "ROM non exposée en entier");
+        check(read(0x8000, 0x2000) == 0x2000, "VRAM non exposée en entier");
+        check(read(0xa000, 0x2000) == 0x2000 && out[0] == battery[0] && out[0x1fff] == battery[0x1fff],
+              "première banque de RAM de cartouche incorrecte");
+        check(read(0xc000, 0x3e00) == 0x3e00, "WRAM et son miroir non exposés");
+        check(read(0xfe00, 0x100) == 0xa0, "OAM mal bornée");
+        check(read(0xff00, 1) == 0, "registres E/S exposés à tort");
+        check(read(0xff80, 0x80) == 0x80, "HRAM et IE non exposés");
+        check(read(0x10000, 0x6000) == (color ? 0x6000U : 0U), "banques WRAM CGB mal exposées");
+        check(read(0x16000, 0x20000) == battery.size() - 0x2000 &&
+              out[0] == battery[0x2000] && out[battery.size() - 0x2001] == battery.back(),
+              "banques suivantes de RAM de cartouche incorrectes");
+    }
+}
+
 int main() {
+    achievement_memory_map_test();
     cpu_interrupt_timer_state_validation_test();
     invalid_rom_test();
     game_boy_smoke_test();

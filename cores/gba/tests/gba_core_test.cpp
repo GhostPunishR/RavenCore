@@ -8,6 +8,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -224,7 +225,26 @@ void keypad_interrupt_state_validation_test() {
 
 } // namespace
 
+/** Carte mémoire exposée aux succès : IWRAM, EWRAM puis sauvegarde. */
+void achievement_memory_map_test() {
+    auto core = ravenemu::make_gba_core(ravenemu::GbaSaveType::sram);
+    std::vector<std::uint8_t> battery(32U * 1024U);
+    for (std::size_t i = 0; i < battery.size(); ++i) battery[i] = static_cast<std::uint8_t>(i * 7U + 3U);
+    core->load_rom(minimal_gba_rom(), battery);
+
+    std::vector<std::uint8_t> out(0x40000);
+    const auto read = [&](std::uint32_t address, std::size_t size) {
+        return core->read_achievement_memory(address, std::span{out}.first(size));
+    };
+    check(read(0x0, 0x8000) == 0x8000, "IWRAM non exposée en entier");
+    check(read(0x8000, 0x40000) == 0x40000, "EWRAM non exposée en entier");
+    check(read(0x48000, 0x10000) == battery.size() && out[0] == battery[0] && out[0x7fff] == battery.back(),
+          "sauvegarde mal exposée");
+    check(read(0x50000, 1) == 0 && read(0x58000, 1) == 0, "lecture au-delà de la sauvegarde acceptée");
+}
+
 int main() {
+    achievement_memory_map_test();
     keypad_interrupt_state_validation_test();
     public_header_factory_test();
     odd_audio_capacity_keeps_stereo_frames_test();
