@@ -4,6 +4,8 @@
 
 Elle propose le chargement de ROMs, les dimensions et le rendu ARGB8888 d'une frame, les boutons, l'audio stéréo PCM16, les sauvegardes batterie et les save states. Chaque appel est synchrone. Le frontend doit gérer la cadence, l'audio temps réel, le cycle de vie et la persistance.
 
+`ravenemu_v3_api_version()` doit être comparé à `RAVENEMU_V3_API_VERSION` avant tout autre appel, et `ravenemu_v3_version()` donne la version de la bibliothèque. Pour la sauvegarde batterie, `ravenemu_v3_battery_dirty()` indique si elle a changé ; il suffit alors de la copier avec `ravenemu_v3_copy_battery_generation()`, de l'écrire, puis d'acquitter la génération reçue avec `ravenemu_v3_acknowledge_battery()`. Une écriture du jeu survenue après la copie la laisse marquée comme modifiée.
+
 La bibliothèque est liée statiquement aux moteurs C++20. Les structures C++ ne traversent jamais cette interface. La version 0 de l'API est une préversion : ne pas supposer une ABI stabilisée. Pour connaître les erreurs, utiliser `ravenemu_v3_last_error()` sur le même thread que l'appel ayant échoué.
 
 Pour la compiler :
