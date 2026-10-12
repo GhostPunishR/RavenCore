@@ -60,6 +60,10 @@ GB et GBC ne sont pas parfaitement fidèles à chaque détail matériel. GBA res
 
 L'intégration RetroAchievements de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte de celle de Libretro.
 
+## Contribuer
+
+Les contributions sont les bienvenues. Consultez le [guide de contribution](CONTRIBUTING.md) et le [code de conduite](CODE_OF_CONDUCT.md) avant d'ouvrir une issue ou une pull request.
+
 ## Licence
 
 Projet développé par **GhostPunishR**, distribué sous [GNU AGPL-3.0](LICENSE). Le fichier `libretro.h` conserve sa licence MIT. Voir [NOTICE.md](NOTICE.md) pour les attributions et la provenance des sources.

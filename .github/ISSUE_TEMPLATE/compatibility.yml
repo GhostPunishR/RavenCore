@@ -1,0 +1,66 @@
+name: "Compatibilité d'un jeu"
+description: "Documenter un problème de jeu GB, GBC ou GBA."
+title: "[Compatibilité] "
+body:
+  - type: dropdown
+    id: console
+    attributes:
+      label: "Console"
+      options:
+        - "Game Boy"
+        - "Game Boy Color"
+        - "Game Boy Advance"
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: "Jeu ou ROM de test"
+      placeholder: "Nom et région ou variante si connue"
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: "Version ou commit RavenEmu Cores"
+    validations:
+      required: true
+  - type: dropdown
+    id: frontend
+    attributes:
+      label: "Environnement"
+      options:
+        - "Libretro / RetroArch"
+        - "Intégration C++ directe"
+        - "Runner de conformité GB/GBC"
+        - "Autre"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "Reproduction et comportement observé"
+      description: "Expliquez précisément le moment et les étapes du problème."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Comportement attendu et référence"
+      description: "Si possible, indiquez une référence matérielle ou un résultat de test indépendant."
+    validations:
+      required: true
+  - type: input
+    id: hash
+    attributes:
+      label: "SHA-256 du fichier testé (facultatif)"
+      description: "Une empreinte aide à identifier la version exacte sans partager le fichier."
+    validations:
+      required: false
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: "Contenu autorisé"
+      options:
+        - label: "Je n'ai joint aucun fichier ROM, BIOS, sauvegarde privée ou contenu non redistribuable."
+          required: true

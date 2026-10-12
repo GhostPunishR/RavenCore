@@ -1,0 +1,59 @@
+name: "Bug technique"
+description: "Signaler une erreur reproductible dans les moteurs, Libretro ou la compilation."
+title: "[Bug] "
+body:
+  - type: dropdown
+    id: subsystem
+    attributes:
+      label: "Composant concerné"
+      options:
+        - "Game Boy (GB)"
+        - "Game Boy Color (GBC)"
+        - "Game Boy Advance (GBA)"
+        - "Libretro / RetroArch"
+        - "Compilation / CI"
+        - "Autre"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: "Version ou commit"
+      description: "Indiquez si possible le SHA du commit testé."
+      placeholder: "Exemple : main, SHA de commit ou version locale"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: "Étapes de reproduction"
+      description: "Décrivez comment reproduire le problème sans joindre de ROM ni de BIOS."
+      placeholder: "1. Charger ...\n2. Effectuer ...\n3. Observer ..."
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: "Résultat observé"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Résultat attendu"
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: "Environnement et diagnostics (facultatif)"
+      description: "OS, compilateur, frontend, logs expurgés des données personnelles, nom du jeu ou empreinte SHA-256."
+    validations:
+      required: false
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: "Contenu autorisé"
+      options:
+        - label: "Je n'ai joint ni ROM commerciale, ni BIOS, ni sauvegarde privée, ni données sensibles."
+          required: true

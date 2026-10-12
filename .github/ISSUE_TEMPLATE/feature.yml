@@ -1,0 +1,38 @@
+name: "Proposition d'amélioration"
+description: "Proposer une fonctionnalité ou une amélioration technique."
+title: "[Amélioration] "
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Périmètre"
+      options:
+        - "GB / GBC"
+        - "GBA"
+        - "Libretro"
+        - "SDK / API C++"
+        - "Tests / documentation"
+        - "Autre"
+    validations:
+      required: true
+  - type: textarea
+    id: need
+    attributes:
+      label: "Problème à résoudre"
+      description: "Décrivez le besoin et les utilisateurs ou jeux concernés."
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: "Solution envisagée"
+      description: "Indiquez votre proposition, les alternatives et les éventuels compromis."
+    validations:
+      required: false
+  - type: textarea
+    id: validation
+    attributes:
+      label: "Comment vérifier le résultat ?"
+      description: "Jeux, tests synthétiques, conformité matérielle ou critères mesurables."
+    validations:
+      required: false
