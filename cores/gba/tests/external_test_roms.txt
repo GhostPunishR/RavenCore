@@ -1,0 +1,27 @@
+# ROMs de test GBA publiques, exécutées par gba_conformance_runner.
+#
+# Aucune n'est dans le dépôt : fetch_test_roms.sh les télécharge depuis un
+# commit figé et vérifie leur SHA-256, puis CMake enregistre un test CTest par
+# ROM présente dans le dossier RAVENEMU_GBA_TEST_ROMS.
+#
+# jsmolka/gba-tests (licence MIT) : le registre de résultat vaut 0 si tout
+# passe, sinon le numéro du premier test échoué.
+# DenSinH/FuzzARM (licence GPL-3.0) : 10 000 tests aléatoires par ROM ; un
+# échec écrit 'AAAA' ou 'TTTT' au début de l'EWRAM.
+#
+# Format : nom  URL  SHA-256  [arguments du runner]
+jsmolka_arm https://raw.githubusercontent.com/jsmolka/gba-tests/a7113b67e63f83a9b321696ddd7042ccfad6c881/arm/arm.gba 77ee88662552bdc885c1080c0172ff119d54db791bd73b21808cf1ff1fe5b40e
+jsmolka_thumb https://raw.githubusercontent.com/jsmolka/gba-tests/a7113b67e63f83a9b321696ddd7042ccfad6c881/thumb/thumb.gba b5cb2291df4ab314b31c598acd9bff2ccfa0b38efff29daadfe97422ce369b67 --result-register 7
+jsmolka_memory https://raw.githubusercontent.com/jsmolka/gba-tests/a7113b67e63f83a9b321696ddd7042ccfad6c881/memory/memory.gba 21024fb6aae6343f5f0466dd54e3149de1fbeb23f78e7d85a015c983684d2f87
+jsmolka_bios https://raw.githubusercontent.com/jsmolka/gba-tests/a7113b67e63f83a9b321696ddd7042ccfad6c881/bios/bios.gba 9d7b369fa1aa661ff03692b3d79c6f644b623d72983d0fc890e6d87a0409a3c9
+jsmolka_nes https://raw.githubusercontent.com/jsmolka/gba-tests/a7113b67e63f83a9b321696ddd7042ccfad6c881/nes/nes.gba d990df112763087d0415b3785c1b4d31c0237794a704d0446fc5f5e474a44f98
+jsmolka_save_none https://raw.githubusercontent.com/jsmolka/gba-tests/a7113b67e63f83a9b321696ddd7042ccfad6c881/save/none.gba edb34ba6590d070c8a50cf0f3566b1e3cc679377b978224ff1b872d27f2b1630
+jsmolka_save_sram https://raw.githubusercontent.com/jsmolka/gba-tests/a7113b67e63f83a9b321696ddd7042ccfad6c881/save/sram.gba a37ad99c31e3f805eb05a00e498b65bd78e6f43a0a139cd695bea1f88229af2c
+jsmolka_save_flash64 https://raw.githubusercontent.com/jsmolka/gba-tests/a7113b67e63f83a9b321696ddd7042ccfad6c881/save/flash64.gba 7e2aa32e943aedde88bd750eadcdbf55152d3a1ec61385011b7f15cd85b07c02
+jsmolka_save_flash128 https://raw.githubusercontent.com/jsmolka/gba-tests/a7113b67e63f83a9b321696ddd7042ccfad6c881/save/flash128.gba 9ac50e51d3ce4209dbdf85e472e70c067d5827e9af1bb3e707f6bd9059d5f0c6
+jsmolka_unsafe https://raw.githubusercontent.com/jsmolka/gba-tests/a7113b67e63f83a9b321696ddd7042ccfad6c881/unsafe/unsafe.gba bb727d59fa81915a5f5c609f4befb64872d3a3d830bc6ae0149e26410e648f85
+fuzzarm_arm_dataprocessing https://raw.githubusercontent.com/DenSinH/FuzzARM/a675329cd57da48e3e406216ba2d79dd7e09ee20/ARM_DataProcessing.gba c9b96170c8a511eb3bb8adcf42fbf39eb51be09bbe0470150a51224238ea2f64 --result-register none --expect-word 0x02000000=0 --timeout-frames 3000
+fuzzarm_arm_any https://raw.githubusercontent.com/DenSinH/FuzzARM/a675329cd57da48e3e406216ba2d79dd7e09ee20/ARM_Any.gba 5db4e020a61a0760043cb66b7149fa1777501080dbfc1b956c9600d44a4500f5 --result-register none --expect-word 0x02000000=0 --timeout-frames 3000
+fuzzarm_thumb_dataprocessing https://raw.githubusercontent.com/DenSinH/FuzzARM/a675329cd57da48e3e406216ba2d79dd7e09ee20/THUMB_DataProcessing.gba ad48a27d7a956f703a8813358f61de866b0e9a9988fb5603c7b2af91d38b0adc --result-register none --expect-word 0x02000000=0 --timeout-frames 3000
+fuzzarm_thumb_any https://raw.githubusercontent.com/DenSinH/FuzzARM/a675329cd57da48e3e406216ba2d79dd7e09ee20/THUMB_Any.gba c89d9e0894d9ef5af5de6bf7819b32383acad535ec5ab8c7e5b4f6278dff34f6 --result-register none --expect-word 0x02000000=0 --timeout-frames 3000
+fuzzarm_mixed https://raw.githubusercontent.com/DenSinH/FuzzARM/a675329cd57da48e3e406216ba2d79dd7e09ee20/FuzzARM.gba 266e3d4f1dc231aadf9d296b13897cdc0de4c3cef73cf0c83806c0cef3422269 --result-register none --expect-word 0x02000000=0 --timeout-frames 3000

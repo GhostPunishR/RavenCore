@@ -14,6 +14,7 @@ public:
         state.switch_mode(CpuState::mode_irq); state.regs[13] = i32(0x03007fa0U);
         state.switch_mode(CpuState::mode_system); state.regs[13] = i32(0x03007f00U);
         state.thumb = false; state.irq_disabled = false; state.regs[15] = entry;
+        pipeline_valid_ = false;
     }
     [[nodiscard]] std::int32_t read_reg(int index) const noexcept {
         if (index != 15) return state.regs[static_cast<std::size_t>(index)];
@@ -23,37 +24,57 @@ public:
         if (index == 15) branch_to(value); else state.regs[static_cast<std::size_t>(index)] = value;
     }
     void branch_to(std::int32_t address) noexcept {
-        state.regs[15] = i32(u32(address) & (state.thumb ? ~1U : ~3U)); branched_ = true;
+        state.regs[15] = i32(u32(address) & (state.thumb ? ~1U : ~3U)); branched_ = true; pipeline_valid_ = false;
     }
     void branch_exchange(std::int32_t address) noexcept {
         state.thumb = (u32(address) & 1U) != 0;
-        state.regs[15] = i32(u32(address) & (state.thumb ? ~1U : ~3U)); branched_ = true;
+        state.regs[15] = i32(u32(address) & (state.thumb ? ~1U : ~3U)); branched_ = true; pipeline_valid_ = false;
     }
     void execute_swi(int number, std::int32_t return_address) {
-        if (swi_handler) swi_handler(number);
+        // Le vrai BIOS saute puis revient : le pipeline est rechargé, et voit
+        // donc le code qu'un SWI (CpuSet, décompression) vient d'écrire.
+        if (swi_handler) { swi_handler(number); pipeline_valid_ = false; }
         else raise_exception(CpuState::mode_supervisor, 0x08, return_address);
     }
     void raise_exception(int mode, std::int32_t vector, std::int32_t return_address) {
         const auto saved = state.cpsr();
         state.switch_mode(mode); state.set_spsr(saved); state.regs[14] = return_address;
         state.irq_disabled = true; state.thumb = false; state.regs[15] = vector; branched_ = true;
+        pipeline_valid_ = false;
     }
+    /**
+     * Pipeline de l'ARM7TDMI : quand une instruction s'exécute, les deux
+     * suivantes sont déjà lues. L'instruction courante précharge PC + 2
+     * instructions avant d'agir, si bien qu'une écriture sur ces adresses ne
+     * change pas ce qui s'exécute ensuite (code automodifiant). Un saut vide
+     * le pipeline, rechargé (avec ses attentes mémoire) à l'instruction suivante.
+     */
     int step() {
         branched_ = false; bus.take_wait_cycles();
+        if (!pipeline_valid_ || pipeline_thumb_ != state.thumb) refill_pipeline();
+        const auto width = state.thumb ? 2 : 4;
+        const auto pc = state.regs[15];
+        const auto instruction = pipeline_[0];
+        const auto prefetched = fetch(add32(pc, 2 * width));
         int cost{};
-        if (state.thumb) {
-            const auto instruction = bus.fetch16(state.regs[15]) & 0xffff;
-            cost = execute_thumb(instruction);
-            if (!branched_) state.regs[15] = add32(state.regs[15], 2);
+        if (state.thumb) cost = execute_thumb(static_cast<int>(u32(instruction) & 0xffffU));
+        else cost = check_condition(static_cast<int>(u32(instruction) >> 28U)) ? execute_arm(instruction) : 1;
+        if (branched_) {
+            bus.break_access_sequence();
         } else {
-            const auto instruction = bus.fetch32(state.regs[15]);
-            cost = check_condition(static_cast<int>(u32(instruction) >> 28U)) ? execute_arm(instruction) : 1;
-            if (!branched_) state.regs[15] = add32(state.regs[15], 4);
+            state.regs[15] = add32(pc, width);
+            pipeline_[0] = pipeline_[1]; pipeline_[1] = prefetched;
         }
-        if (branched_) bus.break_access_sequence();
         return cost + bus.take_wait_cycles();
     }
+    // Contenu du pipeline, conservé dans les états instantanés.
+    struct Pipeline { std::array<std::int32_t, 2> opcodes{}; bool valid{}; bool thumb{}; };
+    [[nodiscard]] Pipeline pipeline() const noexcept { return {pipeline_, pipeline_valid_, pipeline_thumb_}; }
+    void restore_pipeline(const Pipeline& value) noexcept {
+        pipeline_ = value.opcodes; pipeline_valid_ = value.valid; pipeline_thumb_ = value.thumb;
+    }
     [[nodiscard]] bool check_condition(int condition) const noexcept {
+        if (condition == 14) return true;  // AL, de loin la plus fréquente
         switch (condition & 15) {
         case 0: return state.zero; case 1: return !state.zero; case 2: return state.carry;
         case 3: return !state.carry; case 4: return state.negative; case 5: return !state.negative;
@@ -122,9 +143,31 @@ public:
         return result;
     }
     void set_nz(std::int32_t value) noexcept { state.negative = value < 0; state.zero = value == 0; }
+    // Cycles internes m d'une multiplication sur l'ARM7TDMI : le multiplieur
+    // s'arrête dès que les octets de poids fort de l'opérande sont tous à 0
+    // (ou tous à 1 pour une multiplication signée).
+    static int multiply_cycles(std::uint32_t operand, bool sign_extended) noexcept {
+        auto cycles = 1;
+        for (unsigned shift = 8; shift < 32; shift += 8, ++cycles) {
+            const auto top = operand >> shift;
+            if (top == 0 || (sign_extended && top == (0xffff'ffffU >> shift))) return cycles;
+        }
+        return 4;
+    }
+    // Le bus aligne lui-même l'adresse, sauf la SRAM qui lit l'octet visé.
     std::int32_t load_word_rotated(std::int32_t address) {
-        const auto word = bus.read32(i32(u32(address) & ~3U));
+        const auto word = bus.read32(address);
         return i32(std::rotr(u32(word), static_cast<int>((u32(address) & 3U) * 8U)));
+    }
+    // Demi-mot non aligné : l'ARM7TDMI lit le demi-mot aligné puis le fait
+    // tourner de 8 bits ; en signé, il ne charge que l'octet impair.
+    std::int32_t load_halfword(std::int32_t address) {
+        const auto half = u32(bus.read16(address)) & 0xffffU;
+        return i32((u32(address) & 1U) != 0 ? std::rotr(half, 8) : half);
+    }
+    std::int32_t load_signed_halfword(std::int32_t address) {
+        if ((u32(address) & 1U) != 0) return sign_extend(static_cast<unsigned>(bus.read8(address)), 8);
+        return sign_extend(static_cast<unsigned>(bus.read16(address)), 16);
     }
 
     Bus& bus;
@@ -140,6 +183,7 @@ private:
     int arm_branch(std::int32_t instruction);
     int arm_data_or_psr(std::int32_t instruction);
     int arm_data(std::int32_t instruction, bool immediate, int opcode, bool set_flags);
+    int arm_data_without_flags(std::uint32_t raw, int opcode);
     std::int32_t arm_operand2(std::int32_t instruction, bool immediate, int pc_extra);
     int arm_psr(std::int32_t instruction);
     int arm_single_transfer(std::int32_t instruction);
@@ -152,7 +196,19 @@ private:
     int execute_thumb(int instruction);
     int thumb_undefined(int instruction);
     void thumb_arithmetic_flags(std::int32_t value) noexcept;
+    std::int32_t fetch(std::int32_t address) {
+        return state.thumb ? i32(u32(bus.fetch16(address)) & 0xffffU) : bus.fetch32(address);
+    }
+    void refill_pipeline() {
+        pipeline_thumb_ = state.thumb;
+        const auto pc = state.regs[15];
+        pipeline_[0] = fetch(pc); pipeline_[1] = fetch(add32(pc, state.thumb ? 2 : 4));
+        pipeline_valid_ = true;
+    }
     bool branched_{};
+    std::array<std::int32_t, 2> pipeline_{};
+    bool pipeline_valid_{};
+    bool pipeline_thumb_{};
 };
 
 } // namespace ravenemu::gba

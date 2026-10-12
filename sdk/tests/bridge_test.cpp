@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -72,6 +73,57 @@ int state_cache_test() {
     return 0;
 }
 
+/* Réglages de cartouche GBA : refusés sur un autre système ou hors bornes,
+ * appliqués au prochain chargement ou reset. */
+int gba_cartridge_settings_test() {
+    auto rom = ravenemu::testing::minimal_gba_rom();
+    Handle game_boy(ravenemu_v3_create(RAVENEMU_V3_GB), ravenemu_v3_destroy);
+    if (!game_boy || ravenemu_v3_set_gba_save_type(game_boy.get(), RAVENEMU_V3_GBA_SAVE_SRAM) ||
+        ravenemu_v3_set_gba_rtc(game_boy.get(), RAVENEMU_V3_GBA_RTC_ON) ||
+        std::string(ravenemu_v3_last_error()).empty()) return 40;
+    if (ravenemu_v3_set_gba_save_type(nullptr, RAVENEMU_V3_GBA_SAVE_AUTO)) return 41;
+
+    Handle handle(ravenemu_v3_create(RAVENEMU_V3_GBA), ravenemu_v3_destroy);
+    if (!handle || ravenemu_v3_set_gba_save_type(handle.get(), -1) ||
+        ravenemu_v3_set_gba_save_type(handle.get(), RAVENEMU_V3_GBA_SAVE_EEPROM_8K + 1) ||
+        ravenemu_v3_set_gba_rtc(handle.get(), RAVENEMU_V3_GBA_RTC_ON + 1)) return 42;
+    if (!ravenemu_v3_set_gba_save_type(handle.get(), RAVENEMU_V3_GBA_SAVE_FLASH_128K) ||
+        !ravenemu_v3_load(handle.get(), rom.data(), rom.size(), nullptr, 0) ||
+        ravenemu_v3_battery_size(handle.get()) != 128 * 1024) return 43;
+    // Sans signature, la détection ne trouve aucune sauvegarde.
+    if (!ravenemu_v3_set_gba_save_type(handle.get(), RAVENEMU_V3_GBA_SAVE_AUTO) ||
+        ravenemu_v3_battery_size(handle.get()) != 128 * 1024 ||
+        !ravenemu_v3_reset(handle.get()) || ravenemu_v3_battery_size(handle.get()) != 0) return 44;
+    // L'horloge ajoute le port GPIO, donc son état, à la sauvegarde d'état.
+    const auto without_rtc = ravenemu_v3_state_size(handle.get());
+    if (!ravenemu_v3_set_gba_rtc(handle.get(), RAVENEMU_V3_GBA_RTC_ON) || !ravenemu_v3_reset(handle.get()) ||
+        ravenemu_v3_state_size(handle.get()) <= without_rtc) return 45;
+    if (!ravenemu_v3_set_gba_rtc(handle.get(), RAVENEMU_V3_GBA_RTC_AUTO) || !ravenemu_v3_reset(handle.get()) ||
+        ravenemu_v3_state_size(handle.get()) != without_rtc) return 46;
+    return 0;
+}
+
+/* Drill Dozer (code V49) allume son moteur par la broche 3 du GPIO. */
+int gba_rumble_test() {
+    std::vector<std::uint8_t> rom(0x200);
+    // LDR r0, =0x080000C4 ; MOV r1, #8 ; STRH r1, [r0, #2] ; STRH r1, [r0] ; B .
+    const std::uint32_t program[]{0xe59f000cU, 0xe3a01008U, 0xe1c010b2U, 0xe1c010b0U, 0xeafffffeU, 0x080000c4U};
+    for (std::size_t index = 0; index < std::size(program); ++index)
+        for (unsigned byte = 0; byte < 4; ++byte)
+            rom[index * 4U + byte] = static_cast<std::uint8_t>(program[index] >> (byte * 8U));
+    rom[0xb2] = 0x96;
+    std::vector<std::uint32_t> frame(240 * 160);
+    for (const bool motor : {false, true}) {
+        std::memcpy(rom.data() + 0xac, motor ? "V49E" : "AAAE", 4);
+        Handle handle(ravenemu_v3_create(RAVENEMU_V3_GBA), ravenemu_v3_destroy);
+        if (!handle || !ravenemu_v3_load(handle.get(), rom.data(), rom.size(), nullptr, 0) ||
+            ravenemu_v3_rumble_active(handle.get())) return 50;
+        if (!ravenemu_v3_run_frame(handle.get(), frame.data(), frame.size()) ||
+            ravenemu_v3_rumble_active(handle.get()) != (motor ? 1 : 0)) return 51;
+    }
+    return ravenemu_v3_rumble_active(nullptr) ? 52 : 0;
+}
+
 } // namespace
 
 int main() {
@@ -86,6 +138,14 @@ int main() {
     }
     if (const int failure = battery_tracking_test()) {
         std::cerr << "Battery tracking failed (" << failure << "): " << ravenemu_v3_last_error() << "\n";
+        return failure;
+    }
+    if (const int failure = gba_cartridge_settings_test()) {
+        std::cerr << "GBA cartridge settings failed (" << failure << "): " << ravenemu_v3_last_error() << "\n";
+        return failure;
+    }
+    if (const int failure = gba_rumble_test()) {
+        std::cerr << "GBA rumble failed (" << failure << "): " << ravenemu_v3_last_error() << "\n";
         return failure;
     }
     if (ravenemu_v3_create(99)) {

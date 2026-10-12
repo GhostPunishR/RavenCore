@@ -4,14 +4,20 @@
 #include "timers/timers.hpp"
 #include "dma/dma_controller.hpp"
 #include "apu/apu.hpp"
+#include "serial/serial.hpp"
+
 
 namespace ravenemu::gba {
 
-void Bus::account(std::int32_t address, int width, bool fetch) noexcept {
-    const auto sequential = address == next_sequential_address;
-    wait_cycles += fetch ? timing.instruction_wait(address, width, sequential)
-                         : timing.wait_states(address, width, sequential);
-    next_sequential_address = add32(address, width);
+std::uint8_t* Bus::direct_write(std::uint32_t address) noexcept {
+    switch (address >> 24U) {
+    case 0x02: return ewram.data() + (address & 0x3ffffU);
+    case 0x03: return iwram.data() + (address & 0x7fffU);
+    case 0x05: return palette.data() + (address & 0x3ffU);
+    case 0x06: return vram.data() + vram_offset(i32(address));
+    case 0x07: return oam.data() + (address & 0x3ffU);
+    default: return nullptr;
+    }
 }
 
 bool Bus::eeprom_window(std::int32_t address) const noexcept {
@@ -52,7 +58,10 @@ int Bus::read8_raw(std::int32_t address) {
     const auto raw = u32(address);
     const auto region = (raw >> 24U) & 0xffU;
     switch (region) {
-    case 0x00: case 0x01: return bios[raw & 0x3fffU];
+    case 0x00:
+        if (raw >= 0x4000U) { diagnostics.unsupported_access(address); return open_bus(raw); }
+        if (!executing_bios) return static_cast<int>((bios_latch >> ((raw & 3U) * 8U)) & 0xffU);
+        return bios[raw];
     case 0x02: return ewram[raw & 0x3ffffU];
     case 0x03: return iwram[raw & 0x7fffU];
     case 0x04: return read_io(static_cast<int>(raw & 0x3ffU));
@@ -75,19 +84,23 @@ int Bus::read8_raw(std::int32_t address) {
     }
     default:
         diagnostics.unsupported_access(address);
-        return 0;
+        return open_bus(raw);
     }
 }
 
 int Bus::read8(std::int32_t address) {
     account(address, 1);
+    sync_io(address, false);
     return read8_raw(address);
 }
 
 int Bus::read16(std::int32_t address) {
+    if (save_bus(address)) { account(address, 2); return read8_raw(address) * 0x0101; }
     const auto aligned = i32(u32(address) & ~1U);
     account(aligned, 2);
+    sync_io(aligned, false);
     if (auto* memory = eeprom(); memory && eeprom_window(aligned)) return memory->read(0);
+    if (const auto* data = direct_read(u32(aligned), 2)) return static_cast<int>(load_le(data, 2));
     if (auto* port = cartridge.gpio(); port && port->readable() && gpio_register(aligned)) {
         return port->read16(rom_offset(aligned));
     }
@@ -95,8 +108,11 @@ int Bus::read16(std::int32_t address) {
 }
 
 std::int32_t Bus::read32(std::int32_t address) {
+    if (save_bus(address)) { account(address, 4); return i32(u32(read8_raw(address)) * 0x0101'0101U); }
     const auto aligned = i32(u32(address) & ~3U);
     account(aligned, 4);
+    sync_io(aligned, false);
+    if (const auto* data = direct_read(u32(aligned), 4)) return i32(load_le(data, 4));
     auto result = static_cast<std::uint32_t>(read8_raw(aligned));
     result |= static_cast<std::uint32_t>(read8_raw(add32(aligned, 1))) << 8U;
     result |= static_cast<std::uint32_t>(read8_raw(add32(aligned, 2))) << 16U;
@@ -104,15 +120,23 @@ std::int32_t Bus::read32(std::int32_t address) {
     return i32(result);
 }
 
-int Bus::fetch16(std::int32_t address) {
-    const auto aligned = i32(u32(address) & ~1U);
-    account(aligned, 2, true);
+void Bus::track_bios_fetch(std::int32_t address) noexcept {
+    // Le pipeline lit PC + 8 : le dernier mot préchargé depuis le BIOS est
+    // exactement ce que rend ensuite une lecture du BIOS depuis l'extérieur.
+    executing_bios = (u32(address) >> 24U) == 0;
+    if (!executing_bios) return;
+    const auto word = u32(address) & 0x3ffcU;
+    bios_latch = static_cast<std::uint32_t>(bios[word]) | static_cast<std::uint32_t>(bios[word + 1]) << 8U |
+                 static_cast<std::uint32_t>(bios[word + 2]) << 16U | static_cast<std::uint32_t>(bios[word + 3]) << 24U;
+}
+
+int Bus::fetch16_slow(std::int32_t aligned) {
+    track_bios_fetch(aligned);
     return read8_raw(aligned) | read8_raw(add32(aligned, 1)) << 8;
 }
 
-std::int32_t Bus::fetch32(std::int32_t address) {
-    const auto aligned = i32(u32(address) & ~3U);
-    account(aligned, 4, true);
+std::int32_t Bus::fetch32_slow(std::int32_t aligned) {
+    track_bios_fetch(aligned);
     auto result = static_cast<std::uint32_t>(read8_raw(aligned));
     result |= static_cast<std::uint32_t>(read8_raw(add32(aligned, 1))) << 8U;
     result |= static_cast<std::uint32_t>(read8_raw(add32(aligned, 2))) << 16U;
@@ -147,6 +171,7 @@ void Bus::write8_raw(std::int32_t address, int value) {
 
 void Bus::write8(std::int32_t address, int value) {
     account(address, 1);
+    sync_io(address, true);
     const auto region = (u32(address) >> 24U) & 0xffU;
     if (region == 0x05U || region == 0x06U) {
         const auto aligned = i32(u32(address) & ~1U);
@@ -164,24 +189,36 @@ void Bus::write16_raw(std::int32_t address, int value) {
     if (auto* port = cartridge.gpio(); port && gpio_register(address)) {
         port->write16(rom_offset(address), value & 0xffff); return;
     }
+    if (auto* data = direct_write(u32(address))) { store_le(data, u32(value), 2); return; }
     write8_raw(address, value); write8_raw(add32(address, 1), value >> 8);
     if ((u32(address) >> 24U) == 0x04U) propagate_io_write(static_cast<int>(u32(address) & 0x3ffU), value, 2);
 }
 
 void Bus::write16(std::int32_t address, int value) {
+    if (save_bus(address)) {
+        account(address, 2); write8_raw(address, static_cast<int>(u32(value) >> ((u32(address) & 1U) * 8U)));
+        return;
+    }
     const auto aligned = i32(u32(address) & ~1U);
-    account(aligned, 2); write16_raw(aligned, value);
+    account(aligned, 2); sync_io(aligned, true); write16_raw(aligned, value);
 }
 
 void Bus::write32(std::int32_t address, std::int32_t value) {
+    if (save_bus(address)) {
+        account(address, 4); write8_raw(address, static_cast<int>(u32(value) >> ((u32(address) & 3U) * 8U)));
+        return;
+    }
     const auto aligned = i32(u32(address) & ~3U);
     account(aligned, 4);
+    sync_io(aligned, true);
     if ((u32(aligned) >> 24U) == 0x04U) {
         const auto offset = static_cast<int>(u32(aligned) & 0x3ffU);
         for (unsigned index = 0; index < 4; ++index) {
             io[static_cast<std::size_t>(offset) + index] = static_cast<std::uint8_t>(u32(value) >> (index * 8U));
         }
         propagate_io_write(offset, value, 4);
+    } else if (auto* data = direct_write(u32(aligned))) {
+        store_le(data, u32(value), 4);
     } else {
         write16_raw(aligned, static_cast<int>(u32(value) & 0xffffU));
         write16_raw(add32(aligned, 2), static_cast<int>(u32(value) >> 16U));
@@ -198,6 +235,7 @@ void Bus::write_io_half(int offset, int value) noexcept {
 }
 
 void Bus::propagate_io_write(int offset, std::int32_t value, int bytes) {
+    if (offset <= 0x301 && offset + bytes > 0x301 && io_halt) io_halt(io_sync_context);
     if (offset >= 0x0a0 && offset <= 0x0a7) {
         if (apu) apu->push_fifo(offset < 0x0a4 ? 0 : 1, value, bytes);
         return;
@@ -214,7 +252,7 @@ void Bus::handle_io_write(int offset, int value) {
     else if (offset == 0x200 && interrupts) interrupts->enable = value;
     else if (offset == 0x202 && interrupts) interrupts->acknowledge(value);
     else if (offset == 0x208 && interrupts) interrupts->master_enable = (value & 1) != 0;
-    else if (offset == 0x204) timing.wait_control = value;
+    else if (offset == 0x204) { timing.set_wait_control(value); close_fetch_window(); }
     else if (timers && (offset == 0x100 || offset == 0x104 || offset == 0x108 || offset == 0x10c)) {
         timers->reload_write((offset - 0x100) / 4, value);
     } else if (timers && (offset == 0x102 || offset == 0x106 || offset == 0x10a || offset == 0x10e)) {
@@ -222,6 +260,8 @@ void Bus::handle_io_write(int offset, int value) {
     } else if (dma && (offset == 0x0ba || offset == 0x0c6 || offset == 0x0d2 || offset == 0x0de)) {
         const auto channel = offset == 0x0ba ? 0 : offset == 0x0c6 ? 1 : offset == 0x0d2 ? 2 : 3;
         dma_control_write(dma, channel, value);
+    } else if (offset == 0x128) {
+        serial_control_write(serial, value);
     } else if (apu && offset >= 0x060 && offset <= 0x09f) {
         apu->write_register(offset, value);
     }
@@ -234,6 +274,6 @@ void Bus::reset_affine_matrices() {
     }
 }
 
-void Bus::sync_timing_from_io() { timing.wait_control = io_half(0x204); }
+void Bus::sync_timing_from_io() { timing.set_wait_control(io_half(0x204)); close_fetch_window(); }
 
 } // namespace ravenemu::gba

@@ -13,6 +13,13 @@ public:
     Bios(Cpu& cpu, Bus& bus) : cpu_(cpu), bus_(bus) { install_irq_handler(); }
 
     void handle_swi(int number) {
+        handle_swi_function(number);
+        // Le BIOS d'origine rend la main depuis la même adresse après chaque
+        // SWI ; SoftReset repart comme au démarrage.
+        bus_.bios_latch = number == 0 || number == 0x26 ? Bus::bios_latch_after_startup : Bus::bios_latch_after_swi;
+        bus_.executing_bios = false;
+    }
+    void handle_swi_function(int number) {
         auto& registers = cpu_.state.regs; bus_.diagnostics.swi(number);
         switch (number) {
         case 0x00: soft_reset(); break; case 0x01: register_ram_reset(registers[0]); break;
@@ -24,6 +31,7 @@ public:
         case 0x09: registers[0] = arc_tan(registers[0]); break; case 0x0a: registers[0] = arc_tan2(registers[0], registers[1]); break;
         case 0x0b: cpu_set(registers[0], registers[1], registers[2]); break;
         case 0x0c: cpu_fast_set(registers[0], registers[1], registers[2]); break;
+        case 0x0d: registers[0] = i32(0xbaae'187fU); break;  // GetBiosChecksum
         case 0x0e: bg_affine_set(registers[0], registers[1], registers[2]); break;
         case 0x0f: obj_affine_set(registers[0], registers[1], registers[2], registers[3]); break;
         case 0x10: bit_unpack(registers[0], registers[1], registers[2]); break;
@@ -33,6 +41,12 @@ public:
         case 0x16: differential(registers[0], registers[1], false, false); break;
         case 0x17: differential(registers[0], registers[1], false, true); break;
         case 0x18: differential(registers[0], registers[1], true, true); break;
+        case 0x19: sound_bias(registers[0] != 0); break;
+        case 0x1f: registers[0] = midi_key_to_frequency(registers[0], registers[1], registers[2]); break;
+        case 0x25: registers[0] = 1; break;  // MultiBoot : échec, aucun câble
+        case 0x26: hard_reset(); break;
+        case 0x27: halt(); break;            // CustomHalt : arrêt jusqu'à une interruption
+        case 0x28: case 0x29: break;         // SoundDriverVSyncOff/On : sans pilote BIOS, rien à suspendre
         default:
             bus_.diagnostics.report(DiagnosticEvent::unsupported_swi,
                 "appel logiciel GBA non pris en charge " + std::to_string(number));
@@ -47,14 +61,20 @@ public:
         clear_flags(wait_state_->interrupt_mask); wait_state_.reset(); return true;
     }
     [[nodiscard]] const std::optional<WaitState>& wait_state() const noexcept { return wait_state_; }
+    // Halt (SWI 2, CustomHalt ou écriture de HALTCNT) : reprise à la première
+    // interruption activée et demandée, sans exiger IME.
+    void halt() noexcept { wait_state_.reset(); cpu_.state.halted = true; }
     void restore_wait_state(std::optional<WaitState> value) noexcept { wait_state_ = value; }
 
 private:
     static constexpr std::int32_t interrupt_flags_address = i32(0x03007ff8U);
     static constexpr std::size_t max_output = 1U << 20U;
     void install_irq_handler() noexcept {
-        constexpr std::array<std::uint32_t, 6> handler{
-            0xe92d500fU, 0xe3a00301U, 0xe28fe000U, 0xe510f004U, 0xe8bd500fU, 0xe25ef004U,
+        // Même séquence que le gestionnaire du BIOS d'origine. Le mot qui le
+        // suit n'est jamais exécuté, mais il est préchargé au retour : c'est
+        // la valeur que GBATEK documente pour une lecture du BIOS après une IRQ.
+        constexpr std::array<std::uint32_t, 8> handler{
+            0xe92d500fU, 0xe3a00301U, 0xe28fe000U, 0xe510f004U, 0xe8bd500fU, 0xe25ef004U, 0, 0xe55ec002U,
         };
         auto offset = 0x18U;
         for (const auto word : handler) for (unsigned byte = 0; byte < 4; ++byte) {
@@ -71,7 +91,32 @@ private:
         else if ((flags() & mask) != 0) { clear_flags(mask); return; }
         wait_state_ = WaitState{mask, discard}; cpu_.state.halted = true;
     }
-    void soft_reset() { cpu_.reset(i32(0x08000000U)); cpu_.branch_to(i32(0x08000000U)); }
+    // SoftReset (GBATEK) : efface 0x03007E00..0x03007FFF (piles, vecteur et
+    // drapeaux d'IRQ), réinitialise les registres et repart en ROM, ou en
+    // EWRAM si l'octet 0x03007FFA est non nul (jeux chargés par MultiBoot).
+    void soft_reset() {
+        const auto entry = bus_.iwram[0x7ffaU] != 0 ? i32(0x0200'0000U) : i32(0x0800'0000U);
+        std::fill(bus_.iwram.end() - 0x200, bus_.iwram.end(), std::uint8_t{0});
+        cpu_.reset(entry); cpu_.branch_to(entry);
+    }
+    // HardReset : comme à la mise sous tension, sans l'animation du BIOS.
+    void hard_reset() {
+        register_ram_reset(0xff);
+        bus_.iwram.fill(0);
+        cpu_.reset(i32(0x0800'0000U)); cpu_.branch_to(i32(0x0800'0000U));
+    }
+    // SoundBias : niveau de SOUNDBIAS porté à 0x200 ou ramené à 0 (le BIOS y
+    // va par petits pas ; seul le niveau final est observable ensuite).
+    void sound_bias(bool raise) {
+        const auto current = bus_.read16(i32(0x0400'0088U));
+        bus_.write16(i32(0x0400'0088U), (current & 0xfc00) | (raise ? 0x200 : 0));
+    }
+    // MidiKey2Freq : fréquence de WaveData divisée par 2^((180 - touche - fin/256) / 12).
+    std::int32_t midi_key_to_frequency(std::int32_t wave, std::int32_t key, std::int32_t fine) {
+        const auto base = static_cast<double>(u32(bus_.read32(add32(wave, 4))));
+        const auto exponent = (180.0 - static_cast<double>(key) - static_cast<double>(fine & 0xff) / 256.0) / 12.0;
+        return i32(static_cast<std::uint32_t>(base / std::exp2(exponent)));
+    }
     void register_ram_reset(int flags) {
         if ((flags & 1) != 0) bus_.ewram.fill(0);
         if ((flags & 2) != 0) std::fill(bus_.iwram.begin(), bus_.iwram.end() - 0x200, 0);

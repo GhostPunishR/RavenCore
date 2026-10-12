@@ -36,6 +36,7 @@ public:
                     if (irq_enabled(0x10) && interrupts) interrupts->request(InterruptController::hblank);
                     if (dma) dma->trigger_hblank();
                 }
+                if (dma) dma->trigger_video_capture(vcount);
             }
             if (line_cycles_ >= line_cycles_total) {
                 line_cycles_ = 0; in_hblank = false; vcount = (vcount + 1) % total_lines;
@@ -53,6 +54,10 @@ public:
                 if (vcount_match && irq_enabled(0x20) && interrupts) interrupts->request(InterruptController::vcount);
             }
         }
+    }
+    // Cycles jusqu'au prochain changement visible : fin du tracé ou de la ligne.
+    [[nodiscard]] int cycles_until_next_event() const noexcept {
+        return (in_hblank ? line_cycles_total : hdraw_cycles) - line_cycles_;
     }
     [[nodiscard]] int dispstat_low() const noexcept {
         auto status = (in_vblank ? 1 : 0) | (in_hblank ? 2 : 0) | (vcount_match ? 4 : 0);
@@ -251,25 +256,40 @@ private:
         const auto effective_y = (source_y + (reg16(0x12 + bg * 4) & 0x1ff)) & (height - 1);
         const auto tile_y = effective_y >> 3; const auto initial_py = effective_y & 7;
         const auto horizontal = reg16(0x10 + bg * 4) & 0x1ff;
+        const auto block_y = tile_y >= 32 ? 1 : 0;
+        // L'entrée de carte et la ligne de la tuile ne changent qu'avec
+        // tile_x : elles sont relues une fois par tuile, pas par pixel.
+        int cached_tile_x = -1; int row_base{}; int palette_bank{}; bool flip_x{};
         for (int x = 0; x < screen_width; ++x) {
             if ((window_mask_[static_cast<std::size_t>(x)] & (1 << bg)) == 0) continue;
             const auto source_x = mosaic ? x - x % mosaic_width : x;
             const auto effective_x = (source_x + horizontal) & (width - 1); const auto tile_x = effective_x >> 3;
-            const auto block_x = tile_x >= 32 ? 1 : 0; const auto block_y = tile_y >= 32 ? 1 : 0;
-            const auto block = size == 1 ? block_x : size == 2 ? block_y : size == 3 ? block_y * 2 + block_x : 0;
-            const auto entry = vram16(screen_base + block * 0x800 + ((tile_y & 31) * 32 + (tile_x & 31)) * 2);
-            const auto tile = entry & 0x3ff; const auto px = (entry & 0x400) != 0 ? 7 - (effective_x & 7) : effective_x & 7;
-            const auto py = (entry & 0x800) != 0 ? 7 - initial_py : initial_py;
+            if (tile_x != cached_tile_x) {
+                cached_tile_x = tile_x;
+                const auto block_x = tile_x >= 32 ? 1 : 0;
+                const auto block = size == 1 ? block_x : size == 2 ? block_y : size == 3 ? block_y * 2 + block_x : 0;
+                const auto entry = vram16(screen_base + block * 0x800 + ((tile_y & 31) * 32 + (tile_x & 31)) * 2);
+                const auto tile = entry & 0x3ff;
+                const auto py = (entry & 0x800) != 0 ? 7 - initial_py : initial_py;
+                row_base = eight_bpp ? char_base + tile * 64 + py * 8 : char_base + tile * 32 + py * 4;
+                palette_bank = ((entry >> 12) & 15) * 16; flip_x = (entry & 0x400) != 0;
+            }
+            const auto px = flip_x ? 7 - (effective_x & 7) : effective_x & 7;
             int color{};
-            if (eight_bpp) color = vram8(char_base + tile * 64 + py * 8 + px);
-            else { const auto byte = vram8(char_base + tile * 32 + py * 4 + px / 2); const auto nibble = (px & 1) == 0 ? byte & 15 : byte >> 4; if (nibble != 0) color = ((entry >> 12) & 15) * 16 + nibble; }
+            if (eight_bpp) color = vram8(row_base + px);
+            else { const auto byte = vram8(row_base + px / 2); const auto nibble = (px & 1) == 0 ? byte & 15 : byte >> 4; if (nibble != 0) color = palette_bank + nibble; }
             if (color != 0) push_pixel(x, palette_color(color), priority, bg);
         }
     }
     void render_sprites(int y, int display) {
         if ((display & 0x1000) == 0) return;
         const auto one_dimensional = (display & 0x40) != 0;
-        for (int sprite = 0; sprite < 128; ++sprite) {
+        // Temps de rendu des objets par ligne (GBATEK) : 1210 cycles, 954 si
+        // DISPCNT bit 5 libère le H-Blank. Un objet coûte sa largeur, un objet
+        // affine 10 + 2 × la largeur de sa boîte ; une fois le temps épuisé,
+        // les objets suivants (dans l'ordre de l'OAM) ne sont pas tracés.
+        auto budget = (display & 0x20) != 0 ? 954 : 1210;
+        for (int sprite = 0; sprite < 128 && budget > 0; ++sprite) {
             const auto base = sprite * 8; const auto attr0 = oam16(base); const auto transform = (attr0 >> 8) & 3;
             if (transform == 2 || ((attr0 >> 14) & 3) == 3 || ((attr0 >> 10) & 3) == 3) continue;
             const auto affine = transform == 1 || transform == 3; const auto doubled = transform == 3;
@@ -278,6 +298,8 @@ private:
             const auto width = object_width_[static_cast<std::size_t>(size_key)]; const auto height = object_height_[static_cast<std::size_t>(size_key)];
             const auto box_width = doubled ? width * 2 : width; const auto box_height = doubled ? height * 2 : height;
             const auto sprite_y = (y - (attr0 & 0xff)) & 0xff; if (sprite_y >= box_height) continue;
+            const auto drawable = affine ? std::min(box_width, std::max(0, (budget - 10) / 2)) : std::min(box_width, budget);
+            budget -= affine ? 10 + 2 * box_width : box_width;
             auto sprite_x = attr1 & 0x1ff; if (sprite_x >= 0x100) sprite_x -= 0x200;
             const auto eight_bpp = (attr0 & 0x2000) != 0; const auto palette_bank = (attr2 >> 12) & 15;
             const auto priority = (attr2 >> 10) & 3; const auto tile_base = attr2 & 0x3ff;
@@ -292,7 +314,7 @@ private:
             // position n'est pas un multiple de la taille du bloc.
             const auto mosaic = (attr0 & 0x1000) != 0; const auto mosaic_width = mosaic ? obj_mosaic_width() : 1;
             const auto sample_y = mosaic ? sprite_y - sprite_y % obj_mosaic_height() : sprite_y;
-            for (int column = 0; column < box_width; ++column) {
+            for (int column = 0; column < drawable; ++column) {
                 const auto screen_x = sprite_x + column; if (screen_x < 0 || screen_x >= screen_width) continue;
                 const auto sample_column = mosaic ? column - column % mosaic_width : column;
                 int texture_x{}; int texture_y{};

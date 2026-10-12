@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,8 @@ unsigned descriptor_count = 0;
 bool descriptors_have_lr = false;
 bool descriptors_have_tilt = false;
 unsigned analog_queries = 0;
+std::map<std::string, std::string> declared_options; // clé -> « Libellé; a|b|c »
+std::map<std::string, std::string> option_values;   // réglages choisis par l'utilisateur
 
 bool rumble(unsigned port, retro_rumble_effect effect, std::uint16_t strength) {
     if (port == 0 && effect == RETRO_RUMBLE_STRONG) {
@@ -47,6 +50,16 @@ bool environment(unsigned command, void* value) {
     if (command == RETRO_ENVIRONMENT_SET_PIXEL_FORMAT) {
         pixel_format_requested = true;
         return *static_cast<retro_pixel_format*>(value) == RETRO_PIXEL_FORMAT_XRGB8888;
+    }
+    if (command == RETRO_ENVIRONMENT_SET_VARIABLES) {
+        for (auto* v = static_cast<const retro_variable*>(value); v->key; ++v) declared_options[v->key] = v->value;
+        return true;
+    }
+    if (command == RETRO_ENVIRONMENT_GET_VARIABLE) {
+        auto* variable = static_cast<retro_variable*>(value);
+        const auto found = option_values.find(variable->key);
+        variable->value = found == option_values.end() ? nullptr : found->second.c_str();
+        return found != option_values.end();
     }
     if (command == RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS) {
         achievements_advertised = *static_cast<bool*>(value);
@@ -164,12 +177,60 @@ int main() {
         std::cerr << "State still present after unload\n";
         return 1;
     }
-#if !defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    // Options déclarées avec « auto » par défaut, appliquées au chargement.
+    if (declared_options.size() != 2 ||
+        declared_options["ravenemu_gba_save_type"].find("; auto|") == std::string::npos ||
+        declared_options["ravenemu_gba_rtc"].find("; auto|") == std::string::npos) {
+        std::cerr << "GBA core options not declared\n";
+        return 1;
+    }
+    const auto save_ram_size_with = [&](const char* save_type) {
+        option_values["ravenemu_gba_save_type"] = save_type;
+        const bool loaded = retro_load_game(&game);
+        const auto size = loaded ? retro_get_memory_size(RETRO_MEMORY_SAVE_RAM) : std::size_t{1};
+        retro_unload_game();
+        return size;
+    };
+    if (save_ram_size_with("sram") != 32768 || save_ram_size_with("flash128") != 131072 ||
+        save_ram_size_with("none") != 0 || save_ram_size_with("auto") != 8192 ||
+        save_ram_size_with("bogus") != 8192) {
+        std::cerr << "GBA save type option ignored\n";
+        return 1;
+    }
+    // L'horloge ajoute le port GPIO à l'état sauvegardé.
+    const auto state_size_with = [&](const char* rtc) {
+        option_values["ravenemu_gba_rtc"] = rtc;
+        const auto size = retro_load_game(&game) ? retro_serialize_size() : 0;
+        retro_unload_game();
+        return size;
+    };
+    if (state_size_with("enabled") <= state_size_with("disabled") ||
+        state_size_with("auto") != state_size_with("disabled")) {
+        std::cerr << "GBA RTC option ignored\n";
+        return 1;
+    }
+    option_values.clear();
+
+    // Drill Dozer (V49) : LDR r0, =0x080000C4 ; MOV r1, #8 ; STRH r1, [r0, #2] ;
+    // STRH r1, [r0] ; B . — la broche 3 du GPIO allume le moteur.
+    auto rumble_rom = ravenemu::testing::minimal_gba_rom();
+    const std::uint32_t motor_on[]{0xe59f000cU, 0xe3a01008U, 0xe1c010b2U, 0xe1c010b0U, 0xeafffffeU, 0x080000c4U};
+    for (std::size_t index = 0; index < std::size(motor_on); ++index)
+        for (unsigned byte = 0; byte < 4; ++byte)
+            rumble_rom[index * 4U + byte] = static_cast<std::uint8_t>(motor_on[index] >> (byte * 8U));
+    std::copy_n("V49E", 4, rumble_rom.begin() + 0xac);
+#else
+    if (!declared_options.empty()) {
+        std::cerr << "Game Boy core declares GBA options\n";
+        return 1;
+    }
     // MBC5+RUMBLE program: LD A,$08 ; LD ($4000),A ; JR $ (motor on, then loop).
     auto rumble_rom = ravenemu::testing::minimal_game_boy_rom();
     const std::uint8_t motor_on[] = {0x3e, 0x08, 0xea, 0x00, 0x40, 0x18, 0xfe};
     std::copy(std::begin(motor_on), std::end(motor_on), rumble_rom.begin() + 0x100);
     rumble_rom[0x147] = 0x1c;
+#endif
     game.data = rumble_rom.data();
     game.size = rumble_rom.size();
     if (!retro_load_game(&game)) return 1;
@@ -183,7 +244,7 @@ int main() {
         std::cerr << "Rumble motor left running after unload\n";
         return 1;
     }
-
+#if !defined(RAVENEMU_LIBRETRO_GBA)
     // MBC5+RAM+BATTERY program: enable RAM, store $77 at $A000, loop. The
     // write must reach SAVE_RAM, which the frontend persists.
     auto battery_rom = ravenemu::testing::minimal_game_boy_rom();

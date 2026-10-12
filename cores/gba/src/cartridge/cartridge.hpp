@@ -14,6 +14,7 @@ namespace ravenemu::gba {
 struct RomTraits {
     GbaSaveType save_type{GbaSaveType::none};
     bool rtc{};
+    bool rumble{};
 
     [[nodiscard]] static RomTraits detect(std::span<const std::uint8_t> rom) {
         // La détection cherche la bibliothèque Seiko que les cartouches d'origine
@@ -23,7 +24,15 @@ struct RomTraits {
         // l'appelant prime donc, dans les deux sens.
         constexpr std::string_view rtc_marker = "SIIRTC_V";
         return {detect_save(rom),
-                std::search(rom.begin(), rom.end(), rtc_marker.begin(), rtc_marker.end()) != rom.end()};
+                std::search(rom.begin(), rom.end(), rtc_marker.begin(), rtc_marker.end()) != rom.end(),
+                has_rumble_motor(rom)};
+    }
+    // Moteur de vibration sur la broche 3 du GPIO (GBATEK) : Drill Dozer (V49)
+    // et WarioWare: Twisted! (RZW), reconnus par le code de jeu en 0xAC.
+    [[nodiscard]] static bool has_rumble_motor(std::span<const std::uint8_t> rom) noexcept {
+        if (rom.size() < 0xb0U) return false;
+        const std::string_view code(reinterpret_cast<const char*>(rom.data() + 0xac), 3);
+        return code == "V49" || code == "RZW";
     }
 };
 
@@ -53,14 +62,18 @@ public:
         if (view.size() > max_rom_size) throw RomLoadError("ROM GBA trop volumineuse");
         if (view.size() < 0xc0U) throw RomLoadError("ROM GBA trop courte");
         if (view[0xb2] != 0x96U) throw RomLoadError("Marqueur GBA 0x96 absent");
-        if (forced_rtc.value_or(rtc_detected_)) {
-            gpio_ = std::make_unique<Gpio>(std::move(clock));
-        }
+        const auto rtc = forced_rtc.value_or(rtc_detected_);
+        if (rtc || traits.rumble) gpio_ = std::make_unique<Gpio>(std::move(clock), rtc, traits.rumble);
     }
     int read8(int offset) const noexcept {
         const auto index = static_cast<std::size_t>(offset);
-        return index < rom_->size() ? (*rom_)[index] : 0;
+        if (index < rom_->size()) return (*rom_)[index];
+        // Au-delà de la ROM, le bus de la cartouche (adresse et données
+        // multiplexées) rend l'adresse du demi-mot : (adresse / 2) & 0xFFFF.
+        const auto half = (static_cast<unsigned>(offset) >> 1U) & 0xffffU;
+        return static_cast<int>((half >> ((static_cast<unsigned>(offset) & 1U) * 8U)) & 0xffU);
     }
+    [[nodiscard]] std::span<const std::uint8_t> rom() const noexcept { return *rom_; }
     [[nodiscard]] GbaSaveType save_type() const noexcept { return save_type_; }
     [[nodiscard]] SaveMemory* save() noexcept { return save_.get(); }
     [[nodiscard]] const SaveMemory* save() const noexcept { return save_.get(); }

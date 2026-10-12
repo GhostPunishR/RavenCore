@@ -223,6 +223,70 @@ void keypad_interrupt_state_validation_test() {
     core->load_state(valid);
 }
 
+/** ROM au code de jeu donné ; avec `motor_on`, elle allume la broche 3 du GPIO. */
+std::vector<std::uint8_t> gpio_rom(const char (&code)[5], bool motor_on) {
+    auto rom = minimal_gba_rom();
+    // LDR r0, =0x080000C4 ; MOV r1, #8 ; STRH r1, [r0, #2] ; STRH r1, [r0] ; B .
+    const std::array<std::uint32_t, 6> program{0xe59f000cU, 0xe3a01008U, 0xe1c010b2U,
+                                               0xe1c010b0U, 0xeafffffeU, 0x080000c4U};
+    for (std::size_t index = 0; index < program.size(); ++index)
+        for (unsigned byte = 0; byte < 4; ++byte)
+            rom[index * 4U + byte] = static_cast<std::uint8_t>(program[index] >> (byte * 8U));
+    if (!motor_on) { rom[0] = 0xfe; rom[1] = 0xff; rom[2] = 0xff; rom[3] = 0xea; } // B .
+    std::copy_n(code, 4, rom.begin() + 0xac);
+    return rom;
+}
+
+/**
+ * Drill Dozer (V49) et WarioWare: Twisted! (RZW) portent un moteur de vibration
+ * sur la broche 3 du GPIO (GBATEK). Le port existe alors sans horloge ; un état
+ * enregistré avant cette prise en charge n'a pas de bloc GPIO et doit pourtant
+ * se recharger, moteur au repos.
+ */
+void rumble_cartridge_test() {
+    std::vector<std::int32_t> frame(240U * 160U);
+    const auto running = [&](const std::vector<std::uint8_t>& rom, std::optional<bool> rtc = std::nullopt) {
+        auto core = ravenemu::make_gba_core(std::nullopt);
+        core->set_gba_forced_rtc(rtc);
+        core->load_rom(rom, {});
+        core->run_frame(frame, false);
+        return core;
+    };
+    const auto motor_rom = gpio_rom("V49E", true);
+    check(running(motor_rom)->rumble_active(), "Drill Dozer : moteur jamais allumé");
+    check(running(gpio_rom("RZWE", true))->rumble_active(), "WarioWare: Twisted! : moteur jamais allumé");
+    check(running(motor_rom, false)->rumble_active(), "horloge forcée absente : moteur perdu");
+    check(!running(gpio_rom("AAAE", true))->rumble_active(), "moteur allumé sur une cartouche qui n'en a pas");
+    check(!running(gpio_rom("V49E", false))->rumble_active(), "moteur allumé sans ordre du jeu");
+    const auto motor = running(motor_rom);
+    check(!motor->gba_rtc_active(), "vibreur pris pour une horloge");
+    auto restored = ravenemu::make_gba_core(std::nullopt);
+    restored->load_rom(motor_rom, {});
+    restored->load_state(motor->save_state());
+    check(restored->rumble_active(), "état du moteur perdu par la sauvegarde d'état");
+
+    // Ancien état : celui de la même ROM, sans le drapeau ni les 23 mots du GPIO.
+    // On le reconstitue d'après un état sans GPIO, identique hors en-tête et port.
+    const auto with_gpio = motor->save_state();
+    const auto without_gpio = running(gpio_rom("AAAE", true))->save_state();
+    constexpr std::size_t gpio_bytes = 23U * 4U;
+    check(with_gpio.size() == without_gpio.size() + gpio_bytes, "taille du bloc GPIO inattendue");
+    std::size_t flag = 0;
+    while (flag < without_gpio.size() &&
+           !(without_gpio[flag] == 0 && with_gpio[flag] == 1 &&
+             std::equal(without_gpio.begin() + static_cast<std::ptrdiff_t>(flag + 1), without_gpio.end(),
+                        with_gpio.begin() + static_cast<std::ptrdiff_t>(flag + 1 + gpio_bytes)))) ++flag;
+    check(flag < without_gpio.size(), "drapeau GPIO introuvable dans l'état");
+    std::vector<std::uint8_t> legacy(with_gpio.begin(), with_gpio.begin() + static_cast<std::ptrdiff_t>(flag));
+    legacy.push_back(0);
+    legacy.insert(legacy.end(), with_gpio.begin() + static_cast<std::ptrdiff_t>(flag + 1 + gpio_bytes), with_gpio.end());
+    restored->load_state(legacy);
+    check(!restored->rumble_active(), "ancien état : moteur resté allumé");
+    // Une horloge, elle, a un état à restaurer : son absence reste une erreur.
+    auto clock = running(motor_rom, true);
+    expect_failure<std::exception>([&] { clock->load_state(legacy); }, "ancien état accepté par une horloge");
+}
+
 } // namespace
 
 /** Carte mémoire exposée aux succès : IWRAM, EWRAM puis sauvegarde. */
@@ -252,5 +316,6 @@ int main() {
     invalid_rom_test();
     gba_smoke_test();
     gba_save_detection_test();
+    rumble_cartridge_test();
     return 0;
 }
