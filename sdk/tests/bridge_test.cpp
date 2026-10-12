@@ -107,6 +107,18 @@ int main() {
         const auto height = ravenemu_v3_video_height(handle.get());
         if (width != (system == RAVENEMU_V3_GBA ? 240 : 160) ||
             height != (system == RAVENEMU_V3_GBA ? 160 : 144)) return 4;
+        // Unmapped/OOB reads must report a short length. Each read is
+        // observational: it cannot advance a frame or clock a mapper.
+        std::uint8_t achievement[16]{};
+        if (ravenemu_v3_read_achievement_memory(
+                handle.get(), 0xFFFFFFFFu, achievement, sizeof achievement) != 0)
+            return 41;
+        if (ravenemu_v3_read_achievement_memory(
+                handle.get(), 0x0000u, achievement, sizeof achievement) != sizeof achievement)
+            return 42;
+        if (ravenemu_v3_read_achievement_memory(
+                handle.get(), 0x0000u, nullptr, sizeof achievement) != 0)
+            return 43;
         std::vector<std::uint32_t> frame(static_cast<size_t>(width * height));
         if (ravenemu_v3_run_frame(handle.get(), frame.data(), frame.size() - 1)) return 5;
         if (!ravenemu_v3_run_frame(handle.get(), frame.data(), frame.size())) {
