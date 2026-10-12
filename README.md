@@ -6,8 +6,6 @@
 
 **RavenCore** rassemble les moteurs d'émulation maison de [RavenEmu](https://github.com/GhostPunishR/RavenEmu), développés en **C++20**. Ce dépôt permet de les utiliser indépendamment de l'application Android, notamment avec **Libretro et RetroArch**.
 
-Le dépôt s'appelait auparavant **RavenEmu-Cores** : les anciens liens redirigent ici. Le paquet CMake s'appelle désormais `RavenCore` ; l'ancien nom `RavenEmuCores` reste accepté jusqu'à la version 1.0, avec un avertissement.
-
 ## Les cœurs
 
 | Cœur | Console | État |
