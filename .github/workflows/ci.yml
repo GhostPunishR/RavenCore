@@ -1,4 +1,6 @@
 name: Native cores and Libretro
+# Third-party actions are pinned to a full commit SHA (tag in the comment):
+# a moved or compromised tag cannot change what runs here.
 on:
   push:
     branches: [main]
@@ -12,7 +14,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Configure CMake
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
       - name: Build native engines and Libretro
@@ -43,7 +45,7 @@ jobs:
           mkdir -p dist/cores dist/info
           cp build/libretro/*_libretro.so dist/cores/
           cp libretro/info/*_libretro.info dist/info/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ravenemu-libretro-linux-x86_64
           path: dist/
@@ -62,7 +64,7 @@ jobs:
       SANITIZE: -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer
       UBSAN_OPTIONS: print_stacktrace=1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Configure CMake
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
@@ -73,3 +75,87 @@ jobs:
         run: cmake --build build --parallel 2
       - name: Run all synthetic tests
         run: ctest --test-dir build --output-on-failure
+
+  windows:
+    # Visual Studio is a multi-config generator: build, test and install all
+    # name the Release configuration explicitly.
+    name: C++20 engines and Libretro on Windows (MSVC)
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Configure CMake
+        run: cmake -S . -B build -DBUILD_TESTING=ON
+      - name: Build
+        run: cmake --build build --config Release --parallel 2
+      - name: Run all synthetic tests
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Install and consume the CMake package
+        run: |
+          cmake --install build --config Release --prefix "$RUNNER_TEMP/ravenemu"
+          cmake -S sdk/tests/package_consumer -B build/package_consumer \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/ravenemu"
+          cmake --build build/package_consumer --config Release
+          build/package_consumer/Release/ravenemu_package_consumer.exe
+
+  macos:
+    name: C++20 engines and Libretro on macOS (Apple Clang)
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Configure CMake
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build
+        run: cmake --build build --parallel 3
+      - name: Run all synthetic tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Install and consume the CMake package
+        run: |
+          cmake --install build --prefix "$RUNNER_TEMP/ravenemu"
+          cmake -S sdk/tests/package_consumer -B build/package_consumer \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/ravenemu"
+          cmake --build build/package_consumer
+          build/package_consumer/ravenemu_package_consumer
+
+  android:
+    # Cross-compilation only: nothing runs, but every source and test is
+    # built with the NDK, in 64 and 32 bits (size_t is 32 bits on v7a).
+    name: C++20 engines and Libretro for Android (${{ matrix.abi }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Locate the NDK
+        run: |
+          ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_ROOT:-}}"
+          test -n "$ndk" || { echo "No Android NDK on this runner"; exit 1; }
+          echo "NDK=$ndk" >> "$GITHUB_ENV"
+      - name: Configure CMake
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          "-DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake"
+          -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-24
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Verify Libretro libraries
+        run: |
+          nm="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          for system in gb gbc gba; do
+            core="build/libretro/ravenemu_${system}_libretro.so"
+            test -f "$core"
+            extra=$("$nm" -D --defined-only "$core" | awk '{print $3}' | grep -v '^retro_' || true)
+            if [ -n "$extra" ]; then
+              echo "$core exports non-Libretro symbols:"; echo "$extra"; exit 1
+            fi
+          done

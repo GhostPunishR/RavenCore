@@ -24,7 +24,7 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-Pour ne compiler que les moteurs, désactivez Libretro avec `-DRAVENEMU_BUILD_LIBRETRO=OFF`. La CI compile et teste les moteurs et les trois adaptateurs Libretro sur Linux, y compris sous ASan/UBSan.
+Pour ne compiler que les moteurs, désactivez Libretro avec `-DRAVENEMU_BUILD_LIBRETRO=OFF`. La CI compile et teste les moteurs et les trois adaptateurs Libretro sur Linux (GCC, et sous ASan/UBSan), Windows (MSVC) et macOS (Apple Clang), et vérifie la compilation Android (NDK, arm64-v8a et armeabi-v7a).
 
 Les tests GB/GBC disposent aussi d'un [runner de conformité](cores/gb/tests/README.md). Ses ROMs de test sont externes au dépôt. N'annoncez pas une suite comme réussie sans l'avoir exécutée et sans indiquer les résultats.
 
