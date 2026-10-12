@@ -34,7 +34,11 @@ public:
     }
     void load_state(BinaryReader& in) override {
         ram_enabled_ = in.boolean(); rom_bank_low_ = in.i32(); bank_high_ = in.i32();
-        advanced_mode_ = in.boolean(); in.raw(ram_);
+        advanced_mode_ = in.boolean();
+        if (rom_bank_low_ < 1 || rom_bank_low_ > 0x1f || bank_high_ < 0 || bank_high_ > 3) {
+            throw SaveStateError("État instantané corrompu (registres MBC1)");
+        }
+        in.raw(ram_);
     }
 private:
     [[nodiscard]] int current_rom_bank() const noexcept {

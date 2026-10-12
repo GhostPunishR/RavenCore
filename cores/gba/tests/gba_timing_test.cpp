@@ -3,11 +3,14 @@
 #include "check.hpp"
 #include "synthetic_roms.hpp"
 
+#include <array>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 using ravenemu::testing::check;
+using ravenemu::testing::expect_failure;
 
 namespace {
 
@@ -240,9 +243,34 @@ void sound_dma_preempts_and_resumes_lower_priority_transfer() {
     check(!machine.dma.active(), "le DMA repris retient encore le bus");
 }
 
+void corrupt_timer_state_is_rejected() {
+    ravenemu::gba::InterruptController interrupts;
+    ravenemu::gba::Timers timers(interrupts);
+    timers.reload_write(0, 0xfff0);
+    timers.control_write(0, 0xc3); // actif, IRQ, pré-diviseur 1024
+    timers.tick(5000);
+    const auto valid = timers.export_state();
+    timers.import_state(valid);
+    check(timers.export_state() == valid, "état timers GBA valide non restauré à l'identique");
+
+    // Index 0-3 compteurs, 4-7 recharges, 8-11 contrôles, 12-15 pré-diviseurs.
+    // Une recharge à 0x10000 donnait une période nulle, donc une division par
+    // zéro au débordement suivant.
+    for (const auto& [index, value] : std::array<std::pair<std::size_t, std::int32_t>, 8>{{
+             {4, 0x10000}, {4, -1}, {0, 0x10000}, {0, -1},
+             {8, 0x10000}, {8, -1}, {12, 1024}, {12, -1}}}) {
+        auto corrupt = valid;
+        corrupt[index] = value;
+        expect_failure<ravenemu::SaveStateError>(
+            [&] { timers.import_state(corrupt); }, "état timers GBA hors limites accepté");
+        check(timers.export_state() == valid, "état timers GBA refusé mais appliqué");
+    }
+}
+
 } // namespace
 
 int main() {
+    corrupt_timer_state_is_rejected();
     frame_overshoot_does_not_accumulate();
     long_dma_stops_at_frame_boundary();
     dma_effects_follow_elapsed_cycles();

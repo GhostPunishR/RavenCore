@@ -1081,6 +1081,55 @@ void corrupt_background_fifo_is_rejected() {
     }
 }
 
+/**
+ * Le scan OAM retient jusqu'à dix sprites dont l'index sert ensuite, en
+ * mode 3, à lire `oam[index * 4 + 2]`. Restaurés sans contrôle, ces index
+ * permettaient à un état forgé de lire hors du tableau et de faire planter
+ * l'hôte au rendu suivant.
+ */
+void retained_sprite_state_validation_test() {
+    InterruptController interrupts;
+    Ppu source(interrupts, gb::HardwareMode::dmg);
+    source.oam[0] = 17; // visible sur la ligne 1
+    source.oam[1] = 8;
+    source.write_lcdc(0x11);
+    source.write_lcdc(0x93); // LCD + OBJ + BG
+    while (!(source.ly() == 1 && source.line_dot() == 80)) source.tick(1);
+    check(source.selected_object_count() == 1, "sprite de test non retenu par le scan OAM");
+    const auto valid = snapshot(source);
+
+    {
+        InterruptController restored_interrupts;
+        Ppu restored(restored_interrupts, gb::HardwareMode::dmg);
+        detail::BinaryReader in(valid);
+        restored.load(in);
+        for (int dot = 0; dot < 456; ++dot) restored.tick(1);
+    }
+
+    // Disposition PPU 72 : champs, FIFO BG (16 x 3), FIFO OBJ (16 x 5),
+    // dix booléens de fetch, dix tuiles considérées, puis index, Y et X.
+    constexpr std::size_t indices = 4 + 72 * 4 + 16 * 3 + 16 * 5 + 10 + 10 * 4;
+    constexpr std::size_t y_values = indices + 10 * 4;
+    constexpr std::size_t x_values = y_values + 10 * 4;
+    for (const auto& [offset, value] : std::array<std::pair<std::size_t, std::int32_t>, 7>{{
+             {indices, 40}, {indices, -1}, {indices, 0x1000'0000}, {indices + 9 * 4, 40},
+             {y_values, 0x100}, {x_values, 0x100}, {x_values, -1}}}) {
+        auto corrupt = valid;
+        const auto raw = static_cast<std::uint32_t>(value);
+        for (std::size_t i = 0; i < 4; ++i) {
+            corrupt[offset + i] = static_cast<std::uint8_t>(raw >> (24U - 8U * i));
+        }
+        expect_failure<SaveStateError>(
+            [&] {
+                InterruptController restored_interrupts;
+                Ppu restored(restored_interrupts, gb::HardwareMode::dmg);
+                detail::BinaryReader in(corrupt);
+                restored.load(in);
+            },
+            "sprite retenu hors limites accepté dans un état PPU");
+    }
+}
+
 } // namespace ravenemu::cgb::testing
 
 int main() {
@@ -1118,5 +1167,6 @@ int main() {
     mid_object_fifo_save_state_test();
     object_fifo_state_validation_test();
     ppu_timing_state_validation_test();
+    retained_sprite_state_validation_test();
     return 0;
 }

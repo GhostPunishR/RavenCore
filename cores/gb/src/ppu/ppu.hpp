@@ -394,6 +394,16 @@ public:
         for (auto& sprite : sprite_indices_) sprite = in.i32();
         for (auto& y : sprite_y_) y = in.i32();
         for (auto& x : sprite_x_) x = in.i32();
+        // Les entrées retenues par le scan OAM indexent `oam` lors du fetch
+        // OBJ du mode 3 : un index hors des quarante entrées lirait hors du
+        // tableau. Y/X sont des octets OAM bruts.
+        for (std::size_t slot = 0; slot < sprite_indices_.size(); ++slot) {
+            if (sprite_indices_[slot] < 0 || sprite_indices_[slot] >= 40 ||
+                sprite_y_[slot] < 0 || sprite_y_[slot] > 0xff ||
+                sprite_x_[slot] < 0 || sprite_x_[slot] > 0xff) {
+                throw SaveStateError("État instantané corrompu (sprites retenus PPU)");
+            }
+        }
         for (auto& pixel : working_frame_) pixel = in.i32();
         for (auto& pixel : completed_frame) pixel = in.i32();
         in.raw(vram); in.raw(oam); in.raw(bg_cram); in.raw(obj_cram); rebuild_color_cache();

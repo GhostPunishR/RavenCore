@@ -89,7 +89,9 @@ public:
     }
     std::size_t read_samples(std::span<std::int16_t> destination) {
         if (available_ == 0 && !destination.empty()) ++underruns;
-        const auto count = std::min(destination.size(), available_);
+        // Échantillons stéréo entrelacés : ne jamais rendre une trame
+        // incomplète, sinon gauche et droite s'inversent pour la suite.
+        const auto count = std::min(destination.size(), available_) & ~std::size_t{1};
         for (std::size_t i = 0; i < count; ++i) {
             destination[i] = ring_[read_index_];
             read_index_ = (read_index_ + 1U) & ring_mask;

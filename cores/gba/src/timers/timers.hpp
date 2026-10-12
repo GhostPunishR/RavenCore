@@ -54,6 +54,18 @@ public:
     }
     void import_state(std::span<const std::int32_t> state) {
         if (state.size() != 16) throw SaveStateError("État timers GBA invalide");
+        // Compteur, recharge et contrôle sont des registres 16 bits : une
+        // recharge à 0x10000 donnerait une période nulle (division par zéro
+        // dans `advance`). Le pré-diviseur reste sous le plus grand diviseur.
+        const auto out_of_range = [](std::int32_t value, std::int32_t maximum) {
+            return value < 0 || value > maximum;
+        };
+        for (std::size_t i = 0; i < 12; ++i) {
+            if (out_of_range(state[i], 0xffff)) throw SaveStateError("État timers GBA invalide");
+        }
+        for (std::size_t i = 12; i < 16; ++i) {
+            if (out_of_range(state[i], prescale_.back() - 1)) throw SaveStateError("État timers GBA invalide");
+        }
         std::copy_n(state.begin(), 4, counter_.begin());
         std::copy_n(state.begin() + 4, 4, reload_.begin());
         std::copy_n(state.begin() + 8, 4, control_.begin());

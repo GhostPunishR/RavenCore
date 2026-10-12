@@ -30,7 +30,11 @@ public:
         out.boolean(ram_enabled_); out.i32(rom_bank_); out.raw(ram_);
     }
     void load_state(BinaryReader& in) override {
-        ram_enabled_ = in.boolean(); rom_bank_ = in.i32(); in.raw(ram_);
+        ram_enabled_ = in.boolean(); rom_bank_ = in.i32();
+        if (rom_bank_ < 1 || rom_bank_ > 0x0f) {
+            throw SaveStateError("État instantané corrompu (registres MBC2)");
+        }
+        in.raw(ram_);
     }
 private:
     bool ram_enabled_{};
