@@ -852,6 +852,63 @@ void oam_dma_ppu_contention_test() {
     }
 }
 
+/**
+ * Un transfert VRAM qui atteint la fin d'une banque s'arrête ; en relancer un
+ * sans réécrire la destination n'écrit plus rien. Auparavant, l'octet suivant
+ * partait hors de la VRAM (banque 1 : vram[0x4000]) et l'état sauvegardé,
+ * destination à 0x2001, était refusé au chargement (Gambatte hdma_late_length).
+ */
+void vram_dma_destination_end_test() {
+    Fixture f;
+    for (int i = 0; i < 32; ++i) f.bus.write(0xc000 + i, 0x40 + i);
+    f.bus.write(0xff4f, 0x01); // VRAM banque 1
+    f.bus.write(0xff51, 0xc0);
+    f.bus.write(0xff52, 0x00);
+    f.bus.write(0xff53, 0x1f);
+    f.bus.write(0xff54, 0xf0); // destination $9FF0, 16 octets avant la fin
+    f.bus.write(0xff55, 0x01); // GDMA de 32 octets
+    // Un dot à la fois, comme la machine : le compteur de demi-cycles du
+    // transfert reste alors dans les bornes que valide le chargement d'état.
+    const auto run_dots = [](Fixture& fixture, int dots) {
+        for (int dot = 0; dot < dots; ++dot) fixture.bus.tick(0, 1);
+    };
+    const auto save = [](Fixture& fixture) {
+        detail::BinaryWriter writer;
+        fixture.ppu.save(writer);
+        fixture.speed.save(writer);
+        fixture.bus.save(writer);
+        return std::move(writer).take();
+    };
+    run_dots(f, 64);
+    check(f.ppu.vram[0x3fff] == 0x4f && !f.bus.cpu_blocked(),
+          "GDMA arrivé en fin de banque VRAM : arrêt ou dernier octet incorrect");
+
+    // Relance sans réécrire la destination. Jusqu'au tick suivant, le
+    // transfert est actif avec sa destination en fin de banque : un état pris
+    // à cet instant doit se recharger.
+    f.bus.write(0xff55, 0x00);
+    const auto load = [](Fixture& fixture, const std::vector<std::uint8_t>& state) {
+        detail::BinaryReader reader(state);
+        fixture.ppu.load(reader);
+        fixture.speed.load(reader);
+        fixture.bus.load(reader);
+        return reader.exhausted();
+    };
+    Fixture restored;
+    check(load(restored, save(f)), "état pris juste après la relance d'un GDMA en fin de banque refusé");
+
+    run_dots(f, 64);
+    run_dots(restored, 64);
+    check(f.ppu.vram[0x3fff] == 0x4f && !f.bus.cpu_blocked(),
+          "GDMA relancé en fin de banque : écriture ou blocage inattendu");
+    const auto stopped = save(f);
+    check(stopped == save(restored), "GDMA relancé en fin de banque : l'état rechargé diverge");
+    // Une écriture au-delà de la banque laisserait la destination à 0x2001,
+    // valeur que le chargement refuse.
+    Fixture after;
+    check(load(after, stopped), "état après un GDMA relancé en fin de banque refusé");
+}
+
 void oam_dma_save_state_test() {
     Fixture source;
     for (int index = 0; index < 0xa0; ++index) source.bus.write(0xc000 + index, index ^ 0x5a);
@@ -1069,6 +1126,7 @@ int main() {
     oam_dma_ppu_contention_test();
     oam_dma_save_state_test();
     vram_dma_timing_test();
+    vram_dma_destination_end_test();
 
     auto rom = minimal_game_boy_rom();
     rom[0x0143] = 0x80;

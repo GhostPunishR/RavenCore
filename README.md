@@ -48,16 +48,17 @@ cmake -S . -B build/cores -DRAVENEMU_BUILD_LIBRETRO=OFF -DBUILD_TESTING=OFF
 cmake --build build/cores --parallel
 ```
 
-Les tests n'utilisent aucune ROM commerciale. Pour exécuter aussi les ROMs de test GBA publiques (jsmolka/gba-tests et FuzzARM), comme le fait la CI :
+Les tests n'utilisent aucune ROM commerciale. Pour exécuter aussi les ROMs de test publiques, comme le fait la CI : GB/GBC (Mooneye Test Suite, Blargg, dmg-acid2 et cgb-acid2) et GBA (jsmolka/gba-tests et FuzzARM) :
 
 ```bash
+cores/gb/tests/fetch_test_roms.sh build/gb-test-roms
 cores/gba/tests/fetch_test_roms.sh build/gba-test-roms
-cmake -S . -B build -DRAVENEMU_GBA_TEST_ROMS=build/gba-test-roms
+cmake -S . -B build -DRAVENEMU_GB_TEST_ROMS=build/gb-test-roms -DRAVENEMU_GBA_TEST_ROMS=build/gba-test-roms
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-Le script télécharge chaque ROM depuis un commit figé et vérifie son SHA-256. Voir les [tests GBA](cores/gba/tests/README.md).
+Les scripts téléchargent des versions figées et vérifient leur SHA-256. Voir les [tests GB/GBC](cores/gb/tests/README.md) et les [tests GBA](cores/gba/tests/README.md).
 
 L'interface C++ publique est définie dans [`core.hpp`](cores/common/include/ravenemu/core.hpp). Un en-tête [SDK](sdk/include/ravenemu/sdk.hpp) fournit une fabrique simplifiée, et [`bridge.h`](sdk/include/ravenemu/bridge.h) une API C pour les frontends non C++. Après `cmake --install`, les deux s'utilisent via `find_package(RavenCore)` (voir le [README du SDK](sdk/README.md)).
 
@@ -97,7 +98,7 @@ Les fichiers Linux, de la release comme de la CI, ne fonctionnent pas directemen
 
 Les lectures n'avancent pas l'émulation.
 
-GB et GBC ne sont pas parfaitement fidèles à chaque détail matériel.
+GB et GBC réussissent les 198 tests publics retenus de Mooneye Test Suite, de Blargg, de dmg-acid2 et de cgb-acid2 (voir les [tests GB/GBC](cores/gb/tests/README.md)). Ils ne sont pas pour autant fidèles à chaque détail matériel : des suites plus exigeantes, comme Mealybug Tearoom, SameSuite ou gbmicrotest, échouent encore en partie.
 
 GBA reste expérimental. Il réussit les suites de tests publiques [jsmolka/gba-tests](https://github.com/jsmolka/gba-tests) et [FuzzARM](https://github.com/DenSinH/FuzzARM) (voir les [tests GBA](cores/gba/tests/README.md)), mais n'a pas encore été essayé sur un large panel de jeux du commerce. Ne sont pas encore émulés : les capteurs solaire, gyroscopique et d'inclinaison de certaines cartouches, le câble link GBA et le mode UART du port série, le tampon de préchargement de la cartouche et l'exception d'instruction indéfinie. La sauvegarde est détectée par la signature de la bibliothèque du jeu, sans base de données par jeu ; les options ci-dessus corrigent une détection erronée.
 

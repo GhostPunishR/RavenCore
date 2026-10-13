@@ -25,12 +25,12 @@ public:
         }
     }
 
-    /** Front descendant du bit DIV sélectionné par la vitesse CPU. */
+    /**
+     * Front descendant du bit DIV sélectionné par la vitesse CPU. APU coupé,
+     * le séquenceur ne compte pas : le rallumage le remet au pas 0.
+     */
     void clock_divider_falling_edge() noexcept {
-        // NR52 coupe les canaux mais pas le compteur DIV-APU : sa phase doit
-        // continuer à avancer pour les écritures effectuées après rallumage.
         if (power_on_) clock_frame_sequencer();
-        else frame_step_ = (frame_step_ + 1) & 7;
     }
 
     [[nodiscard]] std::size_t read_samples(std::span<std::int16_t> destination) noexcept {
@@ -192,7 +192,13 @@ private:
         case 0xff26: {
             const bool turn_on = (value & 0x80) != 0;
             if (power_on_ && !turn_on) power_down();
-            else if (!power_on_ && turn_on) power_on_ = true;
+            else if (!power_on_ && turn_on) {
+                // La mise sous tension remet le séquenceur à zéro : le prochain
+                // front de DIV-APU est le pas 0, à sa date habituelle (DIV
+                // n'est pas remis à zéro, d'où le « modulo 8192 » de Blargg).
+                power_on_ = true;
+                frame_step_ = 0;
+            }
             break;
         }
         default: break;
@@ -379,6 +385,13 @@ private:
     };
 
     struct Wave {
+        // Le déclenchement retarde la première lecture d'échantillon de trois
+        // tops du canal (6 cycles) au-delà de la période : sans ce délai, la
+        // wave RAM lue ou écrite canal actif l'était un octet trop tôt
+        // (Blargg, dmg_sound et cgb_sound 09 et 12).
+        static constexpr int trigger_delay_cycles = 6;
+        static constexpr int max_timer = 2048 * 2 + trigger_delay_cycles;
+
         std::array<std::uint8_t, 16> ram{};
         bool enabled{};
         bool dac_enabled{};
@@ -424,7 +437,7 @@ private:
                 length = 256;
                 if (shorten_zero_length_reload) --length;
             }
-            timer = (2048 - frequency) * 2; position = 0; ram_access_cycles = 0;
+            timer = (2048 - frequency) * 2 + trigger_delay_cycles; position = 0; ram_access_cycles = 0;
         }
         void reset() noexcept {
             enabled = false; dac_enabled = false; length = 0; length_enabled = false;
@@ -440,7 +453,7 @@ private:
         void load(BinaryReader& in) {
             in.raw(ram); enabled = in.boolean(); dac_enabled = in.boolean(); length = in.bounded_i32(0, 256);
             length_enabled = in.boolean(); volume_code = in.bounded_i32(0, 3); frequency = in.bounded_i32(0, 2047);
-            timer = in.bounded_i32(1, 4096); position = in.bounded_i32(0, 31); sample_buffer = in.bounded_i32(0, 15);
+            timer = in.bounded_i32(1, max_timer); position = in.bounded_i32(0, 31); sample_buffer = in.bounded_i32(0, 15);
             ram_access_cycles = in.bounded_i32(0, 2); accumulator = in.bounded_i32(-1920, 1920);
         }
     };
@@ -565,9 +578,12 @@ private:
         }
     }
 
+    // Redéclencher le canal au moment où il va lire un octet (lecture due au
+    // prochain top, 2 cycles plus tard) recopie cet octet, ou son bloc aligné
+    // de quatre, en tête de wave RAM (Blargg, dmg_sound 10).
     void corrupt_dmg_wave_ram_on_retrigger() noexcept {
-        if (!wave_.enabled || wave_.ram_access_cycles <= 0) return;
-        const int current_byte = (wave_.position >> 1) & 0x0f;
+        if (!wave_.enabled || wave_.timer > 2) return;
+        const int current_byte = ((wave_.position + 1) >> 1) & 0x0f;
         if (current_byte < 4) {
             wave_.ram[0] = wave_.ram[static_cast<std::size_t>(current_byte)];
             return;

@@ -37,6 +37,14 @@ public:
         write(address, value);
     }
 
+    /**
+     * M-cycle interne pendant lequel l'IDU incrémente ou décrémente un
+     * registre 16 bits ; sa valeur avant l'opération occupe le bus d'adresse.
+     */
+    virtual void idu_mcycle(int /* value */) { tick_mcycle(); }
+    /** Lecture dont l'adresse est incrémentée ou décrémentée dans le même M-cycle. */
+    [[nodiscard]] virtual int read_mcycle_incrementing(int address) { return read_mcycle(address); }
+
     /** M-cycle passé en HALT. Le HDMA CGB peut le traiter différemment. */
     virtual void tick_halted_mcycle() { tick_mcycle(); }
 

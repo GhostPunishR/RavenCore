@@ -22,7 +22,21 @@ Le runner détecte :
 - un framebuffer ARGB8888 exact de `160 × 144 × 4` octets, sérialisé en
   pixels 32 bits big-endian, via `--expect-frame-argb8888`, ou son hash via
   `--expect-frame-sha256` ;
+- une capture RGB888 brute de `160 × 144 × 3` octets via
+  `--expect-frame-rgb888`. L'image du cœur est d'abord convertie dans la
+  palette commune des captures de game-boy-test-roms : les gris DMG `FF`,
+  `AA`, `55`, `00` et, en CGB, chaque composante 5 bits étendue en
+  `(x << 3) | (x >> 2)`. En DMG, chaque gris attendu est ramené au plus
+  proche de ces quatre niveaux. `--compatibility-palette boot-default` charge,
+  en compatibilité CGB sans boot ROM, les palettes que la boot ROM CGB donne à
+  un jeu inconnu, celles des captures de référence ;
 - l'arrêt inattendu du CPU, les exceptions et le timeout.
+
+`--expect-memory-before ADRESSE=VALEUR` (répétable, avec `--expect-memory`)
+n'autorise la réussite mémoire qu'après avoir observé cet état intermédiaire.
+Les ROMs de Blargg écrivent `$80` en `$A000` pendant le test : sans cette
+garde, le `$00` d'une RAM tout juste effacée, déjà suivi de la signature,
+passait pour une réussite.
 
 `--minimum-pass-frames` retarde uniquement les voies de réussite ; les erreurs
 série restent immédiates. Pour une réussite mémoire, l'orchestrateur impose en
@@ -93,7 +107,8 @@ python3 cores/gb/tests/conformance_manifest.py suite.json \
   --report build/conformance-report.json
 ```
 
-`--category ppu` peut filtrer une famille. Par défaut, une ROM absente est une
+`--category ppu` peut filtrer une famille et `--id` (répétable) un test
+précis. Par défaut, une ROM absente est une
 erreur ; `--allow-missing` la marque explicitement `skipped`. Un SHA-256
 incorrect reste toujours une erreur. Le rapport distingue `pass`, `fail`,
 `timeout`, `error`, `crash` et `skipped`, conserve les sorties du runner et
@@ -103,6 +118,53 @@ manifeste et affiche son inventaire sans accéder aux ROMs.
 Les catégories acceptées pour les manifests de CI sont : `cpu`, `timing`,
 `interrupts`, `timer`, `halt`, `ei`, `stop`, `memory`, `oam-dma`, `vram-dma`,
 `ppu`, `stat`, `palettes`, `speed-switch`, `serial`, `apu` et `mbc`.
+
+Deux critères de réussite supplémentaires existent dans `success` :
+`screenshot` désigne une capture PNG de 160 × 144 pixels, avec son SHA-256,
+que l'orchestrateur décode sans dépendance externe et passe au runner en
+RGB888 ; `memory_before` liste l'état intermédiaire exigé par
+`--expect-memory-before`. Un test déclare au plus un critère d'image.
+
+## Suites publiques exécutées par la CI
+
+`public-test-roms.json` fige 198 tests issus de l'archive
+[game-boy-test-roms v7.0](https://github.com/c-sp/game-boy-test-roms/releases/tag/v7.0)
+de Christoph Sprenger (SHA-256
+`b9a9d7a1075aa35a3d07c07c34974048672d8520dca9e07a50178f5860c3832c`), avec le
+SHA-256 de chaque ROM et de chaque capture. `fetch_test_roms.sh` télécharge
+l'archive, vérifie son empreinte et l'extrait ; aucune ROM n'entre dans le
+dépôt :
+
+```bash
+cores/gb/tests/fetch_test_roms.sh build/gb-test-roms
+cmake -S . -B build -DRAVENEMU_GB_TEST_ROMS=build/gb-test-roms
+cmake --build build
+ctest --test-dir build -R gb_rom_ --output-on-failure
+```
+
+Chaque test devient un test CTest `gb_rom_<id>`. La CI Linux et la passe
+ASan/UBSan les exécutent tous.
+
+| Suite | Tests | Critère de réussite |
+| --- | --- | --- |
+| Mooneye Test Suite `8d742b9d55` (MIT), profils DMG et CGB décrits ci-dessous | 66 DMG + 58 CGB | Signature de registres ; `0x42` partout signale un échec |
+| Mooneye `emulator-only` (MBC1, MBC2, MBC5) | 28 DMG | Signature de registres |
+| Blargg `cpu_instrs`, `instr_timing`, `mem_timing` | 3 DMG + 3 CGB | Texte série `Passed` |
+| Blargg `mem_timing-2`, `dmg_sound`, `cgb_sound`, `oam_bug` (ROMs séparées) | 20 DMG + 13 CGB | Résultat en `$A000` précédé de `$80` |
+| Blargg `halt_bug`, `interrupt_time` (CGB) et `oam_bug` combiné (DMG) | 2 DMG + 2 CGB | Capture de référence de game-boy-test-roms |
+| dmg-acid2 (DMG et compatibilité CGB), cgb-acid2 (MIT) | 1 DMG + 2 CGB | Capture de référence |
+
+La ROM séparée `oam_bug/7-timing_effect` est remplacée par la ROM combinée
+`oam_bug.gb` : son texte, écrit en `$A004` sans borne, dépasse les 8 Kio de
+RAM de cartouche et déborde sur son propre programme en WRAM. La ROM combinée
+exécute le même test et sa capture a été vérifiée sur console.
+
+Les autres suites de l'archive sont plus exigeantes et ne sont pas encore
+exécutées par la CI. Mesure avant les corrections de cette campagne, pour
+orienter les suivantes : AGE (CGB 2/27, DMG 3/11), gbmicrotest (304/513),
+Mealybug Tearoom (CGB 0/27, DMG 1/24), SameSuite (CGB 8/70), scribbltests
+(CGB 3/5, DMG 4/5), TurtleTests (2/2), Bully (0/2), mbc3-tester (0/2),
+Strikethrough (0/2, 7 pixels) et cgb-acid-hell (0/1, 2 pixels).
 
 ## Profil Mooneye de référence
 

@@ -1,0 +1,4591 @@
+{
+  "schema_version": 1,
+  "suite": {
+    "name": "Suites publiques GB/GBC (game-boy-test-roms v7.0)",
+    "description": "Mooneye Test Suite, ROMs de Blargg, dmg-acid2 et cgb-acid2, issues de l'archive game-boy-test-roms v7.0 (SHA-256 b9a9d7a1075aa35a3d07c07c34974048672d8520dca9e07a50178f5860c3832c). Aucune ROM n'est stockée dans le dépôt : fetch_test_roms.sh télécharge l'archive."
+  },
+  "tests": [
+    {
+      "id": "mooneye.acceptance.add_sp_e_timing.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/add_sp_e_timing.gb",
+        "sha256": "93d45e0ba554fcb66b8612e34b9c7dcd2a7a4683fef291481a0242ba25ce26d4",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.add_sp_e_timing.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/add_sp_e_timing.gb",
+        "sha256": "93d45e0ba554fcb66b8612e34b9c7dcd2a7a4683fef291481a0242ba25ce26d4",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.bits.mem_oam.dmg",
+      "category": "memory",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/bits/mem_oam.gb",
+        "sha256": "0cfccd002d873a1c9cc0f9317b9e23d97b2b47d151cb413d0deb3d65e5666cae",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.bits.mem_oam.cgb",
+      "category": "memory",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/bits/mem_oam.gb",
+        "sha256": "0cfccd002d873a1c9cc0f9317b9e23d97b2b47d151cb413d0deb3d65e5666cae",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.bits.reg_f.dmg",
+      "category": "memory",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/bits/reg_f.gb",
+        "sha256": "0eeaab1343a7f85eef2a1364c849cf244dd76d4e19e25f41defdff95f46febe4",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.bits.reg_f.cgb",
+      "category": "memory",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/bits/reg_f.gb",
+        "sha256": "0eeaab1343a7f85eef2a1364c849cf244dd76d4e19e25f41defdff95f46febe4",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.bits.unused_hwio-GS.dmg",
+      "category": "memory",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/bits/unused_hwio-GS.gb",
+        "sha256": "6501bf0c271460c1abc12ab8c97acdccd5aae9bfa394f922f6de74fc8bd7fad3",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.boot_div-dmgABCmgb.dmg",
+      "category": "memory",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/boot_div-dmgABCmgb.gb",
+        "sha256": "77448f882c19da0f0a3296dbad6b147716a23428bc1a2a35f3c905dafef05fb3",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.boot_hwio-dmgABCmgb.dmg",
+      "category": "memory",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/boot_hwio-dmgABCmgb.gb",
+        "sha256": "01aa82657e1b4cc8dfa8b2b45ad248de240eab1330a847389453a794c30b2591",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.boot_regs-dmgABC.dmg",
+      "category": "memory",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/boot_regs-dmgABC.gb",
+        "sha256": "0c1800a5d4d978d11426e5e54e5bcc014b4d8d2c8a63f402d7ddf96c501f2a92",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.call_cc_timing.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/call_cc_timing.gb",
+        "sha256": "29255bd13b3104e9dbe40eaef74f5a7eb84e01acd33c3c47ccf66a88ab00f535",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.call_cc_timing.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/call_cc_timing.gb",
+        "sha256": "29255bd13b3104e9dbe40eaef74f5a7eb84e01acd33c3c47ccf66a88ab00f535",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.call_cc_timing2.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/call_cc_timing2.gb",
+        "sha256": "6fca59e6ee031b5ab531d6b984fa4b1be5064f22aa0c9a85f8efbf705ca42b91",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.call_cc_timing2.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/call_cc_timing2.gb",
+        "sha256": "6fca59e6ee031b5ab531d6b984fa4b1be5064f22aa0c9a85f8efbf705ca42b91",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.call_timing.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/call_timing.gb",
+        "sha256": "85fd265448e8362adc60daf6f1c891abe5fe53f3ee095eff8ef1c08fb4d59ab8",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.call_timing.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/call_timing.gb",
+        "sha256": "85fd265448e8362adc60daf6f1c891abe5fe53f3ee095eff8ef1c08fb4d59ab8",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.call_timing2.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/call_timing2.gb",
+        "sha256": "5a2e8c848e461ddd3922830767e59a9f9f24628ff910e9c48e5b5e6b776aaff1",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.call_timing2.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/call_timing2.gb",
+        "sha256": "5a2e8c848e461ddd3922830767e59a9f9f24628ff910e9c48e5b5e6b776aaff1",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.di_timing-GS.dmg",
+      "category": "ei",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/di_timing-GS.gb",
+        "sha256": "1884585d49ee8105fd952f5bbab6e0e595eefad43281073c20ecfae7eb4f7f57",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.div_timing.dmg",
+      "category": "timer",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/div_timing.gb",
+        "sha256": "26d6c1e66750b56b894131898bc896fc9fe56aa2a46199bcc6514e658cd996bd",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.div_timing.cgb",
+      "category": "timer",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/div_timing.gb",
+        "sha256": "26d6c1e66750b56b894131898bc896fc9fe56aa2a46199bcc6514e658cd996bd",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ei_sequence.dmg",
+      "category": "ei",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ei_sequence.gb",
+        "sha256": "307214288a36c73feac8cbbf242cc282eaf58df4a93e21244d4389ba9bf508ab",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ei_sequence.cgb",
+      "category": "ei",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ei_sequence.gb",
+        "sha256": "307214288a36c73feac8cbbf242cc282eaf58df4a93e21244d4389ba9bf508ab",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ei_timing.dmg",
+      "category": "ei",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ei_timing.gb",
+        "sha256": "285929da5ca1268156bdfe5da2204d5fc6c2e9119fb5c2ead13b5780f73b2ee2",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ei_timing.cgb",
+      "category": "ei",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ei_timing.gb",
+        "sha256": "285929da5ca1268156bdfe5da2204d5fc6c2e9119fb5c2ead13b5780f73b2ee2",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.halt_ime0_ei.dmg",
+      "category": "halt",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/halt_ime0_ei.gb",
+        "sha256": "8959f1d31e0552baa4c3a8efff686ffc7a94e889e30c46e87a0c33f8f3f59172",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.halt_ime0_ei.cgb",
+      "category": "halt",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/halt_ime0_ei.gb",
+        "sha256": "8959f1d31e0552baa4c3a8efff686ffc7a94e889e30c46e87a0c33f8f3f59172",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.halt_ime0_nointr_timing.dmg",
+      "category": "halt",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/halt_ime0_nointr_timing.gb",
+        "sha256": "34073e22bb26c0e1f4705d43394f6e0eda95bbff7706884b8ba48e0fe8e63f8b",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.halt_ime0_nointr_timing.cgb",
+      "category": "halt",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/halt_ime0_nointr_timing.gb",
+        "sha256": "34073e22bb26c0e1f4705d43394f6e0eda95bbff7706884b8ba48e0fe8e63f8b",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.halt_ime1_timing.dmg",
+      "category": "halt",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/halt_ime1_timing.gb",
+        "sha256": "3492099da389311f7a07f6de764da4ae9cef8e3fe0b7fb39878dc47d05a8f4cb",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.halt_ime1_timing.cgb",
+      "category": "halt",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/halt_ime1_timing.gb",
+        "sha256": "3492099da389311f7a07f6de764da4ae9cef8e3fe0b7fb39878dc47d05a8f4cb",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.halt_ime1_timing2-GS.dmg",
+      "category": "halt",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/halt_ime1_timing2-GS.gb",
+        "sha256": "6093dd9a92d7cf869ccc857724706118e95931ab194f09d573504d295f7bec88",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.if_ie_registers.dmg",
+      "category": "interrupts",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/if_ie_registers.gb",
+        "sha256": "d02bc5978fb8c595486b4dcf99a6ac34e2bfc2a8756c17b1050b6cfb3720ba14",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.if_ie_registers.cgb",
+      "category": "interrupts",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/if_ie_registers.gb",
+        "sha256": "d02bc5978fb8c595486b4dcf99a6ac34e2bfc2a8756c17b1050b6cfb3720ba14",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.instr.daa.dmg",
+      "category": "cpu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/instr/daa.gb",
+        "sha256": "d01e4e7124471bfe3f4773fe20dd27167f8933ef473c43f063cc76170c9c962e",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.instr.daa.cgb",
+      "category": "cpu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/instr/daa.gb",
+        "sha256": "d01e4e7124471bfe3f4773fe20dd27167f8933ef473c43f063cc76170c9c962e",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.interrupts.ie_push.dmg",
+      "category": "interrupts",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/interrupts/ie_push.gb",
+        "sha256": "5f826104e61727273d59999f7796a11351a42bfc0802cad26d2a9d4cfb61d34b",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.interrupts.ie_push.cgb",
+      "category": "interrupts",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/interrupts/ie_push.gb",
+        "sha256": "5f826104e61727273d59999f7796a11351a42bfc0802cad26d2a9d4cfb61d34b",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.intr_timing.dmg",
+      "category": "interrupts",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/intr_timing.gb",
+        "sha256": "fdcd2f8d98f26d895f8a17c9468cd5829e5bab4acb11cf053f4ed8edc1f07786",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.intr_timing.cgb",
+      "category": "interrupts",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/intr_timing.gb",
+        "sha256": "fdcd2f8d98f26d895f8a17c9468cd5829e5bab4acb11cf053f4ed8edc1f07786",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.jp_cc_timing.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/jp_cc_timing.gb",
+        "sha256": "849882b90083162964e9876d8286efe46de30849fdc8db0929d44bccc1a52fca",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.jp_cc_timing.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/jp_cc_timing.gb",
+        "sha256": "849882b90083162964e9876d8286efe46de30849fdc8db0929d44bccc1a52fca",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.jp_timing.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/jp_timing.gb",
+        "sha256": "3d6e4cefe7fff78eabc14f9f8c331928bf82207c07bed830558679b6fa3388da",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.jp_timing.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/jp_timing.gb",
+        "sha256": "3d6e4cefe7fff78eabc14f9f8c331928bf82207c07bed830558679b6fa3388da",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ld_hl_sp_e_timing.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ld_hl_sp_e_timing.gb",
+        "sha256": "b0781b501db9cf98f7af46e37753608104fe02bfe7279ac1f7ab404e1ee25c50",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ld_hl_sp_e_timing.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ld_hl_sp_e_timing.gb",
+        "sha256": "b0781b501db9cf98f7af46e37753608104fe02bfe7279ac1f7ab404e1ee25c50",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.oam_dma.basic.dmg",
+      "category": "oam-dma",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/oam_dma/basic.gb",
+        "sha256": "7b4c048451510fcb224a23d653edd4bb339a4cf136873e736941d29e6c60b3f9",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.oam_dma.basic.cgb",
+      "category": "oam-dma",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/oam_dma/basic.gb",
+        "sha256": "7b4c048451510fcb224a23d653edd4bb339a4cf136873e736941d29e6c60b3f9",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.oam_dma.reg_read.dmg",
+      "category": "oam-dma",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/oam_dma/reg_read.gb",
+        "sha256": "ddb2a356f4bfdad7694375e6886003c784b89ef6ef70a1731679a66791314618",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.oam_dma.reg_read.cgb",
+      "category": "oam-dma",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/oam_dma/reg_read.gb",
+        "sha256": "ddb2a356f4bfdad7694375e6886003c784b89ef6ef70a1731679a66791314618",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.oam_dma.sources-GS.dmg",
+      "category": "oam-dma",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/oam_dma/sources-GS.gb",
+        "sha256": "66d0b099dd8902eac1e32bbf67139a50b5db70782df1616b57c1a125f09264a9",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.oam_dma_restart.dmg",
+      "category": "oam-dma",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/oam_dma_restart.gb",
+        "sha256": "b6c023cf7e27c1461e87d6215d4424e915555e98f54829668a6a6be86795cc26",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.oam_dma_restart.cgb",
+      "category": "oam-dma",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/oam_dma_restart.gb",
+        "sha256": "b6c023cf7e27c1461e87d6215d4424e915555e98f54829668a6a6be86795cc26",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.oam_dma_start.dmg",
+      "category": "oam-dma",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/oam_dma_start.gb",
+        "sha256": "03ea63cc5f90888184a2e0e0dfe8c595b6196a49989993c5e1f7a00266fe2c02",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.oam_dma_start.cgb",
+      "category": "oam-dma",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/oam_dma_start.gb",
+        "sha256": "03ea63cc5f90888184a2e0e0dfe8c595b6196a49989993c5e1f7a00266fe2c02",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.oam_dma_timing.dmg",
+      "category": "oam-dma",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/oam_dma_timing.gb",
+        "sha256": "aac188b351934a038604b34e4ccf8b066e28af53f7b94698f11887b51b9e4f78",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.oam_dma_timing.cgb",
+      "category": "oam-dma",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/oam_dma_timing.gb",
+        "sha256": "aac188b351934a038604b34e4ccf8b066e28af53f7b94698f11887b51b9e4f78",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.pop_timing.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/pop_timing.gb",
+        "sha256": "f5aae636e7bf15fd8f88609f3c2f030a85b42561ef82e5c16126ec75f76b551e",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.pop_timing.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/pop_timing.gb",
+        "sha256": "f5aae636e7bf15fd8f88609f3c2f030a85b42561ef82e5c16126ec75f76b551e",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.hblank_ly_scx_timing-GS.dmg",
+      "category": "ppu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/hblank_ly_scx_timing-GS.gb",
+        "sha256": "7ae7d817930886a2480551b0de98079e021355bac3827ee557e30afdb21d70b8",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.intr_1_2_timing-GS.dmg",
+      "category": "ppu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/intr_1_2_timing-GS.gb",
+        "sha256": "ed481a2ead0071272056ee8f9ad08c1fc5b10d51da868d48c46a2ff900d3ed06",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.intr_2_0_timing.dmg",
+      "category": "ppu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/intr_2_0_timing.gb",
+        "sha256": "2b6e171f8e999dca4ae945c45ccbb793799bad77bc1310d170ad72a401863be1",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.intr_2_0_timing.cgb",
+      "category": "ppu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/intr_2_0_timing.gb",
+        "sha256": "2b6e171f8e999dca4ae945c45ccbb793799bad77bc1310d170ad72a401863be1",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.intr_2_mode0_timing.dmg",
+      "category": "ppu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/intr_2_mode0_timing.gb",
+        "sha256": "39fd496590b444dbc85fa74bcf3f4d4e1da02c6479cb90b9c528971828c9ebad",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.intr_2_mode0_timing.cgb",
+      "category": "ppu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/intr_2_mode0_timing.gb",
+        "sha256": "39fd496590b444dbc85fa74bcf3f4d4e1da02c6479cb90b9c528971828c9ebad",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.intr_2_mode0_timing_sprites.dmg",
+      "category": "ppu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/intr_2_mode0_timing_sprites.gb",
+        "sha256": "4665062fc25e5ece8685ed4e6f9c4c589877e36ae54a10f750ed6074aa9ca9cd",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.intr_2_mode0_timing_sprites.cgb",
+      "category": "ppu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/intr_2_mode0_timing_sprites.gb",
+        "sha256": "4665062fc25e5ece8685ed4e6f9c4c589877e36ae54a10f750ed6074aa9ca9cd",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.intr_2_mode3_timing.dmg",
+      "category": "ppu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/intr_2_mode3_timing.gb",
+        "sha256": "1ca5c3d0c72759fa5971dfcb7d7b7c8b4864b83f615c69c97c5be2fdaf007c18",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.intr_2_mode3_timing.cgb",
+      "category": "ppu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/intr_2_mode3_timing.gb",
+        "sha256": "1ca5c3d0c72759fa5971dfcb7d7b7c8b4864b83f615c69c97c5be2fdaf007c18",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.intr_2_oam_ok_timing.dmg",
+      "category": "ppu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/intr_2_oam_ok_timing.gb",
+        "sha256": "71aacaa7da1c84be2391ddbd143eef9ae29a3893b7c0b533c3d0eb23a8cb3e25",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.intr_2_oam_ok_timing.cgb",
+      "category": "ppu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/intr_2_oam_ok_timing.gb",
+        "sha256": "71aacaa7da1c84be2391ddbd143eef9ae29a3893b7c0b533c3d0eb23a8cb3e25",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.lcdon_timing-GS.dmg",
+      "category": "ppu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/lcdon_timing-GS.gb",
+        "sha256": "646b9da2a500f4d7bce510f9a75100e62acf4a72a3c22344aad149cd1429a17c",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.lcdon_write_timing-GS.dmg",
+      "category": "ppu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/lcdon_write_timing-GS.gb",
+        "sha256": "25e5dd078f730603e6f858bc4bee2005c00f39d45fb2d6de68100ad375a98448",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.stat_irq_blocking.dmg",
+      "category": "ppu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/stat_irq_blocking.gb",
+        "sha256": "bdc27c61f0efaaf171a9b85526878424f4433c1d3fec1d60ea70a0f0ce3286bc",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.stat_irq_blocking.cgb",
+      "category": "ppu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/stat_irq_blocking.gb",
+        "sha256": "bdc27c61f0efaaf171a9b85526878424f4433c1d3fec1d60ea70a0f0ce3286bc",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.stat_lyc_onoff.dmg",
+      "category": "ppu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/stat_lyc_onoff.gb",
+        "sha256": "d3516dd6a1c5e50fae0cbdfb84a368a03612974b37aaf1648aa5e8b705ff7a3e",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.stat_lyc_onoff.cgb",
+      "category": "ppu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/stat_lyc_onoff.gb",
+        "sha256": "d3516dd6a1c5e50fae0cbdfb84a368a03612974b37aaf1648aa5e8b705ff7a3e",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ppu.vblank_stat_intr-GS.dmg",
+      "category": "ppu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ppu/vblank_stat_intr-GS.gb",
+        "sha256": "4a0c7501fbc652dc3b2c9918d6dd1890c2bdc37f65bf721b01623772f74304cf",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.push_timing.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/push_timing.gb",
+        "sha256": "956fca98e4a768da4760b732fe8f5ce55f5ddd317a2429b3ca3347f014a2424c",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.push_timing.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/push_timing.gb",
+        "sha256": "956fca98e4a768da4760b732fe8f5ce55f5ddd317a2429b3ca3347f014a2424c",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.rapid_di_ei.dmg",
+      "category": "ei",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/rapid_di_ei.gb",
+        "sha256": "25d931e2c859a5fb2fc3ec1979ac824ef5eb9f5f9f08833f03bc932b282d4c2d",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.rapid_di_ei.cgb",
+      "category": "ei",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/rapid_di_ei.gb",
+        "sha256": "25d931e2c859a5fb2fc3ec1979ac824ef5eb9f5f9f08833f03bc932b282d4c2d",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ret_cc_timing.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ret_cc_timing.gb",
+        "sha256": "833aa0c5e5c93695291936173b7a4f18165dd178ca36262f24476751e6aff17f",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ret_cc_timing.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ret_cc_timing.gb",
+        "sha256": "833aa0c5e5c93695291936173b7a4f18165dd178ca36262f24476751e6aff17f",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ret_timing.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ret_timing.gb",
+        "sha256": "6a481b276197f99d2189c4883ec8bdb39b6f9209e44fe982f3b7eea4a88b51f0",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.ret_timing.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/ret_timing.gb",
+        "sha256": "6a481b276197f99d2189c4883ec8bdb39b6f9209e44fe982f3b7eea4a88b51f0",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.reti_intr_timing.dmg",
+      "category": "interrupts",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/reti_intr_timing.gb",
+        "sha256": "1ee8d500795dfb053233aa70493ccab8cf585558eb864b0debe45621f1411de9",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.reti_intr_timing.cgb",
+      "category": "interrupts",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/reti_intr_timing.gb",
+        "sha256": "1ee8d500795dfb053233aa70493ccab8cf585558eb864b0debe45621f1411de9",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.reti_timing.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/reti_timing.gb",
+        "sha256": "c9f2d36b5c1641c1e498599362dd4ef2d06adb9ebc07a9cd95b0a7515864a8ec",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.reti_timing.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/reti_timing.gb",
+        "sha256": "c9f2d36b5c1641c1e498599362dd4ef2d06adb9ebc07a9cd95b0a7515864a8ec",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.rst_timing.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/rst_timing.gb",
+        "sha256": "586b4ea3cc3fb52b84b2324b9cd5b5415f99c6d6858f6c34f7a39ba4979fe1a5",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.rst_timing.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/rst_timing.gb",
+        "sha256": "586b4ea3cc3fb52b84b2324b9cd5b5415f99c6d6858f6c34f7a39ba4979fe1a5",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.serial.boot_sclk_align-dmgABCmgb.dmg",
+      "category": "serial",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/serial/boot_sclk_align-dmgABCmgb.gb",
+        "sha256": "b727e0eae7cefb9d5f3bbc9d7eaca33d69c24f745a60c6d3d2eb2a9c2f038278",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.div_write.dmg",
+      "category": "timer",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/div_write.gb",
+        "sha256": "b647f603c71d942a5c4ab92e6d2336af3fd9729e95a845b1561bd8e7c06163b5",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.div_write.cgb",
+      "category": "timer",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/div_write.gb",
+        "sha256": "b647f603c71d942a5c4ab92e6d2336af3fd9729e95a845b1561bd8e7c06163b5",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.rapid_toggle.dmg",
+      "category": "timer",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/rapid_toggle.gb",
+        "sha256": "6b3595a303447eb93220e7ab97966df2f43c7911627b84ec477d79d25e8c38ec",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.rapid_toggle.cgb",
+      "category": "timer",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/rapid_toggle.gb",
+        "sha256": "6b3595a303447eb93220e7ab97966df2f43c7911627b84ec477d79d25e8c38ec",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim00.dmg",
+      "category": "timer",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim00.gb",
+        "sha256": "44986744a87a85580c0113a04f014ca6c91eb5a3f26fceb9ca411bdd8044c45f",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim00.cgb",
+      "category": "timer",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim00.gb",
+        "sha256": "44986744a87a85580c0113a04f014ca6c91eb5a3f26fceb9ca411bdd8044c45f",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim00_div_trigger.dmg",
+      "category": "timer",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim00_div_trigger.gb",
+        "sha256": "8dfe42b6bc78b64aaafe0e1eab10e8c4c487e25285d0419b1485b2e9e0094cc4",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim00_div_trigger.cgb",
+      "category": "timer",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim00_div_trigger.gb",
+        "sha256": "8dfe42b6bc78b64aaafe0e1eab10e8c4c487e25285d0419b1485b2e9e0094cc4",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim01.dmg",
+      "category": "timer",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim01.gb",
+        "sha256": "7d779278591dfa24db661fada5b99e21e0d3dcfbe2ba3b2b3a0343db367fdfc0",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim01.cgb",
+      "category": "timer",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim01.gb",
+        "sha256": "7d779278591dfa24db661fada5b99e21e0d3dcfbe2ba3b2b3a0343db367fdfc0",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim01_div_trigger.dmg",
+      "category": "timer",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim01_div_trigger.gb",
+        "sha256": "d65804dcaaaeb907002cd5cdec1ecbec3edc1e7e1d95323ae306ba9a5bacb7ce",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim01_div_trigger.cgb",
+      "category": "timer",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim01_div_trigger.gb",
+        "sha256": "d65804dcaaaeb907002cd5cdec1ecbec3edc1e7e1d95323ae306ba9a5bacb7ce",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim10.dmg",
+      "category": "timer",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim10.gb",
+        "sha256": "99d1c44d744ea2250d1846673de16273fecc2243760c0be9653c5561fa4f1995",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim10.cgb",
+      "category": "timer",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim10.gb",
+        "sha256": "99d1c44d744ea2250d1846673de16273fecc2243760c0be9653c5561fa4f1995",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim10_div_trigger.dmg",
+      "category": "timer",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim10_div_trigger.gb",
+        "sha256": "f0d16cccfde31a51758d68c261c7b72529c0c1143e6ddb3423d50a0ba4c45de1",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim10_div_trigger.cgb",
+      "category": "timer",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim10_div_trigger.gb",
+        "sha256": "f0d16cccfde31a51758d68c261c7b72529c0c1143e6ddb3423d50a0ba4c45de1",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim11.dmg",
+      "category": "timer",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim11.gb",
+        "sha256": "cc2585b8f161f6ce2a0519fd70e85d84cf792cdacf1a7d86eb244afaa473a3d5",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim11.cgb",
+      "category": "timer",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim11.gb",
+        "sha256": "cc2585b8f161f6ce2a0519fd70e85d84cf792cdacf1a7d86eb244afaa473a3d5",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim11_div_trigger.dmg",
+      "category": "timer",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim11_div_trigger.gb",
+        "sha256": "14982050eb7713c149841dfd91c6d733821e1dcfb3b1c7c6fbc14e17f692821b",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tim11_div_trigger.cgb",
+      "category": "timer",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tim11_div_trigger.gb",
+        "sha256": "14982050eb7713c149841dfd91c6d733821e1dcfb3b1c7c6fbc14e17f692821b",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tima_reload.dmg",
+      "category": "timer",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tima_reload.gb",
+        "sha256": "1999c25db46f28570e23d4cb019bf0e6f5814a947a5a358e7dc25baa52c49f96",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tima_reload.cgb",
+      "category": "timer",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tima_reload.gb",
+        "sha256": "1999c25db46f28570e23d4cb019bf0e6f5814a947a5a358e7dc25baa52c49f96",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tima_write_reloading.dmg",
+      "category": "timer",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tima_write_reloading.gb",
+        "sha256": "43d7331b6914d59b6692ad9ea2db18741c80d1b666c1386003f63b64a2488bf3",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tima_write_reloading.cgb",
+      "category": "timer",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tima_write_reloading.gb",
+        "sha256": "43d7331b6914d59b6692ad9ea2db18741c80d1b666c1386003f63b64a2488bf3",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tma_write_reloading.dmg",
+      "category": "timer",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tma_write_reloading.gb",
+        "sha256": "81ef3e9a375993bb3615a6c2788e8003507be1b9c58a61f629b87706c354ea6d",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.acceptance.timer.tma_write_reloading.cgb",
+      "category": "timer",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/acceptance/timer/tma_write_reloading.gb",
+        "sha256": "81ef3e9a375993bb3615a6c2788e8003507be1b9c58a61f629b87706c354ea6d",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.misc.bits.unused_hwio-C.cgb",
+      "category": "memory",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/misc/bits/unused_hwio-C.gb",
+        "sha256": "d045dace1e85847456d245d480c085d39cbb34124132fcf13f34c2f7483e0914",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.misc.boot_div-cgbABCDE.cgb",
+      "category": "memory",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/misc/boot_div-cgbABCDE.gb",
+        "sha256": "dc10c5472ae310f9a5571a54495d750f1fb9a6ee8aaa8ac86c5709dd1fc840d6",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.misc.boot_hwio-C.cgb",
+      "category": "memory",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/misc/boot_hwio-C.gb",
+        "sha256": "73b14bf636f1a2fbb8180b23daa28e7e9d0c022a2c0af6a68b78670c226dd12a",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.misc.boot_regs-cgb.cgb",
+      "category": "memory",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/misc/boot_regs-cgb.gb",
+        "sha256": "a0a2ad4a83ff250aef72dbfb3ec91f448a7de820c739b69c4ecd2ac58d05dd85",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.misc.ppu.vblank_stat_intr-C.cgb",
+      "category": "ppu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "mooneye-test-suite/misc/ppu/vblank_stat_intr-C.gb",
+        "sha256": "0f81587ea21ed9089cad9e49fcccb961cd78d487c0555d7a3c4288eff536621a",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc1.bits_bank1.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc1/bits_bank1.gb",
+        "sha256": "73bf6a0d4b1c20728b54414c01935d17a7d67d1f62a4a56c92a51c88608d641c",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc1.bits_bank2.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc1/bits_bank2.gb",
+        "sha256": "add022be32d30d8ccd29669154692f59ca6c91909edb02f803b3ff4e18aa126c",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc1.bits_mode.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc1/bits_mode.gb",
+        "sha256": "9605ad49cce45a79ba08d6acf40b827e2e5555b71b79e3c1c74b300240570dc3",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc1.bits_ramg.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc1/bits_ramg.gb",
+        "sha256": "b2179a08092db54d01b2d13c6b0d94297ee7a6a8256dae0a604c5920f7dbaa66",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc1.multicart_rom_8Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc1/multicart_rom_8Mb.gb",
+        "sha256": "fbdff69753e2e9fe01a072b09187b0cd0fe3e011fbe3a126a5b20f960bc7f902",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc1.ram_256kb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc1/ram_256kb.gb",
+        "sha256": "ec5a6b2ff6dbfe978e426d8cadad8d46302feb140e947dea85b323b1492fd4c0",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc1.ram_64kb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc1/ram_64kb.gb",
+        "sha256": "0454ae681a19a54be2ad5b423d72db3a46a47de528ad6eb2a0723062615891e3",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc1.rom_16Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc1/rom_16Mb.gb",
+        "sha256": "bc8df4b080309e1b24bfd138cba17c668ecf700b0012d712eb258ece3e2f4cd2",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc1.rom_1Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc1/rom_1Mb.gb",
+        "sha256": "acb65391814e549945d40ca897c87b87b789a897eb190f800e1edd039f8e1b7f",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc1.rom_2Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc1/rom_2Mb.gb",
+        "sha256": "a54e3d83bda144ee691d404e09dfb1ded6f51ec2841b4ebaca0bf66df71e0de2",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc1.rom_4Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc1/rom_4Mb.gb",
+        "sha256": "ffb8517cee0bfe5a61ee4ec0066d7abcd8ca90f186665b46c3d519e756de2d3b",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc1.rom_512kb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc1/rom_512kb.gb",
+        "sha256": "4a968ede6110d1afb00d9006f10765dd8e3abb09997e41326078324c05da496d",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc1.rom_8Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc1/rom_8Mb.gb",
+        "sha256": "6daefa4cc40550db772a9e5032606373f48e9402730717b315095f2746368fb9",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc2.bits_ramg.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc2/bits_ramg.gb",
+        "sha256": "06ec942260c6d9a6c4328901a29f030a9bb322e65c0ffad546adc3e7aebe1f1a",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc2.bits_romb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc2/bits_romb.gb",
+        "sha256": "56208e0462eecc3e5b3c34174f13c63475b20ccdd9641cebfec3498b02c91b08",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc2.bits_unused.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc2/bits_unused.gb",
+        "sha256": "fb19c4eb7a15082271af681831bed6cdc9ef9fdc03a83055b7a1fdf7ca819258",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc2.ram.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc2/ram.gb",
+        "sha256": "e0f088ea700d59602aed84945de15a6e9b6f9ced2328da77db96e2171f6bc3dc",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc2.rom_1Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc2/rom_1Mb.gb",
+        "sha256": "0c38118c17b09ffb972967bcd02a851032a22be98177f1b59757be68bb86f34d",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc2.rom_2Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc2/rom_2Mb.gb",
+        "sha256": "2e69db86a7bb0f67937f371759fa3e9c3a31e9c7cb46c541fd28b6aa613746c2",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc2.rom_512kb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc2/rom_512kb.gb",
+        "sha256": "a2026b5d5558b4ec7765416f9263a6a45e487f174d942f819c8d19ded225c406",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc5.rom_16Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc5/rom_16Mb.gb",
+        "sha256": "1263454a55568657b7ada75a01d26ebc9710e76fdd173dd971dfe6d48058ccd2",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc5.rom_1Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc5/rom_1Mb.gb",
+        "sha256": "c8a69617df3d65ea992c37d02e203025fa45ba83ea7121cd3e5c1e0d6a4bf848",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc5.rom_2Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc5/rom_2Mb.gb",
+        "sha256": "9b87448c157aeaa72aae61cff0f5b4435ba76a0031be4ec525a0b7bdb616a301",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc5.rom_32Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc5/rom_32Mb.gb",
+        "sha256": "e8ad899adb4f3195d86f7e01eb04aeb41c9f6b757b87d5d195fc95061b97a7ad",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc5.rom_4Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc5/rom_4Mb.gb",
+        "sha256": "f4c7e8c471fd77776f63a1bdb465b2241e4686b4f02c7c90a963240da54de2b5",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc5.rom_512kb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc5/rom_512kb.gb",
+        "sha256": "0d47ec7e884c8236f0dba4d26fbebe490305850b41755c0118d18997adf1274a",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc5.rom_64Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc5/rom_64Mb.gb",
+        "sha256": "80c12a1c01224439e33eb385d64028bfca14e46f5b5f3eece5495167351bf0ec",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.emulator-only.mbc5.rom_8Mb.dmg",
+      "category": "mbc",
+      "hardware": "dmg",
+      "rom": {
+        "path": "mooneye-test-suite/emulator-only/mbc5/rom_8Mb.gb",
+        "sha256": "3b2d6d717c4f5adf0179ed05f3a206231f17855591084ca910fe0ef2c7e5c112",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "blargg.cpu_instrs.dmg",
+      "category": "cpu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/cpu_instrs/cpu_instrs.gb",
+        "sha256": "8c5e12f41e0ba5bbca796944f92ffe6de28809198682c4332e38d1b3cf56fcf2",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 4200,
+      "success": {
+        "serial": {
+          "pass": "Passed",
+          "fail": "Failed"
+        },
+        "register_signature": false
+      }
+    },
+    {
+      "id": "blargg.instr_timing.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/instr_timing/instr_timing.gb",
+        "sha256": "646067b3d6c79fda810e9c3f1cb7c0efd5abb0a7ac06437c54e65720c15d9925",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 300,
+      "success": {
+        "serial": {
+          "pass": "Passed",
+          "fail": "Failed"
+        },
+        "register_signature": false
+      }
+    },
+    {
+      "id": "blargg.mem_timing.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/mem_timing/mem_timing.gb",
+        "sha256": "791cb418fd054b482a6ada5017e2405b96c2373a0f3914c6b23afeee76fa98ce",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 600,
+      "success": {
+        "serial": {
+          "pass": "Passed",
+          "fail": "Failed"
+        },
+        "register_signature": false
+      }
+    },
+    {
+      "id": "blargg.mem_timing-2.dmg",
+      "category": "timing",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/mem_timing-2/mem_timing.gb",
+        "sha256": "ab9daf4c51f417c468ad0a61dab66872cf8b5a50e6eb08d989b581d15f3cf461",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 600,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.halt_bug.dmg",
+      "category": "halt",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/halt_bug.gb",
+        "sha256": "ddebfb81f992132954a5580e16cfb97346a4e061c762634d7701328e23fea7c6",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 300,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "screenshot": {
+          "path": "blargg/halt_bug-dmg-cgb.png",
+          "sha256": "c2cc91c7c33684d166fa141eeee648182b06b258e51551c39ead1907b14b3083",
+          "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+          "license": "MIT (game-boy-test-roms, Christoph Sprenger)",
+          "redistribution": "external-only"
+        }
+      }
+    },
+    {
+      "id": "blargg.cpu_instrs.cgb",
+      "category": "cpu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/cpu_instrs/cpu_instrs.gb",
+        "sha256": "8c5e12f41e0ba5bbca796944f92ffe6de28809198682c4332e38d1b3cf56fcf2",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 4200,
+      "success": {
+        "serial": {
+          "pass": "Passed",
+          "fail": "Failed"
+        },
+        "register_signature": false
+      }
+    },
+    {
+      "id": "blargg.instr_timing.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/instr_timing/instr_timing.gb",
+        "sha256": "646067b3d6c79fda810e9c3f1cb7c0efd5abb0a7ac06437c54e65720c15d9925",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 300,
+      "success": {
+        "serial": {
+          "pass": "Passed",
+          "fail": "Failed"
+        },
+        "register_signature": false
+      }
+    },
+    {
+      "id": "blargg.mem_timing.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/mem_timing/mem_timing.gb",
+        "sha256": "791cb418fd054b482a6ada5017e2405b96c2373a0f3914c6b23afeee76fa98ce",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 600,
+      "success": {
+        "serial": {
+          "pass": "Passed",
+          "fail": "Failed"
+        },
+        "register_signature": false
+      }
+    },
+    {
+      "id": "blargg.mem_timing-2.cgb",
+      "category": "timing",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/mem_timing-2/mem_timing.gb",
+        "sha256": "ab9daf4c51f417c468ad0a61dab66872cf8b5a50e6eb08d989b581d15f3cf461",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 600,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.halt_bug.cgb",
+      "category": "halt",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/halt_bug.gb",
+        "sha256": "ddebfb81f992132954a5580e16cfb97346a4e061c762634d7701328e23fea7c6",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 300,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "screenshot": {
+          "path": "blargg/halt_bug-dmg-cgb.png",
+          "sha256": "c2cc91c7c33684d166fa141eeee648182b06b258e51551c39ead1907b14b3083",
+          "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+          "license": "MIT (game-boy-test-roms, Christoph Sprenger)",
+          "redistribution": "external-only"
+        }
+      }
+    },
+    {
+      "id": "blargg.interrupt_time.cgb",
+      "category": "interrupts",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/interrupt_time/interrupt_time.gb",
+        "sha256": "1a8f8f3bc609a92a5838214c00906c81e7cc77b3b9a63be5a1ec6d513f234929",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 300,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "screenshot": {
+          "path": "blargg/interrupt_time/interrupt_time-cgb.png",
+          "sha256": "b911e9fb39e7a1d7b22ddd8889b8e951382e4ab6d182ff587b2cf75dc071b7e1",
+          "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+          "license": "MIT (game-boy-test-roms, Christoph Sprenger)",
+          "redistribution": "external-only"
+        }
+      }
+    },
+    {
+      "id": "blargg.oam_bug.1-lcd_sync.dmg",
+      "category": "memory",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/oam_bug/rom_singles/1-lcd_sync.gb",
+        "sha256": "abc303a2c644528cbcf36e83f8020cad17fdb6abdf42940533c4f6c8830c530a",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.oam_bug.2-causes.dmg",
+      "category": "memory",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/oam_bug/rom_singles/2-causes.gb",
+        "sha256": "3f9c0db75222aae7c47382fe814b3806735b9ef76c791c6c26985b55c82235b9",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.oam_bug.3-non_causes.dmg",
+      "category": "memory",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/oam_bug/rom_singles/3-non_causes.gb",
+        "sha256": "33e474075def3c025ff7990af82f1effb31e83617fb88aa1ee401976c35b8978",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.oam_bug.4-scanline_timing.dmg",
+      "category": "memory",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/oam_bug/rom_singles/4-scanline_timing.gb",
+        "sha256": "5527c97665c3ad5474e5bda53a7e8e629bb1d0cb8ec54e6a1b42946dc9835ec7",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.oam_bug.5-timing_bug.dmg",
+      "category": "memory",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/oam_bug/rom_singles/5-timing_bug.gb",
+        "sha256": "ca3500d92e77883a09e5bc560046ed3471ab362eca550689cd38a944dc558e4f",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.oam_bug.6-timing_no_bug.dmg",
+      "category": "memory",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/oam_bug/rom_singles/6-timing_no_bug.gb",
+        "sha256": "e5ea594ddc7ad9a0e3063c3d6b050a2a10239cd43a23012551d4985c3712ea70",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.oam_bug.8-instr_effect.dmg",
+      "category": "memory",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/oam_bug/rom_singles/8-instr_effect.gb",
+        "sha256": "11b372a91f65dd3bd2570aafc6f26e201fc0f05955ba3bb57f4c17cd642f7b2d",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.dmg_sound.01-registers.dmg",
+      "category": "apu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/dmg_sound/rom_singles/01-registers.gb",
+        "sha256": "c6b9fa4b9d9d26919b33ebe78a6ef19ad2df854186cf741ca2746179cc9fc3f1",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.dmg_sound.02-len.ctr.dmg",
+      "category": "apu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/dmg_sound/rom_singles/02-len ctr.gb",
+        "sha256": "745544125a5065729cab22494a79f65c3836e4426f89e4cc43d330afe711b413",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.dmg_sound.03-trigger.dmg",
+      "category": "apu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/dmg_sound/rom_singles/03-trigger.gb",
+        "sha256": "bb11e7266a7143bafb8aa2a73ca70957c6011f36cd4e0b6aaf0678378294e75c",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.dmg_sound.04-sweep.dmg",
+      "category": "apu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/dmg_sound/rom_singles/04-sweep.gb",
+        "sha256": "58bc14541d91bb020c7761b423825b3432cfde7ee2fa4d1116126e4cb9573c7e",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.dmg_sound.05-sweep.details.dmg",
+      "category": "apu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/dmg_sound/rom_singles/05-sweep details.gb",
+        "sha256": "f582ca3a0b2544b9510797d7d4dd56a17f53e000511b0ae88a6353200dcd9167",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.dmg_sound.06-overflow.on.trigger.dmg",
+      "category": "apu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/dmg_sound/rom_singles/06-overflow on trigger.gb",
+        "sha256": "1a511e95e84ed6fe6077cabf451a98b4e01fdef59cadae3efbc178113eb064b1",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.dmg_sound.07-len.sweep.period.sync.dmg",
+      "category": "apu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/dmg_sound/rom_singles/07-len sweep period sync.gb",
+        "sha256": "56bf5b0c18b996929c9b052ba5a02b450cb619bb6c24cc1d34ea20951c977bf7",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.dmg_sound.08-len.ctr.during.power.dmg",
+      "category": "apu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/dmg_sound/rom_singles/08-len ctr during power.gb",
+        "sha256": "31cb41f7be106a708ec0bc94f2a9d0b506d247cd591e9d0a2a6a960dc3bf6595",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.dmg_sound.09-wave.read.while.on.dmg",
+      "category": "apu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/dmg_sound/rom_singles/09-wave read while on.gb",
+        "sha256": "378b86f6a25daa16855260d7ef0c24e48146ba05df434a0b5413983a1447e875",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.dmg_sound.10-wave.trigger.while.on.dmg",
+      "category": "apu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/dmg_sound/rom_singles/10-wave trigger while on.gb",
+        "sha256": "fa63c8ed7473411e54285d318e33bf23ff6d637ed2caa7555ddeaf80578e3279",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.dmg_sound.11-regs.after.power.dmg",
+      "category": "apu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/dmg_sound/rom_singles/11-regs after power.gb",
+        "sha256": "d27dab46e8b881028723f1975328572d38e25d295289b974cd698916a0be5dab",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.dmg_sound.12-wave.write.while.on.dmg",
+      "category": "apu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/dmg_sound/rom_singles/12-wave write while on.gb",
+        "sha256": "2efbecd2c6d40928d44f45da4f634626bcd2790165b3949aedfe377c73913774",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.cgb_sound.01-registers.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/cgb_sound/rom_singles/01-registers.gb",
+        "sha256": "8415d6c69f7954e9365a586bac235f5ce39270ece32c09cb8ebbbff043b9852c",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.cgb_sound.02-len.ctr.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/cgb_sound/rom_singles/02-len ctr.gb",
+        "sha256": "a1ccf47375a2bede3077ac85a4903cb037dd8a4c7c85fc5d0c176af52915271f",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.cgb_sound.03-trigger.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/cgb_sound/rom_singles/03-trigger.gb",
+        "sha256": "70173be396d14ac955c47aededcee90ba994206cc403273d0bb49ba163ae23ef",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.cgb_sound.04-sweep.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/cgb_sound/rom_singles/04-sweep.gb",
+        "sha256": "abfd1f6fa9e6701e46135ac9f5bb5b10a46cde22d0fc34922636aa09a5647483",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.cgb_sound.05-sweep.details.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/cgb_sound/rom_singles/05-sweep details.gb",
+        "sha256": "f51a80c5538fe4b3afbc5c9af0e689a67869b1e2bbb73d4c60a8874826d056cb",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.cgb_sound.06-overflow.on.trigger.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/cgb_sound/rom_singles/06-overflow on trigger.gb",
+        "sha256": "5701414d13ba55d25b59d13076e2e9cb59a9da6890595b41464f957605e317c0",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.cgb_sound.07-len.sweep.period.sync.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/cgb_sound/rom_singles/07-len sweep period sync.gb",
+        "sha256": "47d57ba87c3a93050ee340cf49b9d276e62e9573542b92b1de5fa2f17e3716c1",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.cgb_sound.08-len.ctr.during.power.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/cgb_sound/rom_singles/08-len ctr during power.gb",
+        "sha256": "be7948c70946e0b81c178b8778ef1907231e734650062f8fa8cdb1ceb5ac8c65",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.cgb_sound.09-wave.read.while.on.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/cgb_sound/rom_singles/09-wave read while on.gb",
+        "sha256": "9b101c68b2de1930df74c19aaf22cce74d37dd5aade93855c805ecb2e1e83fd3",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.cgb_sound.10-wave.trigger.while.on.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/cgb_sound/rom_singles/10-wave trigger while on.gb",
+        "sha256": "cbea1771a5384f4d8f8a249056224a750ad5ee4671297836e4ba87e689af2a23",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.cgb_sound.11-regs.after.power.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/cgb_sound/rom_singles/11-regs after power.gb",
+        "sha256": "d347dd195a78c2d0f665b94da493a857218f032b014654b84ddb01f7b8e9befc",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.cgb_sound.12-wave.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "blargg/cgb_sound/rom_singles/12-wave.gb",
+        "sha256": "7bbd2e78e159de4297f567fec7851f9b90c3076d18d1043af5f30e14bd66cd0a",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 1200,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "memory": [
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          },
+          {
+            "address": "0xA000",
+            "value": "0x00"
+          }
+        ],
+        "memory_before": [
+          {
+            "address": "0xA000",
+            "value": "0x80"
+          },
+          {
+            "address": "0xA001",
+            "value": "0xDE"
+          },
+          {
+            "address": "0xA002",
+            "value": "0xB0"
+          },
+          {
+            "address": "0xA003",
+            "value": "0x61"
+          }
+        ],
+        "memory_stability_samples": 2
+      }
+    },
+    {
+      "id": "blargg.oam_bug.dmg",
+      "category": "memory",
+      "hardware": "dmg",
+      "rom": {
+        "path": "blargg/oam_bug/oam_bug.gb",
+        "sha256": "21f0e7af73e525d14ca242ba28f97d4d381a40a61b3466dd6b4cae3e502e1ea1",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "Aucune licence publiée ; ROMs diffusées librement par leur auteur, Shay Green",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 2400,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "screenshot": {
+          "path": "blargg/oam_bug/oam_bug-dmg.png",
+          "sha256": "c1151edeefcb6733a6fc2720f5906688ccca811237b1aeb159e996bfe35f83b8",
+          "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+          "license": "MIT (game-boy-test-roms, Christoph Sprenger)",
+          "redistribution": "external-only"
+        }
+      }
+    },
+    {
+      "id": "dmg-acid2.dmg",
+      "category": "ppu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "dmg-acid2/dmg-acid2.gb",
+        "sha256": "464e14b7d42e7feea0b7ede42be7071dc88913f75b9ffa444299424b63d1dff1",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Matt Currie)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 300,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "screenshot": {
+          "path": "dmg-acid2/dmg-acid2-dmg.png",
+          "sha256": "ca966d50895c7efef05838590d148c2cbfd7fba57dab986f25b35b4da71abb57",
+          "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+          "license": "MIT (Matt Currie)",
+          "redistribution": "external-only"
+        }
+      }
+    },
+    {
+      "id": "dmg-acid2.cgb",
+      "category": "ppu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "dmg-acid2/dmg-acid2.gb",
+        "sha256": "464e14b7d42e7feea0b7ede42be7071dc88913f75b9ffa444299424b63d1dff1",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Matt Currie)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 300,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "screenshot": {
+          "path": "dmg-acid2/dmg-acid2-cgb.png",
+          "sha256": "cbf039fd613a6db3c3d830a6a1d887efbc892aea4578ffc569b61f66a9e07ced",
+          "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+          "license": "MIT (Matt Currie)",
+          "redistribution": "external-only"
+        }
+      }
+    },
+    {
+      "id": "cgb-acid2.cgb",
+      "category": "ppu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "cgb-acid2/cgb-acid2.gbc",
+        "sha256": "197fb0bcec544f0400527fc707e0a94f55435974986e6986b424ace5de81720e",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Matt Currie)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 300,
+      "success": {
+        "serial": {
+          "fail": "Failed"
+        },
+        "register_signature": false,
+        "screenshot": {
+          "path": "cgb-acid2/cgb-acid2.png",
+          "sha256": "9ea9c262c5383353e77d715d021a0f7c5ccbe438f88082cb225756e50c4fdf01",
+          "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+          "license": "MIT (Matt Currie)",
+          "redistribution": "external-only"
+        }
+      }
+    }
+  ]
+}
