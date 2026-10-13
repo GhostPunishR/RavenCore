@@ -191,7 +191,9 @@ public:
         if ((oam_dma_active_ && !oam_dma_pending_ && oam_dma_source_ != dma_source_from_register()) ||
             (oam_dma_active_ && oam_dma_index_ >= 0xa0) ||
             (!oam_dma_pending_ && oam_dma_startup_cycles_ != 0) ||
-            (hdma_active_ && (hdma_destination_ >= 0x2000 || hdma_length_ == 0)) ||
+            // Une destination en fin de banque (0x2000) reste valide pendant un
+            // transfert : relancé sans la réécrire, il s'arrête au premier octet.
+            (hdma_active_ && hdma_length_ == 0) ||
             hdma_block_bytes_remaining_ > hdma_length_ ||
             (!hdma_active_ && hdma_block_bytes_remaining_ != 0) ||
             (hdma_active_ && !hdma_hblank_ && hdma_block_bytes_remaining_ == 0) ||

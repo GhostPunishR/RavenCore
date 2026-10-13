@@ -869,27 +869,44 @@ void vram_dma_destination_end_test() {
     f.bus.write(0xff55, 0x01); // GDMA de 32 octets
     // Un dot à la fois, comme la machine : le compteur de demi-cycles du
     // transfert reste alors dans les bornes que valide le chargement d'état.
-    const auto run_dots = [&f](int dots) { for (int dot = 0; dot < dots; ++dot) f.bus.tick(0, 1); };
-    run_dots(64);
+    const auto run_dots = [](Fixture& fixture, int dots) {
+        for (int dot = 0; dot < dots; ++dot) fixture.bus.tick(0, 1);
+    };
+    const auto save = [](Fixture& fixture) {
+        detail::BinaryWriter writer;
+        fixture.ppu.save(writer);
+        fixture.speed.save(writer);
+        fixture.bus.save(writer);
+        return std::move(writer).take();
+    };
+    run_dots(f, 64);
     check(f.ppu.vram[0x3fff] == 0x4f && !f.bus.cpu_blocked(),
           "GDMA arrivé en fin de banque VRAM : arrêt ou dernier octet incorrect");
 
-    f.bus.write(0xff55, 0x00); // relance sans réécrire la destination
-    run_dots(64);
+    // Relance sans réécrire la destination. Jusqu'au tick suivant, le
+    // transfert est actif avec sa destination en fin de banque : un état pris
+    // à cet instant doit se recharger.
+    f.bus.write(0xff55, 0x00);
+    const auto load = [](Fixture& fixture, const std::vector<std::uint8_t>& state) {
+        detail::BinaryReader reader(state);
+        fixture.ppu.load(reader);
+        fixture.speed.load(reader);
+        fixture.bus.load(reader);
+        return reader.exhausted();
+    };
+    Fixture restored;
+    check(load(restored, save(f)), "état pris juste après la relance d'un GDMA en fin de banque refusé");
+
+    run_dots(f, 64);
+    run_dots(restored, 64);
     check(f.ppu.vram[0x3fff] == 0x4f && !f.bus.cpu_blocked(),
           "GDMA relancé en fin de banque : écriture ou blocage inattendu");
-
-    detail::BinaryWriter writer;
-    f.ppu.save(writer);
-    f.speed.save(writer);
-    f.bus.save(writer);
-    const auto state = std::move(writer).take();
-    Fixture restored;
-    detail::BinaryReader reader(state);
-    restored.ppu.load(reader);
-    restored.speed.load(reader);
-    restored.bus.load(reader);
-    check(reader.exhausted(), "état après un GDMA en fin de banque refusé ou incomplet");
+    const auto stopped = save(f);
+    check(stopped == save(restored), "GDMA relancé en fin de banque : l'état rechargé diverge");
+    // Une écriture au-delà de la banque laisserait la destination à 0x2001,
+    // valeur que le chargement refuse.
+    Fixture after;
+    check(load(after, stopped), "état après un GDMA relancé en fin de banque refusé");
 }
 
 void oam_dma_save_state_test() {
