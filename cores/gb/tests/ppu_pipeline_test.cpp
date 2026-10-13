@@ -1,4 +1,5 @@
 #include "ppu/ppu.hpp"
+#include <array>
 #include "check.hpp"
 #include "machine/machine.hpp"
 #include "synthetic_roms.hpp"
@@ -1287,6 +1288,111 @@ void register_state_validation_test() {
     }
 }
 
+namespace {
+
+struct OamCorruptionFixture {
+    explicit OamCorruptionFixture(gb::HardwareMode hardware) : ppu(interrupts, hardware) {
+        ppu.write_lcdc(0x91);
+        // Ligne 2 : hors des lignes de démarrage du LCD, en plein mode 2.
+        while (ppu.ly() != 2 || ppu.mode() != Ppu::mode_oam) ppu.tick(1);
+        while (ppu.line_dot() != 0) ppu.tick(1);
+        for (int index = 0; index < 0xa0; ++index) ppu.write_oam_direct(index, (index * 37 + 11) & 0xff);
+    }
+    void corrupt_at_row(int row, Ppu::OamCorruption kind) {
+        while (ppu.line_dot() < row * 4) ppu.tick(1);
+        ppu.corrupt_oam(kind);
+    }
+    InterruptController interrupts;
+    Ppu ppu;
+};
+
+using OamImage = std::array<int, 0xa0>;
+
+OamImage oam_image(const Ppu& ppu) {
+    OamImage image{};
+    for (int index = 0; index < 0xa0; ++index) image[static_cast<std::size_t>(index)] = ppu.oam[static_cast<std::size_t>(index)];
+    return image;
+}
+
+// Formules de Pan Docs (« OAM Corruption Bug »), réécrites ici octet par octet
+// sur une ligne de 8 octets : mots 0..3 = octets (0,1) (2,3) (4,5) (6,7).
+int& byte_at(OamImage& image, int row, int offset) { return image[static_cast<std::size_t>(row * 8 + offset)]; }
+
+void expect_simple_corruption(OamImage& image, int row, bool write) {
+    for (int offset = 0; offset < 2; ++offset) {
+        const int a = byte_at(image, row, offset);
+        const int b = byte_at(image, row - 1, offset);
+        const int c = byte_at(image, row - 1, offset + 4);
+        byte_at(image, row, offset) = write ? ((a ^ c) & (b ^ c)) ^ c : (b | (a & c));
+    }
+    for (int offset = 2; offset < 8; ++offset) byte_at(image, row, offset) = byte_at(image, row - 1, offset);
+}
+
+} // namespace
+
+/**
+ * Bug de corruption de l'OAM du DMG : la ligne line_dot / 4 lue par le PPU en
+ * mode 2 reçoit la corruption d'écriture, de lecture ou de lecture avec
+ * incrément décrite par Pan Docs. La ligne 0, le mode 3 et le CGB y échappent.
+ */
+void oam_corruption_patterns_test() {
+    {
+        OamCorruptionFixture fixture(gb::HardwareMode::dmg);
+        auto expected = oam_image(fixture.ppu);
+        fixture.corrupt_at_row(5, Ppu::OamCorruption::write);
+        expect_simple_corruption(expected, 5, true);
+        check(oam_image(fixture.ppu) == expected, "corruption d'écriture OAM différente de Pan Docs");
+    }
+    {
+        OamCorruptionFixture fixture(gb::HardwareMode::dmg);
+        auto expected = oam_image(fixture.ppu);
+        fixture.corrupt_at_row(7, Ppu::OamCorruption::read);
+        expect_simple_corruption(expected, 7, false);
+        check(oam_image(fixture.ppu) == expected, "corruption de lecture OAM différente de Pan Docs");
+    }
+    {
+        OamCorruptionFixture fixture(gb::HardwareMode::dmg);
+        auto expected = oam_image(fixture.ppu);
+        fixture.corrupt_at_row(9, Ppu::OamCorruption::read_with_increment);
+        for (int offset = 0; offset < 2; ++offset) {
+            const int a = byte_at(expected, 7, offset);
+            const int b = byte_at(expected, 8, offset);
+            const int c = byte_at(expected, 9, offset);
+            const int d = byte_at(expected, 8, offset + 4);
+            byte_at(expected, 8, offset) = (b & (a | c | d)) | (a & c & d);
+        }
+        for (int offset = 0; offset < 8; ++offset) {
+            byte_at(expected, 9, offset) = byte_at(expected, 8, offset);
+            byte_at(expected, 7, offset) = byte_at(expected, 8, offset);
+        }
+        expect_simple_corruption(expected, 9, false);
+        check(oam_image(fixture.ppu) == expected, "corruption lecture + incrément OAM différente de Pan Docs");
+    }
+    {
+        // Parmi les quatre premières lignes, seule la corruption de lecture reste.
+        OamCorruptionFixture fixture(gb::HardwareMode::dmg);
+        auto expected = oam_image(fixture.ppu);
+        fixture.corrupt_at_row(2, Ppu::OamCorruption::read_with_increment);
+        expect_simple_corruption(expected, 2, false);
+        check(oam_image(fixture.ppu) == expected, "lecture + incrément sur une des quatre premières lignes");
+    }
+    {
+        OamCorruptionFixture fixture(gb::HardwareMode::dmg);
+        const auto expected = oam_image(fixture.ppu);
+        fixture.corrupt_at_row(0, Ppu::OamCorruption::write);
+        check(oam_image(fixture.ppu) == expected, "la ligne des objets 0 et 1 a été corrompue");
+        while (fixture.ppu.mode() != Ppu::mode_transfer) fixture.ppu.tick(1);
+        fixture.ppu.corrupt_oam(Ppu::OamCorruption::write);
+        check(oam_image(fixture.ppu) == expected, "OAM corrompue hors du mode 2");
+    }
+    {
+        OamCorruptionFixture fixture(gb::HardwareMode::cgb_native);
+        const auto expected = oam_image(fixture.ppu);
+        fixture.corrupt_at_row(5, Ppu::OamCorruption::write);
+        check(oam_image(fixture.ppu) == expected, "le CGB a reproduit le bug de corruption OAM du DMG");
+    }
+}
+
 } // namespace ravenemu::cgb::testing
 
 int main() {
@@ -1305,6 +1411,7 @@ int main() {
     object_fetch_cancel_test();
     progressive_oam_scan_test();
     mid_oam_scan_save_state_test();
+    oam_corruption_patterns_test();
     stat_line_edge_test();
     mode2_stat_lead_test();
     video_bus_lock_boundary_test();

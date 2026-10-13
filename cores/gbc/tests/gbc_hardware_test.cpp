@@ -852,6 +852,46 @@ void oam_dma_ppu_contention_test() {
     }
 }
 
+/**
+ * Un transfert VRAM qui atteint la fin d'une banque s'arrête ; en relancer un
+ * sans réécrire la destination n'écrit plus rien. Auparavant, l'octet suivant
+ * partait hors de la VRAM (banque 1 : vram[0x4000]) et l'état sauvegardé,
+ * destination à 0x2001, était refusé au chargement (Gambatte hdma_late_length).
+ */
+void vram_dma_destination_end_test() {
+    Fixture f;
+    for (int i = 0; i < 32; ++i) f.bus.write(0xc000 + i, 0x40 + i);
+    f.bus.write(0xff4f, 0x01); // VRAM banque 1
+    f.bus.write(0xff51, 0xc0);
+    f.bus.write(0xff52, 0x00);
+    f.bus.write(0xff53, 0x1f);
+    f.bus.write(0xff54, 0xf0); // destination $9FF0, 16 octets avant la fin
+    f.bus.write(0xff55, 0x01); // GDMA de 32 octets
+    // Un dot à la fois, comme la machine : le compteur de demi-cycles du
+    // transfert reste alors dans les bornes que valide le chargement d'état.
+    const auto run_dots = [&f](int dots) { for (int dot = 0; dot < dots; ++dot) f.bus.tick(0, 1); };
+    run_dots(64);
+    check(f.ppu.vram[0x3fff] == 0x4f && !f.bus.cpu_blocked(),
+          "GDMA arrivé en fin de banque VRAM : arrêt ou dernier octet incorrect");
+
+    f.bus.write(0xff55, 0x00); // relance sans réécrire la destination
+    run_dots(64);
+    check(f.ppu.vram[0x3fff] == 0x4f && !f.bus.cpu_blocked(),
+          "GDMA relancé en fin de banque : écriture ou blocage inattendu");
+
+    detail::BinaryWriter writer;
+    f.ppu.save(writer);
+    f.speed.save(writer);
+    f.bus.save(writer);
+    const auto state = std::move(writer).take();
+    Fixture restored;
+    detail::BinaryReader reader(state);
+    restored.ppu.load(reader);
+    restored.speed.load(reader);
+    restored.bus.load(reader);
+    check(reader.exhausted(), "état après un GDMA en fin de banque refusé ou incomplet");
+}
+
 void oam_dma_save_state_test() {
     Fixture source;
     for (int index = 0; index < 0xa0; ++index) source.bus.write(0xc000 + index, index ^ 0x5a);
@@ -1069,6 +1109,7 @@ int main() {
     oam_dma_ppu_contention_test();
     oam_dma_save_state_test();
     vram_dma_timing_test();
+    vram_dma_destination_end_test();
 
     auto rom = minimal_game_boy_rom();
     rom[0x0143] = 0x80;

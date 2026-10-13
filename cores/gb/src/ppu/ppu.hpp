@@ -60,6 +60,55 @@ public:
     }
     void write_oam_direct(int index, int value) noexcept { oam[static_cast<std::size_t>(index)] = static_cast<std::uint8_t>(value); }
 
+    enum class OamCorruption : std::uint8_t { write, read, read_with_increment };
+    /**
+     * Bug de corruption de l'OAM du DMG (Pan Docs, « OAM Corruption Bug »).
+     * Un accès CPU à $FE00-$FEFF, ou l'incrémentation 16 bits d'un registre
+     * qui y pointe, pendant le mode 2 abîme la ligne de 8 octets (deux objets)
+     * que le PPU lit pendant ce M-cycle. Les opérations sont bit à bit : on les
+     * applique octet par octet aux mots 16 bits de l'OAM. Le CGB n'a pas ce
+     * défaut, même en mode de compatibilité.
+     */
+    void corrupt_oam(OamCorruption kind) noexcept {
+        if (hardware_mode_ != gb::HardwareMode::dmg || !lcd_enabled() || mode_ != mode_oam) return;
+        // Le PPU lit une ligne par M-cycle : au moment de l'accès CPU, c'est
+        // la ligne line_dot_ / 4 (Blargg, oam_bug 4 et 5 : la corruption
+        // commence au début de la première ligne visible).
+        const int row = line_dot_ / 4;
+        if (row <= 0 || row >= 20) return; // la ligne des objets 0 et 1 est épargnée
+        const auto at = [this](int line, int offset) -> std::uint8_t& {
+            return oam[static_cast<std::size_t>(line * 8 + offset)];
+        };
+        const auto copy_row = [&](int from, int to) {
+            for (int offset = 0; offset < 8; ++offset) at(to, offset) = at(from, offset);
+        };
+        if (kind == OamCorruption::read_with_increment) {
+            // Lecture et écriture dans le même M-cycle : la ligne précédente
+            // est d'abord corrompue puis recopiée, sauf pour les quatre
+            // premières lignes et la dernière ; une corruption de lecture suit.
+            if (row >= 4 && row < 19) {
+                for (int offset = 0; offset < 2; ++offset) {
+                    const int a = at(row - 2, offset);
+                    const int b = at(row - 1, offset);
+                    const int c = at(row, offset);
+                    const int d = at(row - 1, offset + 4);
+                    at(row - 1, offset) = static_cast<std::uint8_t>((b & (a | c | d)) | (a & c & d));
+                }
+                copy_row(row - 1, row);
+                copy_row(row - 1, row - 2);
+            }
+            kind = OamCorruption::read;
+        }
+        for (int offset = 0; offset < 2; ++offset) {
+            const int a = at(row, offset);
+            const int b = at(row - 1, offset);
+            const int c = at(row - 1, offset + 4);
+            at(row, offset) = static_cast<std::uint8_t>(
+                kind == OamCorruption::write ? ((a ^ c) & (b ^ c)) ^ c : b | (a & c));
+        }
+        for (int offset = 2; offset < 8; ++offset) at(row, offset) = at(row - 1, offset);
+    }
+
     /** Prend le port OAM pour un nouveau DMA. Le mot vu par le fetcher OBJ
      * reste indéfini jusqu'au premier octet effectivement transféré. */
     void begin_oam_dma() noexcept {

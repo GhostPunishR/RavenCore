@@ -2,6 +2,8 @@
 #include "check.hpp"
 
 #include <array>
+#include <utility>
+#include <initializer_list>
 #include <cstdint>
 #include <iomanip>
 #include <sstream>
@@ -13,7 +15,7 @@ using ravenemu::testing::check;
 namespace ravenemu::cgb::testing {
 
 struct TraceEvent {
-    enum class Kind { tick, halted_tick, read, write } kind{};
+    enum class Kind { tick, halted_tick, read, write, idu } kind{};
     int mcycle{};
     int address{-1};
     int value{-1};
@@ -44,6 +46,17 @@ public:
         if (interrupt_on_mcycle == mcycle && mapped_interrupts != nullptr) {
             mapped_interrupts->flags |= interrupt_to_raise;
         }
+    }
+
+    // Valeur que l'IDU place sur le bus d'adresse pendant ce M-cycle.
+    void idu_mcycle(int value) override {
+        tick_mcycle();
+        events.push_back({TraceEvent::Kind::idu, mcycle, word(value)});
+    }
+    [[nodiscard]] int read_mcycle_incrementing(int address) override {
+        tick_mcycle();
+        events.push_back({TraceEvent::Kind::idu, mcycle, word(address)});
+        return read(address);
     }
 
     void tick_halted_mcycle() override {
@@ -93,6 +106,41 @@ void memory_access_schedule_test() {
     check(bus.find(TraceEvent::Kind::write, 0xc000).mcycle == 4, "SP bas écrit au mauvais M-cycle");
     check(bus.find(TraceEvent::Kind::write, 0xc001).mcycle == 5, "SP haut écrit au mauvais M-cycle");
     check(bus.memory[0xc000] == 0x34 && bus.memory[0xc001] == 0x12, "ordre little-endian de LD [imm16],SP incorrect");
+}
+
+/**
+ * Opérations de l'IDU visibles sur le bus d'adresse, d'où naît le bug de
+ * corruption de l'OAM du DMG (Pan Docs) : INC/DEC rr, LD A,[HL±], la première
+ * lecture de POP et la décrémentation qui précède les écritures de PUSH. Une
+ * addition 16 bits de l'ALU (ADD HL,rr) n'en produit pas.
+ */
+void idu_address_bus_test() {
+    const auto run = [](std::initializer_list<int> program, auto setup) {
+        TraceBus bus;
+        InterruptController interrupts;
+        Cpu cpu(bus, interrupts);
+        setup(cpu);
+        bus.program(program);
+        static_cast<void>(cpu.step());
+        std::vector<std::pair<int, int>> idu;
+        for (const auto& event : bus.events) {
+            if (event.kind == TraceEvent::Kind::idu && event.mcycle > 1) idu.emplace_back(event.mcycle, event.address);
+        }
+        return idu;
+    };
+    using Idu = std::vector<std::pair<int, int>>;
+    check(run({0x13}, [](Cpu& cpu) { cpu.set_de(0xfe00); }) == Idu{{2, 0xfe00}},
+          "INC DE n'a pas placé DE sur le bus d'adresse");
+    check(run({0x3b}, [](Cpu& cpu) { cpu.sp = 0xfe20; }) == Idu{{2, 0xfe20}},
+          "DEC SP n'a pas placé SP sur le bus d'adresse");
+    check(run({0x2a}, [](Cpu& cpu) { cpu.set_hl(0xfe10); }) == Idu{{2, 0xfe10}},
+          "LD A,[HL+] n'a pas lu et incrémenté dans le même M-cycle");
+    check(run({0xc1}, [](Cpu& cpu) { cpu.sp = 0xfef0; }) == Idu{{2, 0xfef0}},
+          "POP : seule la première lecture s'accompagne de l'IDU");
+    check(run({0xc5}, [](Cpu& cpu) { cpu.sp = 0xfef0; }) == Idu{{2, 0xfef0}},
+          "PUSH : la décrémentation de SP précède les écritures");
+    check(run({0x19}, [](Cpu& cpu) { cpu.set_hl(0xfe00); cpu.set_de(0x0001); }).empty(),
+          "ADD HL,rr ne passe pas par l'IDU");
 }
 
 void call_and_interrupt_schedule_test() {
@@ -447,6 +495,7 @@ void exhaustive_official_timing_test() {
 int main() {
     using namespace ravenemu::cgb::testing;
     memory_access_schedule_test();
+    idu_address_bus_test();
     call_and_interrupt_schedule_test();
     interrupt_dispatch_sampling_test();
     interrupt_raised_during_fetch_aborts_opcode_before_full_dispatch_test();

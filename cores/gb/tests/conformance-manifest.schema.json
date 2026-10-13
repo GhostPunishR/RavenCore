@@ -73,7 +73,17 @@
           "minItems": 1,
           "items": { "$ref": "#/$defs/memory" }
         },
+        "memory_before": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/memory" },
+          "description": "État à observer une fois avant d'accepter la réussite mémoire."
+        },
         "framebuffer": { "$ref": "#/$defs/artifact" },
+        "screenshot": {
+          "$ref": "#/$defs/artifact",
+          "description": "Capture PNG 160 × 144 non entrelacée, comparée en RGB 8 bits ; en mode compatibilité CGB, le runner applique les palettes par défaut du boot ROM."
+        },
         "framebuffer_sha256": {
           "type": "string",
           "pattern": "^[0-9A-Fa-f]{64}$"
@@ -96,7 +106,8 @@
         },
         { "required": ["memory"] },
         { "required": ["framebuffer"] },
-        { "required": ["framebuffer_sha256"] }
+        { "required": ["framebuffer_sha256"] },
+        { "required": ["screenshot"] }
       ],
       "allOf": [
         {
@@ -107,8 +118,12 @@
           }
         },
         {
-          "not": { "required": ["framebuffer", "framebuffer_sha256"] }
-        }
+          "if": { "required": ["memory_before"] },
+          "then": { "required": ["memory"] }
+        },
+        { "not": { "required": ["framebuffer", "framebuffer_sha256"] } },
+        { "not": { "required": ["framebuffer", "screenshot"] } },
+        { "not": { "required": ["framebuffer_sha256", "screenshot"] } }
       ]
     },
     "test": {

@@ -122,4 +122,41 @@ if(RAVENEMU_BUILD_TESTS)
                 --runner $<TARGET_FILE:gb_conformance_runner>
         )
     endif()
+
+    # RAVENEMU_GB_TEST_ROMS désigne l'archive publique extraite par
+    # tests/fetch_test_roms.sh : chaque test de tests/public-test-roms.json
+    # devient un test CTest gb_rom_<id>, dont l'orchestrateur vérifie la ROM
+    # (et la capture attendue) par SHA-256 avant de lancer le runner.
+    set(RAVENEMU_GB_TEST_ROMS "" CACHE PATH
+        "Dossier des ROMs de test GB/GBC publiques (tests/fetch_test_roms.sh)")
+    if(RAVENEMU_GB_TEST_ROMS)
+        if(NOT Python3_Interpreter_FOUND)
+            message(FATAL_ERROR "RAVENEMU_GB_TEST_ROMS exige Python 3.10 ou ultérieur")
+        endif()
+        set(gb_rom_manifest ${CMAKE_CURRENT_LIST_DIR}/tests/public-test-roms.json)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${gb_rom_manifest})
+        execute_process(
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/tests/conformance_manifest.py
+                ${gb_rom_manifest} --list
+            OUTPUT_VARIABLE gb_rom_list
+            ERROR_VARIABLE gb_rom_list_error
+            RESULT_VARIABLE gb_rom_list_result)
+        if(NOT gb_rom_list_result EQUAL 0)
+            message(FATAL_ERROR "Manifeste des ROMs de test GB invalide : ${gb_rom_list_error}")
+        endif()
+        # --list écrit une ligne par test : identifiant, catégorie, matériel, ROM.
+        string(REPLACE "\n" ";" gb_rom_lines "${gb_rom_list}")
+        foreach(line IN LISTS gb_rom_lines)
+            if(line MATCHES "^([^\t]+)\t")
+                set(id "${CMAKE_MATCH_1}")
+                add_test(NAME gb_rom_${id}
+                    COMMAND ${Python3_EXECUTABLE}
+                        ${CMAKE_CURRENT_LIST_DIR}/tests/conformance_manifest.py
+                        ${gb_rom_manifest} --id ${id}
+                        --runner $<TARGET_FILE:gb_conformance_runner>
+                        --rom-root ${RAVENEMU_GB_TEST_ROMS}
+                        --report ${CMAKE_CURRENT_BINARY_DIR}/gb-rom-reports/${id}.json)
+            endif()
+        endforeach()
+    endif()
 endif()

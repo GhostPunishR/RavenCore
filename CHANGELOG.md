@@ -4,6 +4,14 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 ## Non publié
 
+### Ajouté
+
+#### Validation GB/GBC
+
+- `public-test-roms.json` fige 198 tests issus de l'archive publique [game-boy-test-roms v7.0](https://github.com/c-sp/game-boy-test-roms/releases/tag/v7.0) : Mooneye Test Suite (profils DMG et CGB, tests MBC), les ROMs de Blargg (`cpu_instrs`, `instr_timing`, `mem_timing`, `mem_timing-2`, `halt_bug`, `interrupt_time`, `oam_bug`, `dmg_sound`, `cgb_sound`), dmg-acid2 et cgb-acid2. `fetch_test_roms.sh` télécharge l'archive et vérifie son SHA-256, puis l'orchestrateur vérifie celui de chaque ROM et de chaque capture. Avec `-DRAVENEMU_GB_TEST_ROMS=DOSSIER`, chaque test devient un test CTest `gb_rom_<id>` ; la CI Linux et la passe ASan/UBSan les exécutent. Aucune ROM n'est stockée dans le dépôt.
+- `gb_conformance_runner` compare l'image à une capture RGB888 (`--expect-frame-rgb888`) dans la palette commune des captures de référence, avec les palettes de la boot ROM CGB en mode compatibilité (`--compatibility-palette boot-default`). `--expect-memory-before` exige un état intermédiaire avant d'accepter une réussite mémoire. Le runner signale l'échec Mooneye (`0x42` dans tous les registres) au lieu d'attendre le timeout.
+- `conformance_manifest.py` lit les captures PNG sans dépendance externe (critère `screenshot`), accepte `memory_before` et sélectionne un test avec `--id`.
+
 ### Modifié
 
 - Le dépôt s'appelle désormais **RavenCore** (`GhostPunishR/RavenCore`) ; les anciennes adresses `RavenEmu-Cores` redirigent.
@@ -13,6 +21,18 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 ### Obsolète
 
 - L'ancien nom du paquet, `find_package(RavenEmuCores)`, fonctionne toujours mais affiche un avertissement de dépréciation. Il charge `RavenCore` depuis la même installation et sera retiré à la version 1.0.
+
+### Corrigé
+
+Ces corrections font passer les onze ROMs de Blargg qui échouaient. Le format des états instantanés GB/GBC ne change pas ; un état existant se charge comme avant.
+
+- **Son (DMG et CGB).** Rallumer l'APU par NR52 remet le séquenceur de trames à l'étape 0, toujours cadencé par DIV (`dmg_sound` et `cgb_sound` 07).
+- **Canal d'onde.** Le premier échantillon est lu 6 cycles après une période complète suivant le déclenchement (`09`, `12`). Sur DMG, la RAM d'onde n'est accessible pendant que le canal joue que juste après une lecture, et le redéclenchement ne corrompt cette RAM que si la lecture suivante tombe au cycle suivant, avec l'octet qui allait être lu (`10`).
+- **Bug de corruption de l'OAM (DMG).** Une incrémentation ou décrémentation 16 bits (`INC rr`, `DEC rr`, `LD A,[HL±]`, `PUSH`, `POP`, appel d'interruption) dont la valeur tombe dans `$FE00`–`$FEFF` pendant le mode 2 corrompt l'OAM selon les formules de Pan Docs. `ADD HL,rr`, `ADD SP,e` et `LD HL,SP+e` ne la déclenchent pas. Le CGB n'est pas concerné. La ROM `oam_bug` de Blargg passe.
+
+### Sécurité
+
+- **HDMA GBC.** Une fois la destination arrivée en fin de VRAM, relancer un transfert sans réécrire `FF53`/`FF54` écrivait un octet après la banque, de plus en plus loin à chaque relance : la banque 1 débordait du tableau de la VRAM. L'état instantané produit était ensuite refusé au chargement. Le transfert s'arrête désormais en fin de banque.
 
 ## 0.1.1 - 2026-10-12
 

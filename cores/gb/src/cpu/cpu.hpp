@@ -89,6 +89,14 @@ private:
         bus_.write_mcycle(address, value);
         ++mcycles_;
     }
+    // L'IDU place sur le bus d'adresse la valeur 16 bits qu'il incrémente ou
+    // décrémente : pointée sur $FE00-$FEFF en mode 2, elle corrompt l'OAM du DMG.
+    void idu_mcycle(int value) { bus_.idu_mcycle(value); ++mcycles_; }
+    [[nodiscard]] int read_mcycle_incrementing(int address) {
+        const int value = bus_.read_mcycle_incrementing(address);
+        ++mcycles_;
+        return value;
+    }
     int service_interrupt() {
         ime = false;
         ei_pending = false;
@@ -104,7 +112,8 @@ private:
         // contrôleur échantillonne seulement alors IE&IF et sa priorité. Si
         // SP=$0000, cette écriture vise IE et peut donc annuler ou rediriger
         // le dispatch ; l'écriture de l'octet bas est déjà trop tardive.
-        for (int cycle = 0; cycle < 2; ++cycle) idle_mcycle();
+        idle_mcycle();
+        idu_mcycle(sp);
         sp = word(sp - 1);
         write_mcycle(sp, pc >> 8);
         const auto interrupt = interrupts_.highest_pending();
@@ -120,18 +129,21 @@ private:
         return elapsed_cycles();
     }
     int fetch_opcode() {
-        const int value = read_mcycle(pc); if (halt_bug) halt_bug = false; else pc = word(pc + 1); return value;
+        if (halt_bug) { halt_bug = false; return read_mcycle(pc); }
+        const int value = read_mcycle_incrementing(pc); pc = word(pc + 1); return value;
     }
-    int fetch_byte() { const int value = read_mcycle(pc); pc = word(pc + 1); return value; }
+    int fetch_byte() { const int value = read_mcycle_incrementing(pc); pc = word(pc + 1); return value; }
     int fetch_stop_padding() { const int value = bus_.read(pc); pc = word(pc + 1); return value; }
     int fetch_word() { const int low = fetch_byte(); return low | (fetch_byte() << 8); }
     void push(int value, bool leading_idle = true) {
-        if (leading_idle) idle_mcycle();
+        if (leading_idle) idu_mcycle(sp);
         sp = word(sp - 1); write_mcycle(sp, value >> 8);
         sp = word(sp - 1); write_mcycle(sp, value);
     }
     int pop() {
-        const int low = read_mcycle(sp); sp = word(sp + 1);
+        // Pan Docs : seule la première lecture s'accompagne d'une écriture
+        // fantôme de l'IDU ; la seconde incrémentation n'en produit pas.
+        const int low = read_mcycle_incrementing(sp); sp = word(sp + 1);
         const int high = read_mcycle(sp); sp = word(sp + 1);
         return (high << 8) | low;
     }
@@ -238,34 +250,34 @@ private:
         }
         switch (opcode) {
         case 0x00: return 4; case 0x01: set_bc(fetch_word()); return 12; case 0x02: write_mcycle(bc(), a); return 8;
-        case 0x03: idle_mcycle(); set_bc(word(bc() + 1)); return 8; case 0x04: b = inc8(b); return 4; case 0x05: b = dec8(b); return 4;
+        case 0x03: idu_mcycle(bc()); set_bc(word(bc() + 1)); return 8; case 0x04: b = inc8(b); return 4; case 0x05: b = dec8(b); return 4;
         case 0x06: b = fetch_byte(); return 8; case 0x07: a = rlc(a); f &= ~flag_z; return 4;
         case 0x08: { const int address = fetch_word(); write_mcycle(address, sp); write_mcycle(word(address + 1), sp >> 8); return 20; }
         case 0x09: idle_mcycle(); add_hl(bc()); return 8;
-        case 0x0a: a = read_mcycle(bc()); return 8; case 0x0b: idle_mcycle(); set_bc(word(bc() - 1)); return 8;
+        case 0x0a: a = read_mcycle(bc()); return 8; case 0x0b: idu_mcycle(bc()); set_bc(word(bc() - 1)); return 8;
         case 0x0c: c = inc8(c); return 4; case 0x0d: c = dec8(c); return 4; case 0x0e: c = fetch_byte(); return 8;
         case 0x0f: a = rrc(a); f &= ~flag_z; return 4;
         case 0x10: static_cast<void>(fetch_stop_padding()); if (!bus_.on_stop()) stopped = true; return 4; case 0x11: set_de(fetch_word()); return 12;
-        case 0x12: write_mcycle(de(), a); return 8; case 0x13: idle_mcycle(); set_de(word(de() + 1)); return 8;
+        case 0x12: write_mcycle(de(), a); return 8; case 0x13: idu_mcycle(de()); set_de(word(de() + 1)); return 8;
         case 0x14: d = inc8(d); return 4; case 0x15: d = dec8(d); return 4; case 0x16: d = fetch_byte(); return 8;
         case 0x17: a = rl(a); f &= ~flag_z; return 4; case 0x18: return jump_relative(true); case 0x19: idle_mcycle(); add_hl(de()); return 8;
-        case 0x1a: a = read_mcycle(de()); return 8; case 0x1b: idle_mcycle(); set_de(word(de() - 1)); return 8;
+        case 0x1a: a = read_mcycle(de()); return 8; case 0x1b: idu_mcycle(de()); set_de(word(de() - 1)); return 8;
         case 0x1c: e = inc8(e); return 4; case 0x1d: e = dec8(e); return 4; case 0x1e: e = fetch_byte(); return 8;
         case 0x1f: a = rr(a); f &= ~flag_z; return 4;
         case 0x20: return jump_relative(!z()); case 0x21: set_hl(fetch_word()); return 12;
-        case 0x22: write_mcycle(hl(), a); set_hl(word(hl() + 1)); return 8; case 0x23: idle_mcycle(); set_hl(word(hl() + 1)); return 8;
+        case 0x22: write_mcycle(hl(), a); set_hl(word(hl() + 1)); return 8; case 0x23: idu_mcycle(hl()); set_hl(word(hl() + 1)); return 8;
         case 0x24: h = inc8(h); return 4; case 0x25: h = dec8(h); return 4; case 0x26: h = fetch_byte(); return 8;
         case 0x27: daa(); return 4; case 0x28: return jump_relative(z()); case 0x29: idle_mcycle(); add_hl(hl()); return 8;
-        case 0x2a: a = read_mcycle(hl()); set_hl(word(hl() + 1)); return 8; case 0x2b: idle_mcycle(); set_hl(word(hl() - 1)); return 8;
+        case 0x2a: a = read_mcycle_incrementing(hl()); set_hl(word(hl() + 1)); return 8; case 0x2b: idu_mcycle(hl()); set_hl(word(hl() - 1)); return 8;
         case 0x2c: l = inc8(l); return 4; case 0x2d: l = dec8(l); return 4; case 0x2e: l = fetch_byte(); return 8;
         case 0x2f: a = byte(~a); f |= flag_n | flag_h; return 4;
         case 0x30: return jump_relative(!carry()); case 0x31: sp = fetch_word(); return 12;
-        case 0x32: write_mcycle(hl(), a); set_hl(word(hl() - 1)); return 8; case 0x33: idle_mcycle(); sp = word(sp + 1); return 8;
+        case 0x32: write_mcycle(hl(), a); set_hl(word(hl() - 1)); return 8; case 0x33: idu_mcycle(sp); sp = word(sp + 1); return 8;
         case 0x34: { const int value = inc8(read_mcycle(hl())); write_mcycle(hl(), value); return 12; }
         case 0x35: { const int value = dec8(read_mcycle(hl())); write_mcycle(hl(), value); return 12; }
         case 0x36: { const int value = fetch_byte(); write_mcycle(hl(), value); return 12; } case 0x37: f = (f & flag_z) | flag_c; return 4;
         case 0x38: return jump_relative(carry()); case 0x39: idle_mcycle(); add_hl(sp); return 8;
-        case 0x3a: a = read_mcycle(hl()); set_hl(word(hl() - 1)); return 8; case 0x3b: idle_mcycle(); sp = word(sp - 1); return 8;
+        case 0x3a: a = read_mcycle_incrementing(hl()); set_hl(word(hl() - 1)); return 8; case 0x3b: idu_mcycle(sp); sp = word(sp - 1); return 8;
         case 0x3c: a = inc8(a); return 4; case 0x3d: a = dec8(a); return 4; case 0x3e: a = fetch_byte(); return 8;
         case 0x3f: f = (f & flag_z) | ((f & flag_c) ^ flag_c); return 4;
         case 0xc0: return return_if(!z()); case 0xc1: set_bc(pop()); return 12; case 0xc2: return jump_absolute(!z());

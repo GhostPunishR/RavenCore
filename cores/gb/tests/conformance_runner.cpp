@@ -31,7 +31,10 @@ struct Options {
     std::string serial_fail{"Failed"};
     std::string framebuffer_sha256;
     std::string framebuffer_path;
+    std::string framebuffer_rgb_path;
+    std::string compatibility_palette;
     std::vector<MemoryExpectation> memory;
+    std::vector<MemoryExpectation> memory_before;
     int timeout_frames{600};
     int minimum_pass_frames{};
     int memory_stability_samples{1};
@@ -83,8 +86,11 @@ private:
         << "  --memory-require-mismatch\n"
         << "  --serial-pass TEXTE | --serial-fail TEXTE\n"
         << "  --expect-memory ADRESSE=VALEUR (répétable)\n"
+        << "  --expect-memory-before ADRESSE=VALEUR (répétable)\n"
         << "  --expect-frame-argb8888 FICHIER\n"
+        << "  --expect-frame-rgb888 FICHIER\n"
         << "  --expect-frame-sha256 HEX\n"
+        << "  --compatibility-palette boot-default\n"
         << "  --no-mooneye-signature\n";
     throw std::invalid_argument("arguments invalides");
 }
@@ -133,16 +139,22 @@ Options parse_options(int argc, char** argv) {
         else if (argument == "--serial-pass") result.serial_pass = value();
         else if (argument == "--serial-fail") result.serial_fail = value();
         else if (argument == "--expect-frame-argb8888") result.framebuffer_path = value();
+        else if (argument == "--expect-frame-rgb888") result.framebuffer_rgb_path = value();
         else if (argument == "--expect-frame-sha256") result.framebuffer_sha256 = value();
-        else if (argument == "--expect-memory") {
+        else if (argument == "--compatibility-palette") result.compatibility_palette = value();
+        else if (argument == "--expect-memory" || argument == "--expect-memory-before") {
             const auto specification = value();
             const auto separator = specification.find('=');
             if (separator == std::string::npos) usage("attente mémoire sans '='");
-            result.memory.push_back({parse_number(std::string_view{specification}.substr(0, separator)),
-                                     parse_number(std::string_view{specification}.substr(separator + 1))});
+            auto& target = argument == "--expect-memory" ? result.memory : result.memory_before;
+            target.push_back({parse_number(std::string_view{specification}.substr(0, separator)),
+                              parse_number(std::string_view{specification}.substr(separator + 1))});
         } else if (argument == "--no-mooneye-signature") result.mooneye_signature = false;
         else if (argument == "--memory-require-mismatch") result.memory_require_mismatch = true;
         else usage("option inconnue");
+    }
+    if (!result.memory_before.empty() && result.memory.empty()) {
+        usage("--expect-memory-before exige --expect-memory");
     }
     if (result.timeout_frames <= 0) usage("timeout nul ou négatif");
     if (result.memory_stability_samples <= 0) usage("stabilité mémoire nulle");
@@ -151,6 +163,13 @@ Options parse_options(int argc, char** argv) {
     }
     if (result.hardware != "auto" && result.hardware != "dmg" && result.hardware != "cgb") {
         usage("modèle matériel inconnu");
+    }
+    if (!result.compatibility_palette.empty() && result.compatibility_palette != "boot-default") {
+        usage("palette de compatibilité inconnue");
+    }
+    if (!result.framebuffer_path.empty() + !result.framebuffer_rgb_path.empty() +
+            !result.framebuffer_sha256.empty() > 1) {
+        usage("une seule image attendue à la fois");
     }
     return result;
 }
@@ -226,6 +245,62 @@ std::vector<std::uint8_t> serialize_frame(const Ppu& ppu) {
     return bytes;
 }
 
+/**
+ * Image en RGB 8 bits par canal, l'espace des captures de référence publiques
+ * (c-sp/game-boy-test-roms) : les quatre gris DMG valent FF, AA, 55 et 00 ;
+ * en CGB, le PPU développe déjà chaque canal 5 bits en (c << 3) | (c >> 2).
+ */
+std::vector<std::uint8_t> frame_rgb(const Ppu& ppu, bool dmg_shades) {
+    static constexpr std::array<std::uint8_t, 4> grays{0xff, 0xaa, 0x55, 0x00};
+    std::vector<std::uint8_t> bytes;
+    bytes.reserve(ppu.completed_frame.size() * 3U);
+    for (const auto pixel : ppu.completed_frame) {
+        const auto value = static_cast<std::uint32_t>(pixel);
+        if (dmg_shades) {
+            const auto gray = grays[value & 3U];
+            bytes.insert(bytes.end(), {gray, gray, gray});
+        } else {
+            bytes.push_back(static_cast<std::uint8_t>(value >> 16U));
+            bytes.push_back(static_cast<std::uint8_t>(value >> 8U));
+            bytes.push_back(static_cast<std::uint8_t>(value));
+        }
+    }
+    return bytes;
+}
+
+/**
+ * Un écran DMG n'affiche que quatre gris. Une capture de référence DMG peut
+ * contenir des teintes intermédiaires, issues du mélange d'images de
+ * l'émulateur qui l'a produite (oam_bug-dmg.png en a 50) : chaque pixel est
+ * ramené au gris le plus proche, ce qui laisse intacts les quatre gris purs.
+ */
+void snap_to_dmg_shades(std::vector<std::uint8_t>& rgb) {
+    for (std::size_t offset = 0; offset + 2 < rgb.size(); offset += 3) {
+        const int level = (rgb[offset] + rgb[offset + 1] + rgb[offset + 2]) / 3;
+        const auto shade = static_cast<std::uint8_t>((level + 0x2a) / 0x55 * 0x55);
+        rgb[offset] = rgb[offset + 1] = rgb[offset + 2] = shade;
+    }
+}
+
+/**
+ * Palettes que le boot ROM CGB choisit pour une cartouche DMG qu'il ne
+ * reconnaît pas. Sans boot ROM, le cœur garde des gris neutres ; les captures
+ * de référence en mode compatibilité supposent celles-ci. Elles passent par
+ * les mêmes registres que le boot ROM.
+ */
+void apply_boot_default_compatibility_palette(Ppu& ppu) {
+    static constexpr std::array<int, 4> background{0x7fff, 0x1bef, 0x6180, 0x0000};
+    static constexpr std::array<int, 4> objects{0x7fff, 0x421f, 0x1cf2, 0x0000};
+    ppu.write_bcps(0x80);
+    for (const int color : background) { ppu.write_bcpd(color & 0xff); ppu.write_bcpd(color >> 8); }
+    ppu.write_ocps(0x80);
+    for (int palette = 0; palette < 2; ++palette) {
+        for (const int color : objects) { ppu.write_ocpd(color & 0xff); ppu.write_ocpd(color >> 8); }
+    }
+    ppu.write_bcps(0);
+    ppu.write_ocps(0);
+}
+
 std::string frame_hash(const std::vector<std::uint8_t>& bytes) {
     const auto digest = detail::sha256(bytes);
     std::ostringstream hex;
@@ -235,6 +310,11 @@ std::string frame_hash(const std::vector<std::uint8_t>& bytes) {
 
 bool mooneye_passed(const Cpu& cpu) noexcept {
     return cpu.b == 3 && cpu.c == 5 && cpu.d == 8 && cpu.e == 13 && cpu.h == 21 && cpu.l == 34;
+}
+
+// Un test Mooneye en échec charge $42 dans B, C, D, E, H et L avant son LD B,B.
+bool mooneye_failed(const Cpu& cpu) noexcept {
+    return cpu.b == 0x42 && cpu.c == 0x42 && cpu.d == 0x42 && cpu.e == 0x42 && cpu.h == 0x42 && cpu.l == 0x42;
 }
 
 bool memory_passed(Machine& machine, const std::vector<MemoryExpectation>& expected) {
@@ -251,21 +331,30 @@ int run(const Options& options) {
     const auto header = CartridgeHeader::parse(*rom);
     const auto boot = options.boot_rom_path.empty()
         ? std::vector<std::uint8_t>{} : read_file(options.boot_rom_path);
-    const bool expected_frame_file = !options.framebuffer_path.empty();
-    const auto expected_frame = !expected_frame_file
-        ? std::vector<std::uint8_t>{} : read_file(options.framebuffer_path);
-    constexpr auto expected_frame_bytes =
-        static_cast<std::size_t>(Ppu::frame_pixels) * sizeof(std::uint32_t);
+    // Une seule image attendue : ARGB8888 brut du cœur, ou RGB888 d'une capture.
+    const bool rgb_frame = !options.framebuffer_rgb_path.empty();
+    const bool expected_frame_file = rgb_frame || !options.framebuffer_path.empty();
+    auto expected_frame = !expected_frame_file
+        ? std::vector<std::uint8_t>{}
+        : read_file(rgb_frame ? options.framebuffer_rgb_path : options.framebuffer_path);
+    const auto expected_frame_bytes =
+        static_cast<std::size_t>(Ppu::frame_pixels) * (rgb_frame ? 3U : sizeof(std::uint32_t));
     if (expected_frame_file && expected_frame.size() != expected_frame_bytes) {
         throw std::invalid_argument(
-            "framebuffer ARGB8888 attendu de taille " +
-            std::to_string(expected_frame_bytes) + " octets");
+            std::string{"framebuffer "} + (rgb_frame ? "RGB888" : "ARGB8888") +
+            " attendu de taille " + std::to_string(expected_frame_bytes) + " octets");
     }
     // Le transport doit vivre plus longtemps que le port qui s'y détache dans
     // son destructeur.
     SerialCapture serial;
-    Machine machine(rom, [] { return std::int64_t{0}; }, resolve_mode(options, header), boot);
+    const auto mode = resolve_mode(options, header);
+    if (rgb_frame && mode == gb::HardwareMode::dmg) snap_to_dmg_shades(expected_frame);
+    Machine machine(rom, [] { return std::int64_t{0}; }, mode, boot);
     if (!machine.serial.connect(&serial)) throw std::runtime_error("capture série refusée");
+    if (options.compatibility_palette == "boot-default" && boot.empty() &&
+        mode == gb::HardwareMode::cgb_compatibility) {
+        apply_boot_default_compatibility_palette(machine.ppu);
+    }
 
     constexpr std::int64_t dots_per_frame = 70'224;
     const auto timeout = static_cast<std::int64_t>(options.timeout_frames) * dots_per_frame;
@@ -277,10 +366,16 @@ int run(const Options& options) {
     int memory_stability{};
     bool memory_mismatch_observed =
         !options.memory.empty() && !memory_passed(machine, options.memory);
+    // État intermédiaire à voir avant la réussite mémoire. Un test Blargg écrit
+    // sa signature alors que $A000 vaut encore le $00 d'une RAM effacée, puis
+    // passe à $80 pendant l'exécution : seul le $00 qui suit ce $80 compte.
+    bool memory_before_observed = options.memory_before.empty();
     std::string last_hash;
     std::optional<std::size_t> last_frame_mismatch;
+    std::size_t last_frame_differences{};
     std::uint8_t last_frame_expected{};
     std::uint8_t last_frame_actual{};
+    int failure_signature_stability{};
 
     while (dots < timeout) {
         const int advanced = machine.step();
@@ -308,8 +403,19 @@ int run(const Options& options) {
                       << " mechanism=register-signature dots=" << dots << "\n";
             return 0;
         }
+        failure_signature_stability = options.mooneye_signature && mooneye_failed(machine.cpu)
+            ? failure_signature_stability + 1 : 0;
+        if (failure_signature_stability >= 8) {
+            std::cout << "FAIL category=" << options.category
+                      << " mechanism=register-signature dots=" << dots
+                      << " reason=failure-signature-0x42\n";
+            return 1;
+        }
 
-        const bool memory_matches = memory_passed(machine, options.memory);
+        if (!memory_before_observed && memory_passed(machine, options.memory_before)) {
+            memory_before_observed = true;
+        }
+        const bool memory_matches = memory_before_observed && memory_passed(machine, options.memory);
         if (!options.memory.empty() && !memory_matches) {
             memory_mismatch_observed = true;
             memory_stability = 0;
@@ -328,11 +434,13 @@ int run(const Options& options) {
         const bool frame_expected =
             expected_frame_file || !options.framebuffer_sha256.empty();
         if (pass_window_open && frame_expected && dots >= next_frame) {
-            const auto current_frame = serialize_frame(machine.ppu);
+            const auto current_frame = rgb_frame
+                ? frame_rgb(machine.ppu, mode == gb::HardwareMode::dmg)
+                : serialize_frame(machine.ppu);
             last_hash = frame_hash(current_frame);
             if (expected_frame_file && current_frame == expected_frame) {
-                std::cout << "PASS category=" << options.category
-                          << " mechanism=framebuffer-argb8888 dots=" << dots << "\n";
+                std::cout << "PASS category=" << options.category << " mechanism=framebuffer-"
+                          << (rgb_frame ? "rgb888" : "argb8888") << " dots=" << dots << "\n";
                 return 0;
             }
             if (expected_frame_file) {
@@ -343,6 +451,14 @@ int run(const Options& options) {
                         std::distance(expected_frame.begin(), mismatch.first));
                     last_frame_expected = *mismatch.first;
                     last_frame_actual = *mismatch.second;
+                }
+                const std::size_t pixel_bytes = rgb_frame ? 3U : 4U;
+                last_frame_differences = 0;
+                for (std::size_t offset = 0; offset < expected_frame.size(); offset += pixel_bytes) {
+                    last_frame_differences += !std::equal(
+                        expected_frame.begin() + static_cast<std::ptrdiff_t>(offset),
+                        expected_frame.begin() + static_cast<std::ptrdiff_t>(offset + pixel_bytes),
+                        current_frame.begin() + static_cast<std::ptrdiff_t>(offset));
                 }
             }
             if (last_hash == options.framebuffer_sha256) {
@@ -365,7 +481,8 @@ int run(const Options& options) {
     std::cout << "TIMEOUT category=" << options.category << " frames=" << options.timeout_frames;
     if (!last_hash.empty()) std::cout << " last-frame-sha256=" << last_hash;
     if (last_frame_mismatch) {
-        std::cout << " frame-mismatch-byte=" << *last_frame_mismatch
+        std::cout << " frame-differing-pixels=" << last_frame_differences
+                  << " frame-mismatch-byte=" << *last_frame_mismatch
                   << " expected=" << std::hex << std::setw(2) << std::setfill('0')
                   << static_cast<int>(last_frame_expected)
                   << " actual=" << std::setw(2) << static_cast<int>(last_frame_actual)
@@ -385,6 +502,9 @@ int run(const Options& options) {
               << ",TAC:" << std::setw(2) << machine.timer.read_tac()
               << ",IF:" << std::setw(2) << machine.interrupts.flags
               << ",IE:" << std::setw(2) << machine.interrupts.enable << std::dec;
+    if (!options.memory_before.empty()) {
+        std::cout << " memory-before-observed=" << (memory_before_observed ? "yes" : "no");
+    }
     if (!options.memory.empty()) {
         std::cout << " memory=";
         for (std::size_t index = 0; index < options.memory.size(); ++index) {

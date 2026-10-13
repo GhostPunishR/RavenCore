@@ -37,12 +37,10 @@ public:
     }
 
     [[nodiscard]] int read_mcycle(int address) override {
-        const int addr = word(address);
-        const bool blocked_before = oam_dma_active_ && !dma_accessible(addr, oam_dma_source_);
-        tick_mcycle();
-        const bool blocked_after = oam_dma_active_ && !dma_accessible(addr, oam_dma_source_);
-        if (blocked_before || blocked_after) return 0xff;
-        return read_internal(addr);
+        return read_mcycle_corrupting(address, Ppu::OamCorruption::read);
+    }
+    [[nodiscard]] int read_mcycle_incrementing(int address) override {
+        return read_mcycle_corrupting(address, Ppu::OamCorruption::read_with_increment);
     }
 
     void write_mcycle(int address, int value) override {
@@ -51,7 +49,15 @@ public:
         tick_mcycle();
         const bool blocked_after = oam_dma_active_ && !dma_accessible(addr, oam_dma_source_);
         if (blocked_before || blocked_after) return;
+        // Une écriture accompagnée d'une décrémentation (LD [HL-],A, PUSH)
+        // se comporte comme une écriture seule.
+        if (in_oam_range(addr)) ppu_.corrupt_oam(Ppu::OamCorruption::write);
         write_internal(addr, byte(value));
+    }
+
+    void idu_mcycle(int value) override {
+        tick_mcycle();
+        if (in_oam_range(word(value))) ppu_.corrupt_oam(Ppu::OamCorruption::write);
     }
 
     bool on_stop() override {
@@ -265,6 +271,18 @@ private:
         if (source_wram) return address <= 0xbfff;
         if (source_vram) return address <= 0x7fff || (address >= 0xa000 && address <= 0xfdff);
         return false;
+    }
+
+    [[nodiscard]] static bool in_oam_range(int address) noexcept { return address >= 0xfe00 && address <= 0xfeff; }
+
+    [[nodiscard]] int read_mcycle_corrupting(int address, Ppu::OamCorruption corruption) {
+        const int addr = word(address);
+        const bool blocked_before = oam_dma_active_ && !dma_accessible(addr, oam_dma_source_);
+        tick_mcycle();
+        const bool blocked_after = oam_dma_active_ && !dma_accessible(addr, oam_dma_source_);
+        if (blocked_before || blocked_after) return 0xff;
+        if (in_oam_range(addr)) ppu_.corrupt_oam(corruption);
+        return read_internal(addr);
     }
 
     [[nodiscard]] int read_internal(int address) {
@@ -526,6 +544,10 @@ private:
     }
 
     [[nodiscard]] bool transfer_hdma_byte() noexcept {
+        // La destination couvre les 8 Kio d'une banque de VRAM. Un transfert
+        // relancé sans la réécrire après avoir atteint la fin écrivait hors du
+        // tableau (banque 1 : vram[0x4000]) et laissait un état invalide.
+        if (hdma_destination_ >= 0x2000) return false;
         const int value = read_for_hdma(word(hdma_source_));
         ppu_.vram[static_cast<std::size_t>(ppu_.vram_bank() * 0x2000 + hdma_destination_)] = static_cast<std::uint8_t>(value);
         hdma_source_ = word(hdma_source_ + 1);

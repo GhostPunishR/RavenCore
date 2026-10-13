@@ -156,10 +156,13 @@ void wave_ram_access_test() {
     dmg.write(0xff30, 0x12);
     dmg.write(0xff1a, 0x80);
     dmg.write(0xff1d, 0xfe);
-    dmg.write(0xff1e, 0x87); // période 2046, trigger
+    dmg.write(0xff1e, 0x87); // fréquence 2046 (période 4 cycles), trigger
     check(dmg.read(0xff30) == 0xff,
           "wave RAM DMG accessible hors de la fenêtre de lecture du canal");
     dmg.tick(4);
+    check(dmg.read(0xff30) == 0xff,
+          "première lecture d'échantillon sans le délai de déclenchement de 6 cycles");
+    dmg.tick(6);
     check(dmg.read(0xff3f) == 0x12,
           "accès wave RAM DMG actif non redirigé vers l'octet courant");
     dmg.write(0xff3f, 0x34);
@@ -181,6 +184,39 @@ void wave_ram_access_test() {
     cgb.write(0xff1a, 0x00);
     check(cgb.read(0xff30) == 0x56 && cgb.read(0xff3f) == 0x00,
           "accès wave RAM CGB non redevenu direct après arrêt du canal");
+}
+
+/**
+ * Redéclencher le canal 3 d'un DMG au moment où il va lire un octet recopie
+ * cet octet, ou son bloc aligné de quatre, en tête de wave RAM (Blargg,
+ * dmg_sound « 10-wave trigger while on »). Ailleurs, rien ne change.
+ */
+void wave_retrigger_corruption_test() {
+    const auto prepared = [] {
+        Apu apu(gb::HardwareMode::dmg);
+        for (int index = 0; index < 16; ++index) apu.write(0xff30 + index, index * 0x11);
+        apu.write(0xff1a, 0x80);
+        apu.write(0xff1d, 0xfe);
+        apu.write(0xff1e, 0x87); // période 4 cycles, première lecture à 4 + 6 cycles
+        return apu;
+    };
+    const auto first_bytes = [](Apu& apu) {
+        apu.write(0xff1a, 0x00); // canal arrêté : accès direct à la wave RAM
+        return std::array<int, 4>{apu.read(0xff30), apu.read(0xff31), apu.read(0xff32), apu.read(0xff33)};
+    };
+    // Dix-septième échantillon lu à 10 + 16 × 4 = 74 cycles ; la lecture
+    // suivante, celle de l'octet 9, tombe 4 cycles plus tard.
+    Apu about_to_read = prepared();
+    about_to_read.tick(76);
+    about_to_read.write(0xff1e, 0x87);
+    check(first_bytes(about_to_read) == std::array<int, 4>{0x88, 0x99, 0xaa, 0xbb},
+          "redéclenchement pendant la lecture de l'octet 9 : bloc 8 à 11 non recopié");
+
+    Apu elsewhere = prepared();
+    elsewhere.tick(74);
+    elsewhere.write(0xff1e, 0x87);
+    check(first_bytes(elsewhere) == std::array<int, 4>{0x00, 0x11, 0x22, 0x33},
+          "redéclenchement hors lecture : wave RAM corrompue à tort");
 }
 
 void sweep_negate_clear_test() {
@@ -231,16 +267,22 @@ void div_driven_frame_sequencer_test() {
     check((apu.read(0xff26) & 1) == 0,
           "front descendant DIV-APU non transmis au séquenceur de trame");
 
-    Apu powered_off(gb::HardwareMode::dmg);
-    powered_off.write(0xff26, 0x00);
-    powered_off.clock_divider_falling_edge(); // DIV-APU avance vers l'étape 1
-    powered_off.write(0xff26, 0x80);
-    powered_off.write(0xff11, 0x3f);
-    powered_off.write(0xff12, 0xf0);
-    powered_off.write(0xff14, 0x80);
-    powered_off.write(0xff14, 0x40);
-    check((powered_off.read(0xff26) & 1) == 0,
-          "NR52 off a réinitialisé à tort la phase du compteur DIV-APU");
+    // Rallumer l'APU remet le séquenceur au pas 0, qui cadence la longueur ;
+    // seule la date des pas reste celle des fronts de DIV (Blargg, dmg_sound
+    // et cgb_sound « 07-len sweep period sync », vérifiés sur console).
+    Apu power_cycled(gb::HardwareMode::dmg);
+    power_cycled.write(0xff26, 0x00);
+    power_cycled.clock_divider_falling_edge(); // DIV avance pendant l'arrêt
+    power_cycled.write(0xff26, 0x80);
+    power_cycled.write(0xff11, 0x3f);
+    power_cycled.write(0xff12, 0xf0);
+    power_cycled.write(0xff14, 0x80);
+    power_cycled.write(0xff14, 0x40);
+    check((power_cycled.read(0xff26) & 1) != 0,
+          "rallumer l'APU n'a pas remis le séquenceur au pas 0 (longueur cadencée en trop)");
+    power_cycled.clock_divider_falling_edge();
+    check((power_cycled.read(0xff26) & 1) == 0,
+          "le premier pas après rallumage n'a pas cadencé la longueur");
 }
 
 void extra_length_clock_test() {
@@ -489,7 +531,7 @@ void apu_state_mid_wave_access_test() {
     source.write(0xff1a, 0x80);
     source.write(0xff1d, 0xfe);
     source.write(0xff1e, 0x87);
-    source.tick(4);
+    source.tick(4 + 6); // période 4 cycles + délai de déclenchement : fenêtre ouverte
 
     detail::BinaryWriter writer;
     source.save(writer);
@@ -560,6 +602,7 @@ int main() {
     post_boot_channel_still_audible_test();
     game_apu_init_is_silent_test();
     wave_ram_access_test();
+    wave_retrigger_corruption_test();
     sweep_negate_clear_test();
     powered_off_length_counter_test();
     div_driven_frame_sequencer_test();

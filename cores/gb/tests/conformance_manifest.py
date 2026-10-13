@@ -14,12 +14,14 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import struct
 import subprocess
 import sys
 import tempfile
 import time
 from typing import Any
 from urllib.parse import urlparse
+import zlib
 
 
 SCHEMA_VERSION = 1
@@ -55,6 +57,116 @@ SHA256_RE = re.compile(r"[0-9a-fA-F]{64}\Z")
 
 class ManifestError(ValueError):
     """Le manifeste ne satisfait pas le contrat versionné."""
+
+
+SCREEN_WIDTH = 160
+SCREEN_HEIGHT = 144
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+PNG_CHANNELS = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
+
+
+def decode_png_rgb(data: bytes) -> bytes:
+    """Décode une capture PNG 160 × 144 non entrelacée en RGB 8 bits par canal.
+
+    Couvre les types de couleur du PNG (gris, RGB, palette, avec ou sans
+    alpha, 1 à 16 bits) ; l'alpha est ignoré. La décompression est bornée à la
+    taille attendue d'une image d'écran.
+    """
+    if not data.startswith(PNG_SIGNATURE):
+        raise ManifestError("capture: signature PNG absente")
+    position = len(PNG_SIGNATURE)
+    header: tuple[int, ...] | None = None
+    palette = b""
+    compressed = bytearray()
+    while position + 8 <= len(data):
+        length, kind = struct.unpack(">I4s", data[position : position + 8])
+        body = data[position + 8 : position + 8 + length]
+        if len(body) != length:
+            raise ManifestError("capture: chunk PNG tronqué")
+        position += 12 + length
+        if kind == b"IHDR":
+            if length != 13:
+                raise ManifestError("capture: en-tête PNG invalide")
+            header = struct.unpack(">IIBBBBB", body)
+        elif kind == b"PLTE":
+            palette = body
+        elif kind == b"IDAT":
+            compressed += body
+        elif kind == b"IEND":
+            break
+    if header is None:
+        raise ManifestError("capture: en-tête PNG absent")
+    width, height, depth, color_type, compression, filtering, interlace = header
+    if (width, height) != (SCREEN_WIDTH, SCREEN_HEIGHT):
+        raise ManifestError(f"capture: {width}x{height} au lieu de 160x144")
+    if color_type not in PNG_CHANNELS or compression or filtering or interlace:
+        raise ManifestError("capture: format PNG non pris en charge")
+    allowed_depths = {3: (1, 2, 4, 8), 0: (1, 2, 4, 8, 16)}.get(color_type, (8, 16))
+    if depth not in allowed_depths:
+        raise ManifestError("capture: profondeur PNG invalide")
+    channels = PNG_CHANNELS[color_type]
+    bits_per_pixel = channels * depth
+    row_bytes = (width * bits_per_pixel + 7) // 8
+    expected = height * (row_bytes + 1)
+    inflater = zlib.decompressobj()
+    try:
+        raw = inflater.decompress(bytes(compressed), expected + 1)
+    except zlib.error as error:
+        raise ManifestError("capture: données PNG corrompues") from error
+    if len(raw) != expected:
+        raise ManifestError("capture: taille des données PNG inattendue")
+
+    step = max(1, bits_per_pixel // 8)
+    previous = bytearray(row_bytes)
+    rgb = bytearray()
+    for row in range(height):
+        start = row * (row_bytes + 1)
+        kind = raw[start]
+        line = bytearray(raw[start + 1 : start + 1 + row_bytes])
+        for index in range(row_bytes):
+            left = line[index - step] if index >= step else 0
+            up = previous[index]
+            corner = previous[index - step] if index >= step else 0
+            if kind == 1:
+                predictor = left
+            elif kind == 2:
+                predictor = up
+            elif kind == 3:
+                predictor = (left + up) // 2
+            elif kind == 4:
+                estimate = left + up - corner
+                distances = (abs(estimate - left), abs(estimate - up), abs(estimate - corner))
+                predictor = (left, up, corner)[distances.index(min(distances))]
+            elif kind == 0:
+                predictor = 0
+            else:
+                raise ManifestError("capture: filtre PNG inconnu")
+            line[index] = (line[index] + predictor) & 0xFF
+        previous = line
+        if depth < 8:
+            mask = (1 << depth) - 1
+            samples = [
+                (line[(column * depth) // 8] >> (8 - depth - (column * depth) % 8)) & mask
+                for column in range(width)
+            ]
+        elif depth == 8:
+            samples = list(line)
+        else:
+            samples = list(line[::2])
+        for column in range(width):
+            if color_type == 3:
+                index = samples[column]
+                if 3 * index + 3 > len(palette):
+                    raise ManifestError("capture: index de palette PNG hors limites")
+                rgb += palette[3 * index : 3 * index + 3]
+            elif color_type in (0, 4):
+                value = samples[column * channels]
+                if depth < 8:
+                    value = value * 255 // ((1 << depth) - 1)
+                rgb += bytes((value, value, value))
+            else:
+                rgb += bytes(samples[column * channels : column * channels + 3])
+    return bytes(rgb)
 
 
 def _object(value: Any, context: str) -> dict[str, Any]:
@@ -154,8 +266,10 @@ def _success(value: Any, context: str, timeout_frames: int) -> dict[str, Any]:
         "serial",
         "register_signature",
         "memory",
+        "memory_before",
         "framebuffer",
         "framebuffer_sha256",
+        "screenshot",
         "minimum_pass_frames",
         "memory_stability_samples",
     }
@@ -175,14 +289,14 @@ def _success(value: Any, context: str, timeout_frames: int) -> dict[str, Any]:
     if not isinstance(register_signature, bool):
         raise ManifestError(f"{context}.register_signature: booléen attendu")
 
-    memory: list[dict[str, int]] = []
-    seen_addresses: set[int] = set()
-    if "memory" in result:
-        raw_memory = result["memory"]
+    def memory_list(key: str) -> list[dict[str, int]]:
+        expectations: list[dict[str, int]] = []
+        seen_addresses: set[int] = set()
+        raw_memory = result[key]
         if not isinstance(raw_memory, list) or not raw_memory:
-            raise ManifestError(f"{context}.memory: liste non vide attendue")
+            raise ManifestError(f"{context}.{key}: liste non vide attendue")
         for index, raw_expectation in enumerate(raw_memory):
-            item_context = f"{context}.memory[{index}]"
+            item_context = f"{context}.{key}[{index}]"
             item = _object(raw_expectation, item_context)
             _only_keys(item, {"address", "value"}, item_context)
             _required(item, {"address", "value"}, item_context)
@@ -191,13 +305,25 @@ def _success(value: Any, context: str, timeout_frames: int) -> dict[str, Any]:
             if address in seen_addresses:
                 raise ManifestError(f"{item_context}: adresse mémoire dupliquée")
             seen_addresses.add(address)
-            memory.append({"address": address, "value": expected})
+            expectations.append({"address": address, "value": expected})
+        return expectations
+
+    memory = memory_list("memory") if "memory" in result else []
+    # État à observer avant d'accepter la réussite mémoire (par exemple
+    # $A000 = $80, « test en cours », pour les ROMs de Blargg).
+    memory_before = memory_list("memory_before") if "memory_before" in result else []
+    if memory_before and not memory:
+        raise ManifestError(f"{context}.memory_before: exige une réussite mémoire")
 
     framebuffer_artifact: dict[str, str] | None = None
     if "framebuffer" in result:
         framebuffer_artifact = _artifact(
             result["framebuffer"], f"{context}.framebuffer"
         )
+
+    screenshot: dict[str, str] | None = None
+    if "screenshot" in result:
+        screenshot = _artifact(result["screenshot"], f"{context}.screenshot")
 
     framebuffer = ""
     if "framebuffer_sha256" in result:
@@ -223,9 +349,10 @@ def _success(value: Any, context: str, timeout_frames: int) -> dict[str, Any]:
             f"{context}: une réussite mémoire exige "
             "memory_stability_samples >= 2"
         )
-    if framebuffer_artifact is not None and framebuffer:
+    if (framebuffer_artifact is not None) + bool(framebuffer) + (screenshot is not None) > 1:
         raise ManifestError(
-            f"{context}: choisir framebuffer exact ou framebuffer_sha256, pas les deux"
+            f"{context}: choisir une seule image attendue "
+            "(framebuffer, framebuffer_sha256 ou screenshot)"
         )
     if not (
         serial_pass
@@ -233,6 +360,7 @@ def _success(value: Any, context: str, timeout_frames: int) -> dict[str, Any]:
         or memory
         or framebuffer_artifact is not None
         or framebuffer
+        or screenshot is not None
     ):
         raise ManifestError(f"{context}: aucun mécanisme de réussite déclaré")
 
@@ -241,8 +369,10 @@ def _success(value: Any, context: str, timeout_frames: int) -> dict[str, Any]:
         "serial_fail": serial_fail,
         "register_signature": register_signature,
         "memory": memory,
+        "memory_before": memory_before,
         "framebuffer": framebuffer_artifact,
         "framebuffer_sha256": framebuffer,
+        "screenshot": screenshot,
         "minimum_pass_frames": minimum_frames,
         "memory_stability_samples": memory_stability,
     }
@@ -355,6 +485,7 @@ def runner_command(
     rom_path: Path,
     boot_path: Path | None,
     framebuffer_path: Path | None,
+    screenshot_rgb_path: Path | None = None,
 ) -> list[str]:
     success = case["success"]
     command = [
@@ -379,12 +510,30 @@ def runner_command(
         command.extend(("--boot-rom", str(boot_path)))
     if framebuffer_path is not None:
         command.extend(("--expect-frame-argb8888", str(framebuffer_path)))
+    if screenshot_rgb_path is not None:
+        # Les captures de référence supposent, en mode compatibilité CGB, les
+        # palettes que le boot ROM donne à une cartouche inconnue.
+        command.extend(
+            (
+                "--expect-frame-rgb888",
+                str(screenshot_rgb_path),
+                "--compatibility-palette",
+                "boot-default",
+            )
+        )
     if not success["register_signature"]:
         command.append("--no-mooneye-signature")
     for expectation in success["memory"]:
         command.extend(
             (
                 "--expect-memory",
+                f"0x{expectation['address']:04x}=0x{expectation['value']:02x}",
+            )
+        )
+    for expectation in success["memory_before"]:
+        command.extend(
+            (
+                "--expect-memory-before",
                 f"0x{expectation['address']:04x}=0x{expectation['value']:02x}",
             )
         )
@@ -479,18 +628,40 @@ def execute_case(
                 result["status"], result["reason"] = problem
                 return result
 
-        command = runner_command(
-            runner, case, rom_path, boot_path, framebuffer_path
-        )
-        completed = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=wall_timeout_seconds,
-        )
+        screenshot = case["success"]["screenshot"]
+        with tempfile.TemporaryDirectory(prefix="ravenemu-screenshot-") as scratch:
+            screenshot_rgb_path: Path | None = None
+            if screenshot is not None:
+                screenshot_path = resolve_artifact(root, screenshot)
+                result["screenshot"] = {
+                    "path": screenshot["path"],
+                    "sha256": screenshot["sha256"],
+                    "source": screenshot["source"],
+                    "license": screenshot["license"],
+                    "redistribution": screenshot["redistribution"],
+                }
+                problem = _artifact_error(
+                    screenshot, screenshot_path, "screenshot", allow_missing
+                )
+                if problem is not None:
+                    result["status"], result["reason"] = problem
+                    return result
+                screenshot_rgb_path = Path(scratch) / "screenshot.rgb888"
+                screenshot_rgb_path.write_bytes(
+                    decode_png_rgb(screenshot_path.read_bytes())
+                )
+            command = runner_command(
+                runner, case, rom_path, boot_path, framebuffer_path, screenshot_rgb_path
+            )
+            completed = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=wall_timeout_seconds,
+            )
         result["runner_exit_code"] = completed.returncode
         result["stdout"] = completed.stdout
         result["stderr"] = completed.stderr
@@ -561,6 +732,7 @@ def run_manifest(
     categories: set[str],
     allow_missing: bool,
     wall_timeout_seconds: float,
+    identifiers: set[str] | None = None,
 ) -> int:
     manifest = load_manifest(manifest_path)
     runner = runner.resolve()
@@ -570,11 +742,18 @@ def run_manifest(
     if not root.is_dir():
         raise ManifestError(f"racine des artefacts absente: {root}")
 
+    if identifiers:
+        unknown = identifiers - {case["id"] for case in manifest["tests"]}
+        if unknown:
+            raise ManifestError(f"identifiants absents du manifeste: {', '.join(sorted(unknown))}")
     selected = [
-        case for case in manifest["tests"] if not categories or case["category"] in categories
+        case
+        for case in manifest["tests"]
+        if (not categories or case["category"] in categories)
+        and (not identifiers or case["id"] in identifiers)
     ]
     if not selected:
-        raise ManifestError("aucun test ne correspond au filtre de catégories")
+        raise ManifestError("aucun test ne correspond aux filtres")
 
     started = time.time()
     results: list[dict[str, Any]] = []
@@ -587,6 +766,13 @@ def run_manifest(
             f"{result['status'].upper()} id={result['id']} "
             f"category={result['category']} reason={result['reason']}"
         )
+        if result["status"] != "pass":
+            # Le verdict détaillé du runner (registres, image, mémoire) reste
+            # dans le rapport ; il est aussi recopié ici pour les journaux de CI.
+            for line in (result.get("stdout", "") + result.get("stderr", "")).splitlines():
+                print(f"  {line}")
+            if "error" in result:
+                print(f"  {result['error']}")
 
     statuses = ("pass", "fail", "timeout", "error", "crash", "skipped")
     summary = {status: sum(item["status"] == status for item in results) for status in statuses}
@@ -661,6 +847,26 @@ def make_self_test_rom() -> bytes:
     return bytes(rom)
 
 
+def encode_gray_png(width: int, height: int, value: int) -> bytes:
+    """PNG gris 8 bits uni, pour l'auto-test du décodeur et des captures."""
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(body))
+            + kind
+            + body
+            + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+        )
+
+    rows = b"".join(b"\x00" + bytes((value,)) * width for _ in range(height))
+    return (
+        PNG_SIGNATURE
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
+    )
+
+
 def self_test(runner: Path) -> int:
     with tempfile.TemporaryDirectory(prefix="ravenemu-conformance-") as directory:
         root = Path(directory)
@@ -685,6 +891,20 @@ def self_test(runner: Path) -> int:
             "license": "MIT",
             "redistribution": "redistributable",
         }
+        # Première image DMG : le gris 0, blanc dans l'espace des captures.
+        screenshots = {}
+        for name, value in (("white", 0xFF), ("black", 0x00)):
+            png = encode_gray_png(160, 144, value)
+            (root / f"{name}.png").write_bytes(png)
+            screenshots[name] = {
+                "path": f"{name}.png",
+                "sha256": hashlib.sha256(png).hexdigest(),
+                "source": "https://github.com/GhostPunishR/RavenEmu",
+                "license": "MIT",
+                "redistribution": "redistributable",
+            }
+        if decode_png_rgb((root / "white.png").read_bytes()) != b"\xff" * (160 * 144 * 3):
+            raise RuntimeError("le décodeur PNG a mal lu une capture grise")
         raw_manifest = {
             "schema_version": SCHEMA_VERSION,
             "suite": {"name": "RavenEmu synthetic manifest self-test"},
@@ -727,6 +947,19 @@ def self_test(runner: Path) -> int:
                         "minimum_pass_frames": 1,
                     },
                 },
+                {
+                    "id": "screenshot-pass",
+                    "category": "ppu",
+                    "hardware": "dmg",
+                    "rom": provenance,
+                    "timeout_frames": 2,
+                    "success": {
+                        "serial": {"fail": "Failed"},
+                        "register_signature": False,
+                        "screenshot": screenshots["white"],
+                        "minimum_pass_frames": 1,
+                    },
+                },
             ],
         }
         manifest_path = root / "manifest.json"
@@ -744,8 +977,30 @@ def self_test(runner: Path) -> int:
             30.0,
         )
         report = json.loads(report_path.read_text(encoding="utf-8"))
-        if exit_code != 0 or report["summary"]["pass"] != 3:
-            raise RuntimeError("le manifeste synthétique n'a pas produit trois réussites")
+        if exit_code != 0 or report["summary"]["pass"] != 4:
+            raise RuntimeError("le manifeste synthétique n'a pas produit quatre réussites")
+
+        selected_report = root / "selected-report.json"
+        run_manifest(
+            manifest_path, runner, root, selected_report, set(), False, 30.0, {"screenshot-pass"}
+        )
+        selected = json.loads(selected_report.read_text(encoding="utf-8"))
+        if [item["id"] for item in selected["tests"]] != ["screenshot-pass"]:
+            raise RuntimeError("--id n'a pas sélectionné le seul test demandé")
+
+        wrong_screen = json.loads(json.dumps(raw_manifest))
+        wrong_screen["tests"] = [wrong_screen["tests"][3]]
+        wrong_screen["tests"][0]["success"]["screenshot"] = screenshots["black"]
+        wrong_screen["tests"][0]["success"]["serial"] = {"fail": "Failed"}
+        wrong_path = root / "wrong-screenshot.json"
+        wrong_path.write_text(json.dumps(wrong_screen), encoding="utf-8")
+        wrong_report = root / "wrong-screenshot-report.json"
+        wrong_exit = run_manifest(
+            wrong_path, runner, root, wrong_report, set(), False, 30.0
+        )
+        wrong_data = json.loads(wrong_report.read_text(encoding="utf-8"))
+        if wrong_exit == 0 or wrong_data["tests"][0]["status"] != "timeout":
+            raise RuntimeError("une capture différente de l'écran a produit une réussite")
 
         bad_manifest = json.loads(json.dumps(raw_manifest))
         bad_manifest["tests"][0]["rom"]["sha256"] = "0" * 64
@@ -791,6 +1046,22 @@ def self_test(runner: Path) -> int:
         if unchanged_exit == 0 or unchanged_data["tests"][0]["status"] != "timeout":
             raise RuntimeError("la valeur mémoire initiale inchangée a produit une réussite")
 
+        never_running = json.loads(json.dumps(raw_manifest))
+        never_running["tests"] = [never_running["tests"][1]]
+        never_running["tests"][0]["id"] = "memory-before-never-observed"
+        never_running["tests"][0]["success"]["memory_before"] = [
+            {"address": "0xC000", "value": "0x80"}
+        ]
+        never_path = root / "memory-before.json"
+        never_path.write_text(json.dumps(never_running), encoding="utf-8")
+        never_report = root / "memory-before-report.json"
+        never_exit = run_manifest(
+            never_path, runner, root, never_report, set(), False, 30.0
+        )
+        never_data = json.loads(never_report.read_text(encoding="utf-8"))
+        if never_exit == 0 or never_data["tests"][0]["status"] != "timeout":
+            raise RuntimeError("une réussite mémoire a précédé l'état intermédiaire exigé")
+
         invalid_manifest = json.loads(json.dumps(raw_manifest))
         del invalid_manifest["tests"][1]["success"]["memory_stability_samples"]
         try:
@@ -831,6 +1102,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--rom-root", type=Path)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--category", action="append", choices=sorted(CATEGORIES), default=[])
+    parser.add_argument("--id", action="append", default=[], dest="identifiers")
     parser.add_argument("--allow-missing", action="store_true")
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--wall-timeout-seconds", type=float, default=300.0)
@@ -866,6 +1138,7 @@ def main(argv: list[str]) -> int:
             categories,
             arguments.allow_missing,
             arguments.wall_timeout_seconds,
+            set(arguments.identifiers),
         )
     except (ManifestError, OSError, RuntimeError) as error:
         print(f"ERROR {error}", file=sys.stderr)
