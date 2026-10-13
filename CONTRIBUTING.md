@@ -57,3 +57,10 @@ Créez une branche dédiée à partir de `main`, limitez les changements au prob
 Une PR doit idéalement mentionner : le moteur concerné, le comportement avant et après, les tests exécutés et les limites restantes. Signalez si le changement mérite aussi d'être synchronisé avec le dépôt [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu).
 
 Les changements sont examinés avant intégration. Les tests automatisés doivent réussir, mais ne remplacent pas la validation des jeux et du matériel concernés.
+
+## Publier une version (mainteneurs)
+
+1. Mettez à jour `project(VERSION)` dans `CMakeLists.txt`, la version indiquée dans le README, et renommez la section « Non publié » du [journal](CHANGELOG.md) en `## X.Y.Z - AAAA-MM-JJ`.
+2. Poussez le tag `vX.Y.Z`.
+
+Le workflow `Release` vérifie que la version et le journal concordent, compile, teste, puis publie la release avec ses notes et les cœurs Libretro Linux.
