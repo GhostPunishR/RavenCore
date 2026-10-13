@@ -20,7 +20,7 @@ typedef struct ravenemu_v3_bridge ravenemu_v3_bridge;
  * a mismatch means the header and the linked library disagree. */
 #define RAVENEMU_V3_API_VERSION 0
 int ravenemu_v3_api_version(void);
-/* Version of the RavenCore library, for example "0.1.1". */
+/* Version of the RavenCore library, for example "0.1.2". */
 const char* ravenemu_v3_version(void);
 
 enum ravenemu_v3_system {

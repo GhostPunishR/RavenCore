@@ -4,6 +4,12 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 ## Non publié
 
+Rien pour l'instant.
+
+## 0.1.2 - 2026-10-13
+
+Cette version valide RavenGB et RavenGBC sur les suites de tests publiques et corrige les bugs qu'elles ont révélés ([#13](https://github.com/GhostPunishR/RavenCore/pull/13)). Le dépôt et le paquet CMake s'appellent désormais RavenCore ([#12](https://github.com/GhostPunishR/RavenCore/pull/12)).
+
 ### Ajouté
 
 #### Validation GB/GBC
@@ -17,6 +23,7 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 - Le dépôt s'appelle désormais **RavenCore** (`GhostPunishR/RavenCore`) ; les anciennes adresses `RavenEmu-Cores` redirigent.
 - Le paquet CMake s'appelle désormais `RavenCore` : `find_package(RavenCore)`. Les cibles `RavenEmu::ravenemu_cores` et `RavenEmu::ravenemu_c_api` ne changent pas.
 - Pour un projet qui inclut ce dépôt avec `add_subdirectory()`, les variables créées par `project()` s'appellent désormais `RavenCore_*` (par exemple `RavenCore_SOURCE_DIR`), et non plus `RavenEmuCores_*`.
+- Le README est plus court et plus lisible ; la procédure de publication d'une version passe dans le [guide de contribution](https://github.com/GhostPunishR/RavenCore/blob/main/CONTRIBUTING.md).
 
 ### Obsolète
 
@@ -33,6 +40,11 @@ Ces corrections font passer les onze ROMs de Blargg qui échouaient. Le format d
 ### Sécurité
 
 - **HDMA GBC.** Une fois la destination arrivée en fin de VRAM, relancer un transfert sans réécrire `FF53`/`FF54` écrivait un octet après la banque, de plus en plus loin à chaque relance : la banque 1 débordait du tableau de la VRAM. L'état instantané produit était ensuite refusé au chargement. Le transfert s'arrête désormais en fin de banque, et un état pris pendant cette relance se recharge.
+
+### Compatibilité des états instantanés
+
+- **GB/GBC : format 11**, et **GBA : format 12**, tous deux inchangés. Les états créés avec la version 0.1.1 se rechargent.
+- **API C : version 0**, inchangée.
 
 ## 0.1.1 - 2026-10-12
 
