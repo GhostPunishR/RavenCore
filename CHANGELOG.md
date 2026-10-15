@@ -2,11 +2,19 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
-## Non publié
+## 0.2.0 - 2026-10-15
+
+Cette version simplifie les noms de l'API C ([#14](https://github.com/GhostPunishR/RavenCore/pull/14)). Le changement est incompatible pour les programmes qui utilisent cette API : c'est pourquoi la version mineure augmente. Les moteurs, l'API C++, les cœurs Libretro et les formats de sauvegarde ne changent pas.
 
 ### Modifié
 
-- Suppression des marqueurs de génération dans les noms du SDK C : fonctions et types `ravenemu_*`, constantes `RAVENEMU_*`. Les consommateurs doivent adapter leurs noms d'appel et être recompilés. La logique des moteurs, l'API C++ et les formats de sauvegarde ne changent pas.
+- Suppression des marqueurs de génération dans les noms du SDK C : fonctions et types `ravenemu_*`, constantes `RAVENEMU_*`. Par exemple, `ravenemu_v3_create()` devient `ravenemu_create()` et `RAVENEMU_V3_GBA` devient `RAVENEMU_GBA`. Les consommateurs doivent adapter leurs noms d'appel et être recompilés.
+- Le paquet CMake se demande désormais avec `find_package(RavenCore 0.2)`. Avant la 1.0, seules les versions de même mineure sont compatibles : `find_package(RavenCore 0.1)` ne trouve pas cette installation.
+
+### Compatibilité des états instantanés
+
+- **GB/GBC : format 11**, et **GBA : format 12**, tous deux inchangés. Les états créés avec la version 0.1.2 se rechargent.
+- **API C : version 0**, inchangée. `RAVENEMU_API_VERSION` reste à 0 tant que l'API est en préversion ; seuls les noms changent.
 
 ## 0.1.2 - 2026-10-13
 
