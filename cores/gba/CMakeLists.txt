@@ -42,6 +42,15 @@ if(RAVENEMU_BUILD_TESTS)
     target_link_libraries(gba_raven_rtc_tests PRIVATE gba_raven_core)
     add_test(NAME gba_raven_rtc COMMAND gba_raven_rtc_tests)
 
+    # Les capteurs de cartouche se pilotent aussi derrière le bus.
+    add_executable(gba_raven_sensor_tests tests/gba_sensor_test.cpp)
+    target_include_directories(gba_raven_sensor_tests PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/src
+        ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support
+    )
+    target_link_libraries(gba_raven_sensor_tests PRIVATE gba_raven_core)
+    add_test(NAME gba_raven_sensors COMMAND gba_raven_sensor_tests)
+
     # L'affichage se pilote lui aussi par ses registres, dans les mêmes
     # en-têtes internes : même raison que pour le RTC.
     add_executable(gba_raven_ppu_tests tests/gba_ppu_test.cpp)

@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -40,7 +41,8 @@ std::size_t state_capacity = 0;
 bool pending_save_import = false;
 retro_set_rumble_state_t rumble_cb = nullptr;
 bool rumble_on = false;
-bool tilt_cartridge = false;
+// Sensors of the loaded cartridge, driven by the left analog stick.
+ravenemu::CartridgeSensors sensors{};
 
 #if defined(RAVENEMU_LIBRETRO_GB)
 constexpr const char* label = "RavenGB";
@@ -85,20 +87,21 @@ static_assert(tilt_from_stick(-0x8000, 0).x == tilt_units_per_g);
 static_assert(tilt_from_stick(0, -0x8000).y == -tilt_units_per_g);
 static_assert(tilt_from_stick(0, 0x7fff).y == tilt_units_per_g);
 
-bool has_tilt_sensor([[maybe_unused]] const std::vector<std::uint8_t>& image) {
-#if defined(RAVENEMU_LIBRETRO_GBA)
-    return false;
-#else
-    return image.size() > 0x147 && image[0x147] == 0x22; // MBC7 header type
-#endif
-}
-
 #if defined(RAVENEMU_LIBRETRO_GBA)
 // Core options for games whose cartridge detection fails. They are read when a
 // game loads: the SAVE_RAM size must not change while the frontend holds it.
 const char* option(const char* key) {
     retro_variable variable{key, nullptr};
     return env_cb && env_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &variable) ? variable.value : nullptr;
+}
+// Boktai's solar sensor: a percentage of full sunlight, 0 to 100.
+void apply_solar_option(ravenemu::Core& machine) {
+    int percent = 50;
+    if (const char* value = option("ravenemu_gba_solar_light")) {
+        for (int choice = 0; choice <= 100; choice += 10)
+            if (std::string_view(value) == std::to_string(choice)) percent = choice;
+    }
+    machine.set_solar_light(percent * 255 / 100);
 }
 void apply_options(ravenemu::Core& machine) {
     using ravenemu::GbaSaveType;
@@ -118,19 +121,29 @@ void apply_options(ravenemu::Core& machine) {
         else if (std::string_view(value) == "disabled") rtc = false;
     }
     machine.set_gba_forced_rtc(rtc);
+    apply_solar_option(machine);
 }
 void declare_options() {
-    std::array<retro_variable, 3> variables{{
+    std::array<retro_variable, 4> variables{{
         {"ravenemu_gba_save_type",
          "Save type (applied on game load); auto|sram|flash64|flash128|eeprom512|eeprom8k|none"},
         {"ravenemu_gba_rtc", "Real-time clock (applied on game load); auto|enabled|disabled"},
+        {"ravenemu_gba_solar_light",
+         "Solar sensor light in % (Boktai); 50|60|70|80|90|100|0|10|20|30|40"},
         {nullptr, nullptr},
     }};
     env_cb(RETRO_ENVIRONMENT_SET_VARIABLES, variables.data());
 }
+// Unlike the others, the light can change at any time during the game.
+void update_options() {
+    bool updated = false;
+    if (core && env_cb && env_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
+        apply_solar_option(*core);
+}
 #else
 void apply_options(ravenemu::Core&) {}
 void declare_options() {}
+void update_options() {}
 #endif
 
 struct Key { unsigned id; ravenemu::Button button; };
@@ -190,11 +203,15 @@ void set_input_descriptors() {
     descriptors.push_back({0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L"});
     descriptors.push_back({0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R"});
 #endif
-    if (tilt_cartridge) {
+    if (sensors.tilt) {
         descriptors.push_back({0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
                                RETRO_DEVICE_ID_ANALOG_X, "Tilt Left/Right"});
         descriptors.push_back({0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
                                RETRO_DEVICE_ID_ANALOG_Y, "Tilt Forward/Back"});
+    }
+    if (sensors.rotation) {
+        descriptors.push_back({0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
+                               RETRO_DEVICE_ID_ANALOG_X, "Rotate (gyro sensor)"});
     }
     descriptors.push_back({0, 0, 0, 0, nullptr});
     env_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, descriptors.data());
@@ -204,7 +221,7 @@ void clear_game() {
     if (rumble_cb && rumble_on) rumble_cb(0, RETRO_RUMBLE_STRONG, 0);
     rumble_cb = nullptr;
     rumble_on = false;
-    tilt_cartridge = false;
+    sensors = {};
     core.reset();
     rom.clear();
     save_ram.clear();
@@ -309,7 +326,7 @@ bool retro_load_game(const struct retro_game_info* game) {
             throw std::runtime_error("Save state exceeds limits");
         state_capacity = state_bytes + 65544U;
         core = std::move(machine);
-        tilt_cartridge = has_tilt_sensor(rom);
+        sensors = core->cartridge_sensors();
         set_input_descriptors();
         retro_rumble_interface rumble{};
         if (env_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumble)) rumble_cb = rumble.set_rumble_state;
@@ -331,14 +348,22 @@ void retro_run(void) {
         if (input_cb) for (const auto& key : keys)
             core->set_button(key.button,
                 input_cb(0, RETRO_DEVICE_JOYPAD, 0, key.id) != 0);
-        if (tilt_cartridge && input_cb) {
+        if ((sensors.tilt || sensors.rotation) && input_cb) {
             const int stick_x = input_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
                                          RETRO_DEVICE_ID_ANALOG_X);
             const int stick_y = input_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
                                          RETRO_DEVICE_ID_ANALOG_Y);
+#if defined(RAVENEMU_LIBRETRO_GBA)
+            // Stick right: clockwise rotation, or the right side down; stick
+            // up (negative Y): the top edge away from the player.
+            if (sensors.rotation) core->set_rotation_speed(stick_x);
+            if (sensors.tilt) core->set_gba_tilt(stick_x, -stick_y);
+#else
             const auto tilt = tilt_from_stick(stick_x, stick_y);
             core->set_game_boy_acceleration(tilt.x, tilt.y);
+#endif
         }
+        update_options();
         core->run_frame(native_frame, true);
         update_save_ram();
         update_rumble();

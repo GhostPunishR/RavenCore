@@ -91,6 +91,16 @@ public:
     [[nodiscard]] bool rumble_active() const noexcept override {
         return machine_ != nullptr && machine_->cartridge.gpio() != nullptr && machine_->cartridge.gpio()->rumble_active();
     }
+    [[nodiscard]] CartridgeSensors cartridge_sensors() const noexcept override {
+        return machine_ ? machine_->cartridge.sensors() : CartridgeSensors{};
+    }
+    // Grandeurs gardées par le cœur : elles survivent au reset et au
+    // chargement d'un état, qui remplacent la machine.
+    void set_solar_light(int level) noexcept override { sensor_input_.light = level; apply_sensor_input(); }
+    void set_rotation_speed(int speed) noexcept override { sensor_input_.rotation = speed; apply_sensor_input(); }
+    void set_gba_tilt(int x, int y) noexcept override {
+        sensor_input_.tilt_x = x; sensor_input_.tilt_y = y; apply_sensor_input();
+    }
     void set_gba_forced_rtc(std::optional<bool> value) noexcept override {
         forced_rtc_ = value;
     }
@@ -161,14 +171,16 @@ public:
         out.u32(m.bus.last_fetch);
         out.i32(m.serial.export_state());
         out.i32(m.bus.sequential_address());
+        // Format 13 : capteurs de cartouche.
+        for (const auto value : m.cartridge.export_sensor_state()) out.i32(value);
         return std::move(out).take();
     }
     void load_state(std::span<const std::uint8_t> bytes) override {
         require_loaded(); if (bytes.size() > (1U << 20U)) throw SaveStateError("État GBA trop volumineux");
         BinaryReader in(bytes); if (in.u32() != 0x52564e53U) throw SaveStateError("Ce fichier n'est pas un état RavenEmu");
-        // Le format 11 ne diffère que par les champs ajoutés en fin d'état.
+        // Les formats 11 et 12 ne diffèrent que par les champs ajoutés en fin d'état.
         const auto version = in.u16();
-        if (version != 11 && version != state_version) throw SaveStateError("Version d'état GBA non prise en charge");
+        if (version < 11 || version > state_version) throw SaveStateError("Version d'état GBA non prise en charge");
         if (in.u8() != 2) throw SaveStateError("État issu d'une autre console");
         std::array<std::uint8_t, 32> hash{}; in.raw(hash); if (hash != rom_hash_) throw SaveStateError("État issu d'une autre ROM");
         auto replacement = new_machine(loaded_rom_, rom_traits_); auto& m = *replacement;
@@ -208,6 +220,12 @@ public:
             m.serial.import_state(in.i32());
             m.bus.restore_sequential_address(in.i32());
         }
+        // Avant le format 13, les capteurs repartent de leur état initial.
+        if (version >= 13) {
+            std::array<std::int32_t, Cartridge::sensor_state_words> sensors{};
+            for (auto& value : sensors) value = in.i32();
+            m.cartridge.import_sensor_state(sensors);
+        }
         if (!in.exhausted()) throw SaveStateError("État GBA corrompu (données excédentaires)");
         if (auto* save = m.cartridge.save()) {
             const auto* previous = machine_->cartridge.save();
@@ -217,7 +235,7 @@ public:
     }
 
 private:
-    static constexpr std::uint16_t state_version = 12;
+    static constexpr std::uint16_t state_version = 13;
 
     template <std::size_t N>
     static void read_array(BinaryReader& in, std::array<std::uint8_t, N>& output) { in.raw(std::span<std::uint8_t>{output}); }
@@ -238,12 +256,16 @@ private:
         return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     }
     [[nodiscard]] std::unique_ptr<Machine> new_machine(RomImage rom, const RomTraits& traits) const {
-        return std::make_unique<Machine>(rom, traits, forced_, forced_rtc_, [this] { return current_epoch(); });
+        auto machine = std::make_unique<Machine>(rom, traits, forced_, forced_rtc_, [this] { return current_epoch(); });
+        machine->cartridge.set_sensor_input(sensor_input_);
+        return machine;
     }
+    void apply_sensor_input() noexcept { if (machine_) machine_->cartridge.set_sensor_input(sensor_input_); }
     void require_loaded() const { if (!machine_) throw std::logic_error("Aucune ROM chargée"); }
 
     std::optional<GbaSaveType> forced_;
     std::optional<bool> forced_rtc_;
+    SensorInput sensor_input_{};
     std::unique_ptr<Machine> machine_;
     RomImage loaded_rom_;
     RomTraits rom_traits_{};

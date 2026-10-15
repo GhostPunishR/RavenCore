@@ -47,6 +47,13 @@ enum class GbaSaveType : std::uint8_t {
     eeprom_8k,
 };
 
+/** Capteurs portés par la cartouche chargée. */
+struct CartridgeSensors {
+    bool solar{};     ///< capteur solaire : Boktai 1 à 3
+    bool rotation{};  ///< gyroscope : WarioWare: Twisted!
+    bool tilt{};      ///< inclinaison : Yoshi Topsy-Turvy, Koro Koro Puzzle, cartouches GB MBC7
+};
+
 struct VideoSpec {
     int width{};
     int height{};
@@ -168,6 +175,17 @@ public:
     [[nodiscard]] virtual bool rumble_active() const noexcept { return false; }
     /** Inclinaison cartouche en unités brutes autour du repos (0, 0). */
     virtual void set_game_boy_acceleration(int, int) noexcept {}
+    [[nodiscard]] virtual CartridgeSensors cartridge_sensors() const noexcept { return {}; }
+    /** Lumière reçue par le capteur solaire : 0 (obscurité) à 255 (plein soleil). */
+    virtual void set_solar_light(int) noexcept {}
+    /** Rotation autour de l'axe de l'écran : -32768..32767, positive dans le sens horaire. */
+    virtual void set_rotation_speed(int) noexcept {}
+    /**
+     * Inclinaison du capteur GBA : -32768..32767 par axe pour -1 g..1 g ;
+     * x positif quand le côté droit de la console descend, y positif quand
+     * son bord supérieur s'éloigne du joueur.
+     */
+    virtual void set_gba_tilt(int, int) noexcept {}
 
     [[nodiscard]] virtual bool has_battery_ram() const noexcept = 0;
     [[nodiscard]] virtual bool battery_ram_dirty() const noexcept = 0;
