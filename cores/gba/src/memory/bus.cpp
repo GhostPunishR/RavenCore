@@ -82,6 +82,10 @@ int Bus::read8_raw(std::int32_t address) {
             return tilt->read(static_cast<int>(raw & 0xffffU));
         auto* save = cartridge.save();
         if (dynamic_cast<Sram*>(save) || dynamic_cast<Flash*>(save)) return save->read(static_cast<int>(raw));
+        // Une cartouche à EEPROM n'a rien sur ce bus : il se lit 0xFF. Les jeux
+        // Classic NES Series le vérifient et refusent une cartouche où l'écriture
+        // y reste (« GAME PAK ERROR »).
+        if (eeprom()) return 0xff;
         return fallback_sram[raw & 0xffffU];
     }
     default:
@@ -167,7 +171,7 @@ void Bus::write8_raw(std::int32_t address, int value) {
         if (auto* tilt = cartridge.tilt(); tilt && TiltSensor::writes(static_cast<int>(raw & 0xffffU)))
             tilt->write(static_cast<int>(raw & 0xffffU), value);
         else if (auto* save = cartridge.save(); dynamic_cast<Sram*>(save) || dynamic_cast<Flash*>(save)) save->write(static_cast<int>(raw), value);
-        else fallback_sram[raw & 0xffffU] = byte;
+        else if (!eeprom()) fallback_sram[raw & 0xffffU] = byte;
         break;
     default: diagnostics.unsupported_access(address); break;
     }

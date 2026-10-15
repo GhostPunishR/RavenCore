@@ -14,6 +14,10 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 - API C : `ravenemu_sensors()`, `ravenemu_set_solar_light()`, `ravenemu_set_rotation()` et `ravenemu_set_tilt()`, qui couvre aussi l'accéléromètre MBC7. Ces ajouts ne changent pas `RAVENEMU_API_VERSION`.
 - Libretro : gyroscope et inclinaison GBA au stick analogique gauche, et option `ravenemu_gba_solar_light` pour la lumière du capteur solaire, modifiable en cours de partie.
 
+### Corrigé
+
+- **GBA : jeux Classic NES Series (Famicom Mini).** Sur une cartouche à EEPROM, la zone SRAM (`0x0E000000`) est vide : elle se lit 0xFF et les écritures s'y perdent. Le cœur y plaçait jusqu'ici une SRAM de repli. Or ces jeux écrivent puis relisent cette zone pour reconnaître une copie équipée de SRAM, et affichaient « GAME PAK ERROR » (vérifié avec The Legend of Zelda). La SRAM de repli reste quand aucun type de sauvegarde n'est détecté.
+
 ### Compatibilité des états instantanés
 
 - **GBA : format 13**, qui ajoute l'état des capteurs en fin d'état. Les formats 12 et 11 se rechargent, capteurs à leur état initial.
