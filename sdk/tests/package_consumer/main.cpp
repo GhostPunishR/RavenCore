@@ -15,13 +15,13 @@ int main() {
     }
     if (ravenemu::gba::make_core()->console() != ravenemu::Console::game_boy_advance) return 1;
 
-    for (const int system : {RAVENEMU_V3_GB, RAVENEMU_V3_GBC, RAVENEMU_V3_GBA}) {
-        auto* handle = ravenemu_v3_create(system);
+    for (const int system : {RAVENEMU_GB, RAVENEMU_GBC, RAVENEMU_GBA}) {
+        auto* handle = ravenemu_create(system);
         if (handle == nullptr) {
-            std::fprintf(stderr, "ravenemu_v3_create : %s\n", ravenemu_v3_last_error());
+            std::fprintf(stderr, "ravenemu_create : %s\n", ravenemu_last_error());
             return 1;
         }
-        ravenemu_v3_destroy(handle);
+        ravenemu_destroy(handle);
     }
     std::puts("paquet RavenCore consommé avec succès");
     return 0;
