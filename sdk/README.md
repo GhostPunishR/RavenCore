@@ -31,7 +31,7 @@ cmake --install build --prefix /chemin/ravenemu
 ```
 
 ```cmake
-find_package(RavenCore 0.1 REQUIRED)
+find_package(RavenCore 0.2 REQUIRED)
 target_link_libraries(mon_app PRIVATE RavenEmu::ravenemu_c_api)  # ou RavenEmu::ravenemu_cores en C++
 ```
 
