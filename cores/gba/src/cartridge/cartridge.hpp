@@ -15,6 +15,7 @@ struct RomTraits {
     GbaSaveType save_type{GbaSaveType::none};
     bool rtc{};
     bool rumble{};
+    CartridgeSensors sensors{};
 
     [[nodiscard]] static RomTraits detect(std::span<const std::uint8_t> rom) {
         // La détection cherche la bibliothèque Seiko que les cartouches d'origine
@@ -25,14 +26,25 @@ struct RomTraits {
         constexpr std::string_view rtc_marker = "SIIRTC_V";
         return {detect_save(rom),
                 std::search(rom.begin(), rom.end(), rtc_marker.begin(), rtc_marker.end()) != rom.end(),
-                has_rumble_motor(rom)};
+                has_rumble_motor(rom), detect_sensors(rom)};
     }
     // Moteur de vibration sur la broche 3 du GPIO (GBATEK) : Drill Dozer (V49)
     // et WarioWare: Twisted! (RZW), reconnus par le code de jeu en 0xAC.
     [[nodiscard]] static bool has_rumble_motor(std::span<const std::uint8_t> rom) noexcept {
-        if (rom.size() < 0xb0U) return false;
-        const std::string_view code(reinterpret_cast<const char*>(rom.data() + 0xac), 3);
+        const auto code = game_code(rom);
         return code == "V49" || code == "RZW";
+    }
+    // Capteurs, reconnus eux aussi par le code de jeu : solaire de Boktai 1 à 3
+    // (U3I, U32, U33), gyroscope de WarioWare: Twisted! (RZW), inclinaison de
+    // Yoshi Topsy-Turvy (KYG) et de Koro Koro Puzzle (KHP).
+    [[nodiscard]] static CartridgeSensors detect_sensors(std::span<const std::uint8_t> rom) noexcept {
+        const auto code = game_code(rom);
+        return {code == "U3I" || code == "U32" || code == "U33", code == "RZW", code == "KYG" || code == "KHP"};
+    }
+    // Code de jeu sans la lettre de région : le même matériel dans chaque version.
+    [[nodiscard]] static std::string_view game_code(std::span<const std::uint8_t> rom) noexcept {
+        if (rom.size() < 0xb0U) return {};
+        return {reinterpret_cast<const char*>(rom.data() + 0xac), 3};
     }
 };
 
@@ -63,7 +75,11 @@ public:
         if (view.size() < 0xc0U) throw RomLoadError("ROM GBA trop courte");
         if (view[0xb2] != 0x96U) throw RomLoadError("Marqueur GBA 0x96 absent");
         const auto rtc = forced_rtc.value_or(rtc_detected_);
-        if (rtc || traits.rumble) gpio_ = std::make_unique<Gpio>(std::move(clock), rtc, traits.rumble);
+        const auto& sensors = traits.sensors;
+        if (rtc || traits.rumble || sensors.solar || sensors.rotation) {
+            gpio_ = std::make_unique<Gpio>(std::move(clock), rtc, traits.rumble, sensors.solar, sensors.rotation);
+        }
+        if (sensors.tilt) tilt_ = std::make_unique<TiltSensor>();
     }
     int read8(int offset) const noexcept {
         const auto index = static_cast<std::size_t>(offset);
@@ -81,12 +97,55 @@ public:
     [[nodiscard]] const Gpio* gpio() const noexcept { return gpio_.get(); }
     /** Vrai si la ROM porte la signature de la bibliothèque Seiko. */
     [[nodiscard]] bool rtc_detected() const noexcept { return rtc_detected_; }
+    /** Capteur d'inclinaison logé dans la zone SRAM, ou nullptr. */
+    [[nodiscard]] TiltSensor* tilt() noexcept { return tilt_.get(); }
+    [[nodiscard]] CartridgeSensors sensors() const noexcept {
+        return {gpio_ && gpio_->has_solar(), gpio_ && gpio_->has_gyro(), tilt_ != nullptr};
+    }
+    /** Grandeurs physiques fournies par le frontend ; ignorées sans le capteur. */
+    void set_sensor_input(const SensorInput& input) noexcept {
+        if (auto* sensor = gpio_ ? gpio_->solar() : nullptr) sensor->set_light(input.light);
+        if (auto* sensor = gpio_ ? gpio_->gyro() : nullptr) sensor->set_rotation(input.rotation);
+        if (tilt_) tilt_->set_tilt(input.tilt_x, input.tilt_y);
+    }
+
+    // État des capteurs (format d'état 13) : GPIO puis inclinaison ; des zéros
+    // pour un composant absent.
+    static constexpr int sensor_state_words = Gpio::sensor_state_words + TiltSensor::state_words;
+    [[nodiscard]] std::array<std::int32_t, sensor_state_words> export_sensor_state() const noexcept {
+        std::array<std::int32_t, sensor_state_words> result{};
+        if (gpio_) {
+            const auto values = gpio_->export_sensor_state();
+            std::copy(values.begin(), values.end(), result.begin());
+        }
+        if (tilt_) {
+            const auto values = tilt_->export_state();
+            std::copy(values.begin(), values.end(), result.begin() + Gpio::sensor_state_words);
+        }
+        return result;
+    }
+    void import_sensor_state(std::span<const std::int32_t> values) {
+        if (values.size() != sensor_state_words) throw SaveStateError("État des capteurs GBA invalide");
+        // Les valeurs d'un composant absent sont vérifiées puis ignorées : un
+        // état incohérent est refusé en entier. Les grandeurs du frontend restent.
+        const auto pins = values.first(Gpio::sensor_state_words);
+        const auto tilt = values.subspan(Gpio::sensor_state_words);
+        if (gpio_) {
+            gpio_->import_sensor_state(pins);
+        } else {
+            SolarSensor{}.import_state(pins.first(SolarSensor::state_words));
+            GyroSensor{}.import_state(pins.subspan(SolarSensor::state_words));
+        }
+        if (tilt_) tilt_->import_state(tilt);
+        else TiltSensor{}.import_state(tilt);
+    }
 
 private:
     RomImage rom_;
     GbaSaveType save_type_;
     std::unique_ptr<SaveMemory> save_;
     std::unique_ptr<Gpio> gpio_;
+    std::unique_ptr<TiltSensor> tilt_;
     bool rtc_detected_{};
 };
 

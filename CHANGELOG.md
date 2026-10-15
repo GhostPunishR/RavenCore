@@ -2,6 +2,23 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## Non publié
+
+### Ajouté
+
+- **Capteurs des cartouches GBA**, d'après GBATEK et reconnus par le code de jeu :
+  - capteur solaire de Boktai 1 à 3 : compteur sur le GPIO et comparateur, de E8h dans l'obscurité à 50h en plein soleil ;
+  - gyroscope de WarioWare: Twisted! : convertisseur série 12 bits sur le GPIO, 6C0h au repos, aux côtés du moteur de vibration ;
+  - inclinaison de Yoshi Topsy-Turvy et Koro Koro Puzzle : registres E008000h à E008500h dans la zone SRAM.
+- API C++ : `Core::cartridge_sensors()`, `set_solar_light()`, `set_rotation_speed()` et `set_gba_tilt()`. Le cœur GB signale l'accéléromètre MBC7.
+- API C : `ravenemu_sensors()`, `ravenemu_set_solar_light()`, `ravenemu_set_rotation()` et `ravenemu_set_tilt()`, qui couvre aussi l'accéléromètre MBC7. Ces ajouts ne changent pas `RAVENEMU_API_VERSION`.
+- Libretro : gyroscope et inclinaison GBA au stick analogique gauche, et option `ravenemu_gba_solar_light` pour la lumière du capteur solaire, modifiable en cours de partie.
+
+### Compatibilité des états instantanés
+
+- **GBA : format 13**, qui ajoute l'état des capteurs en fin d'état. Les formats 12 et 11 se rechargent, capteurs à leur état initial.
+- **GB/GBC : format 11**, inchangé.
+
 ## 0.2.0 - 2026-10-15
 
 Cette version simplifie les noms de l'API C ([#14](https://github.com/GhostPunishR/RavenCore/pull/14)). Le changement est incompatible pour les programmes qui utilisent cette API : c'est pourquoi la version mineure augmente. Les moteurs, l'API C++, les cœurs Libretro et les formats de sauvegarde ne changent pas.

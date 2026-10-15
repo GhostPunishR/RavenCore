@@ -8,6 +8,8 @@ Elle propose le chargement de ROMs, les dimensions et le rendu ARGB8888 d'une fr
 
 Pour un jeu GBA dont la détection échoue, `ravenemu_set_gba_save_type()` impose le type de sauvegarde et `ravenemu_set_gba_rtc()` la présence de l'horloge de cartouche. Ces réglages prennent effet au prochain `ravenemu_load()` ou `ravenemu_reset()`. Ils échouent sur un handle GB ou GBC. Après chaque `ravenemu_run_frame()`, `ravenemu_rumble_active()` indique si le moteur de vibration de la cartouche tourne (GB MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) ; le frontend le transmet au vibreur de l'appareil.
 
+`ravenemu_sensors()` indique les capteurs de la cartouche chargée : solaire (Boktai 1 à 3), rotation (WarioWare: Twisted!) et inclinaison (Yoshi Topsy-Turvy, Koro Koro Puzzle et cartouches GB MBC7). Le frontend les alimente avec les capteurs de l'appareil ou avec ses commandes : `ravenemu_set_solar_light()` (0, obscurité, à 255, plein soleil), `ravenemu_set_rotation()` (-32768 à 32767, positif dans le sens horaire) et `ravenemu_set_tilt()` (-32768 à 32767 par axe pour -1 g à 1 g). Ces valeurs survivent au chargement, au reset et aux états instantanés ; elles sont ignorées sans le capteur correspondant.
+
 `ravenemu_read_achievement_memory()` lit l'espace d'adresses de RetroAchievements sans faire avancer l'émulation. Une zone non exposée donne une lecture plus courte que demandé : le frontend doit utiliser le nombre d'octets renvoyé.
 
 La bibliothèque est liée statiquement aux moteurs C++20. Les structures C++ ne traversent jamais cette interface. La version 0 de l'API est une préversion : ne pas supposer une ABI stabilisée. Pour connaître les erreurs, utiliser `ravenemu_last_error()` sur le même thread que l'appel ayant échoué.

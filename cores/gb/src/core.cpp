@@ -20,7 +20,7 @@ public:
     }
 
     void load_rom(std::span<const std::uint8_t> rom, std::span<const std::uint8_t> battery) override {
-        static_cast<void>(CartridgeHeader::parse(rom));
+        const auto tilt_sensor = CartridgeHeader::parse(rom).mbc == MbcType::mbc7;
         auto image = std::make_shared<const std::vector<std::uint8_t>>(rom.begin(), rom.end());
         auto replacement = new_machine(image);
         if (!battery.empty()) replacement->cartridge->import_battery(battery);
@@ -28,6 +28,7 @@ public:
         install_machine(std::move(replacement));
         loaded_rom_ = std::move(image);
         rom_hash_ = new_hash;
+        tilt_sensor_ = tilt_sensor;
     }
     void reset() override {
         require_loaded();
@@ -87,6 +88,12 @@ public:
     }
     [[nodiscard]] bool rumble_active() const noexcept override {
         return machine_ != nullptr && machine_->cartridge->rumble_active();
+    }
+    /** L'accéléromètre des cartouches MBC7 (Kirby Tilt 'n' Tumble, Command Master). */
+    [[nodiscard]] CartridgeSensors cartridge_sensors() const noexcept override {
+        CartridgeSensors sensors;
+        sensors.tilt = tilt_sensor_;
+        return sensors;
     }
     void set_game_boy_acceleration(int x, int y) noexcept override {
         host_acceleration_x_ = x;
@@ -214,6 +221,7 @@ private:
     std::unique_ptr<Machine> machine_;
     RomImage loaded_rom_;
     std::array<std::uint8_t, 32> rom_hash_{};
+    bool tilt_sensor_{};
     mutable std::size_t state_size_hint_{64 * 1024};
     std::optional<std::int64_t> clock_override_;
     gb::HardwareModel requested_hardware_{gb::HardwareModel::automatic};

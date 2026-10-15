@@ -266,4 +266,37 @@ int ravenemu_set_gba_rtc(ravenemu_bridge* handle, int rtc) {
 int ravenemu_rumble_active(const ravenemu_bridge* handle) {
     return handle && handle->core && handle->loaded && handle->core->rumble_active() ? 1 : 0;
 }
+int ravenemu_sensors(const ravenemu_bridge* handle) {
+    if (!handle || !handle->core || !handle->loaded) return 0;
+    const auto sensors = handle->core->cartridge_sensors();
+    return (sensors.solar ? RAVENEMU_SENSOR_SOLAR : 0) | (sensors.rotation ? RAVENEMU_SENSOR_ROTATION : 0) |
+           (sensors.tilt ? RAVENEMU_SENSOR_TILT : 0);
+}
+int ravenemu_set_solar_light(ravenemu_bridge* handle, int level) {
+    if (!handle || !handle->core) return 0;
+    machine_may_change(handle);
+    handle->core->set_solar_light(std::clamp(level, 0, 255));
+    return 1;
+}
+int ravenemu_set_rotation(ravenemu_bridge* handle, int speed) {
+    if (!handle || !handle->core) return 0;
+    machine_may_change(handle);
+    handle->core->set_rotation_speed(std::clamp(speed, -32768, 32767));
+    return 1;
+}
+int ravenemu_set_tilt(ravenemu_bridge* handle, int x, int y) {
+    if (!handle || !handle->core) return 0;
+    machine_may_change(handle);
+    x = std::clamp(x, -32768, 32767);
+    y = std::clamp(y, -32768, 32767);
+    if (handle->core->console() == ravenemu::Console::game_boy_advance) {
+        handle->core->set_gba_tilt(x, y);
+    } else {
+        // MBC7 : 81D0h au repos, environ 70h par g ; X baisse quand le côté
+        // droit descend, Y quand le haut s'éloigne (comme l'adaptateur Libretro).
+        constexpr int units_per_g = 0x70;
+        handle->core->set_game_boy_acceleration(-x * units_per_g / 0x7fff, -y * units_per_g / 0x7fff);
+    }
+    return 1;
+}
 } // extern "C"

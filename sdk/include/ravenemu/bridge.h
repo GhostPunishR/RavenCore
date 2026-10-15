@@ -119,6 +119,27 @@ int ravenemu_set_gba_rtc(ravenemu_bridge* handle, int rtc);
  * and WarioWare: Twisted!). Sample it after each ravenemu_run_frame. */
 int ravenemu_rumble_active(const ravenemu_bridge* handle);
 
+/* Sensors of the loaded game's cartridge, as bit flags, so that a frontend
+ * can feed them from the device's own sensors or from its controls. */
+enum ravenemu_sensor {
+    RAVENEMU_SENSOR_SOLAR = 1,    /* Boktai 1 to 3 */
+    RAVENEMU_SENSOR_ROTATION = 2, /* WarioWare: Twisted! */
+    RAVENEMU_SENSOR_TILT = 4      /* Yoshi Topsy-Turvy, Koro Koro Puzzle, GB MBC7 */
+};
+int ravenemu_sensors(const ravenemu_bridge* handle);
+
+/* Sensor readings. They are kept across ravenemu_load, ravenemu_reset and
+ * state loads, and ignored when the game has no such sensor; out-of-range
+ * values are clamped. Each returns 1, or 0 for a null handle. */
+/* Light on the solar sensor: 0 (darkness) to 255 (full sun). */
+int ravenemu_set_solar_light(ravenemu_bridge* handle, int level);
+/* Rotation around the screen's axis: -32768..32767, positive clockwise as
+ * the player sees the screen. */
+int ravenemu_set_rotation(ravenemu_bridge* handle, int speed);
+/* Tilt: -32768..32767 per axis for -1 g..1 g. x > 0 when the right side of
+ * the console goes down, y > 0 when its top edge moves away from the player. */
+int ravenemu_set_tilt(ravenemu_bridge* handle, int x, int y);
+
 #ifdef __cplusplus
 }
 #endif

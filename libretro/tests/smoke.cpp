@@ -178,10 +178,12 @@ int main() {
         return 1;
     }
 #if defined(RAVENEMU_LIBRETRO_GBA)
-    // Options déclarées avec « auto » par défaut, appliquées au chargement.
-    if (declared_options.size() != 2 ||
+    // Options déclarées avec « auto » par défaut, appliquées au chargement ;
+    // la lumière du capteur solaire part de 50 %.
+    if (declared_options.size() != 3 ||
         declared_options["ravenemu_gba_save_type"].find("; auto|") == std::string::npos ||
-        declared_options["ravenemu_gba_rtc"].find("; auto|") == std::string::npos) {
+        declared_options["ravenemu_gba_rtc"].find("; auto|") == std::string::npos ||
+        declared_options["ravenemu_gba_solar_light"].find("; 50|") == std::string::npos) {
         std::cerr << "GBA core options not declared\n";
         return 1;
     }

@@ -42,14 +42,22 @@ Pour ne compiler que les moteurs, ajoutez `-DRAVENEMU_BUILD_LIBRETRO=OFF -DBUILD
 | `ravenemu_gbc_libretro.so` | Game Boy Color, compatible Game Boy |
 | `ravenemu_gba_libretro.so` | Game Boy Advance |
 
-Les cœurs gèrent la vibration (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!). Ils gèrent aussi l'accéléromètre des cartouches MBC7 (Kirby Tilt 'n' Tumble, Command Master), piloté au stick analogique gauche.
+Les cœurs gèrent la vibration (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) et les capteurs des cartouches, pilotés au stick analogique gauche :
 
-La sauvegarde et l'horloge d'un jeu GBA sont détectées automatiquement. Si la détection se trompe, deux options du cœur les imposent ; elles s'appliquent au chargement du jeu :
+| Capteur | Jeux | Commande |
+| --- | --- | --- |
+| Accéléromètre MBC7 | Kirby Tilt 'n' Tumble, Command Master | Stick gauche |
+| Inclinaison GBA | Yoshi Topsy-Turvy, Koro Koro Puzzle | Stick gauche |
+| Gyroscope GBA | WarioWare: Twisted! | Stick gauche, axe horizontal (à droite : sens horaire) |
+| Capteur solaire GBA | Boktai 1 à 3 | Option `ravenemu_gba_solar_light` |
+
+La sauvegarde et l'horloge d'un jeu GBA sont détectées automatiquement. Si la détection se trompe, deux options du cœur les imposent ; elles s'appliquent au chargement du jeu. La lumière du capteur solaire, elle, se règle à tout moment :
 
 | Option | Valeurs |
 | --- | --- |
 | `ravenemu_gba_save_type` | `auto`, `sram`, `flash64`, `flash128`, `eeprom512`, `eeprom8k`, `none` |
 | `ravenemu_gba_rtc` | `auto`, `enabled`, `disabled` |
+| `ravenemu_gba_solar_light` | Pourcentage de plein soleil : `50` par défaut, de `0` à `100` par pas de 10 |
 
 > Les binaires publiés visent uniquement **Linux x86-64**. Les cœurs ne sont pas proposés par le téléchargeur intégré de RetroArch.
 
@@ -73,6 +81,7 @@ L'API C couvre :
 - le chargement de ROM, l'image, l'audio et les boutons ;
 - les sauvegardes batterie et les états instantanés ;
 - la vibration, et le type de sauvegarde et l'horloge d'un jeu GBA ;
+- les capteurs des cartouches : lumière, rotation et inclinaison ;
 - la lecture de la mémoire surveillée par RetroAchievements.
 
 Détails dans le [README du SDK](sdk/README.md).
@@ -100,11 +109,10 @@ ctest --test-dir build --output-on-failure
 
 - **GB / GBC** : les 198 tests publics retenus passent. Des suites plus exigeantes (Mealybug Tearoom, SameSuite, gbmicrotest) échouent encore en partie.
 - **GBA** : expérimental. Les suites gba-tests et FuzzARM passent, mais le cœur n'a pas encore été essayé sur un large panel de jeux. Non émulés pour l'instant :
-  - les capteurs solaire, gyroscopique et d'inclinaison ;
   - le câble link et le mode UART ;
   - le tampon de préchargement de la cartouche ;
   - l'exception d'instruction indéfinie.
-- **Accéléromètre MBC7** : le sens de l'inclinaison reste à confirmer en jeu.
+- **Capteurs** : ceux des cartouches GBA suivent les mesures publiées par GBATEK, mais n'ont pas encore été essayés en jeu. Le sens des axes d'inclinaison (GBA et MBC7) et l'échelle du gyroscope restent à confirmer.
 - **RetroAchievements** : pas encore activé dans les cœurs Libretro, et le mode Hardcore n'est pas pris en charge. L'API C expose déjà la mémoire nécessaire. L'intégration de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte.
 - **États instantanés** : un état ne se recharge pas dans une version plus ancienne que celle qui l'a créé. Les changements de format sont listés dans le [journal des modifications](CHANGELOG.md).
 

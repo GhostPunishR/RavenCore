@@ -124,6 +124,48 @@ int gba_rumble_test() {
     return ravenemu_rumble_active(nullptr) ? 52 : 0;
 }
 
+/* Capteurs : reconnus par le jeu, et fournis avant même le chargement. Le
+ * programme lance une mesure d'inclinaison (Yoshi, KYG) puis recopie l'octet
+ * bas de X en IWRAM. */
+int sensors_test() {
+    auto rom = ravenemu::testing::minimal_gba_rom();
+    const std::uint32_t program[]{0xe59f001cU, 0xe3a01055U, 0xe5c01000U, 0xe3a010aaU, 0xe5c01100U, 0xe59f200cU,
+                                  0xe5d01200U, 0xe5c21000U, 0xeafffffcU, 0x0e008000U, 0x03000000U};
+    for (std::size_t index = 0; index < std::size(program); ++index)
+        for (unsigned byte = 0; byte < 4; ++byte)
+            rom[index * 4U + byte] = static_cast<std::uint8_t>(program[index] >> (byte * 8U));
+    struct Case { const char* code; int sensors; };
+    for (const auto& item : {Case{"U3IE", RAVENEMU_SENSOR_SOLAR}, Case{"RZWE", RAVENEMU_SENSOR_ROTATION},
+                             Case{"AAAE", 0}, Case{"KYGE", RAVENEMU_SENSOR_TILT}}) {
+        std::memcpy(rom.data() + 0xac, item.code, 4);
+        Handle handle(ravenemu_create(RAVENEMU_GBA), ravenemu_destroy);
+        if (!handle || ravenemu_sensors(handle.get()) != 0) return 60;
+        // Hors limites : ramené à la plage, jamais refusé.
+        if (!ravenemu_set_solar_light(handle.get(), 999) || !ravenemu_set_rotation(handle.get(), -99999) ||
+            !ravenemu_set_tilt(handle.get(), 40000, 0)) return 61;
+        if (!ravenemu_load(handle.get(), rom.data(), rom.size(), nullptr, 0) ||
+            ravenemu_sensors(handle.get()) != item.sensors) return 62;
+    }
+    // Dernier cas, Yoshi : inclinaison maximale à droite, 392h + DFh = 471h.
+    Handle yoshi(ravenemu_create(RAVENEMU_GBA), ravenemu_destroy);
+    std::vector<std::uint32_t> frame(240 * 160);
+    std::uint8_t copied = 0;
+    if (!yoshi || !ravenemu_set_tilt(yoshi.get(), 32767, 0) ||
+        !ravenemu_load(yoshi.get(), rom.data(), rom.size(), nullptr, 0) ||
+        !ravenemu_run_frame(yoshi.get(), frame.data(), frame.size()) ||
+        ravenemu_read_achievement_memory(yoshi.get(), 0, &copied, 1) != 1 || copied != 0x71) return 63;
+
+    // Accéléromètre MBC7 des cartouches Game Boy.
+    auto game_boy_rom = ravenemu::testing::minimal_game_boy_rom();
+    game_boy_rom[0x147] = 0x22;
+    Handle kirby(ravenemu_create(RAVENEMU_GBC), ravenemu_destroy);
+    if (!kirby || !ravenemu_load(kirby.get(), game_boy_rom.data(), game_boy_rom.size(), nullptr, 0) ||
+        ravenemu_sensors(kirby.get()) != RAVENEMU_SENSOR_TILT || !ravenemu_set_tilt(kirby.get(), -32768, 32767))
+        return 64;
+    return ravenemu_sensors(nullptr) || ravenemu_set_solar_light(nullptr, 0) ||
+        ravenemu_set_rotation(nullptr, 0) || ravenemu_set_tilt(nullptr, 0, 0) ? 65 : 0;
+}
+
 } // namespace
 
 int main() {
@@ -146,6 +188,10 @@ int main() {
     }
     if (const int failure = gba_rumble_test()) {
         std::cerr << "GBA rumble failed (" << failure << "): " << ravenemu_last_error() << "\n";
+        return failure;
+    }
+    if (const int failure = sensors_test()) {
+        std::cerr << "Cartridge sensors failed (" << failure << "): " << ravenemu_last_error() << "\n";
         return failure;
     }
     if (ravenemu_create(99)) {
