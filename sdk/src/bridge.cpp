@@ -19,11 +19,11 @@
 #error "RAVENEMU_VERSION comes from the CMake project version"
 #endif
 
-struct ravenemu_v3_bridge {
+struct ravenemu_bridge {
     std::unique_ptr<ravenemu::Core> core;
     std::vector<std::int32_t> framebuffer;
     bool loaded = false;
-    // État sérialisé par ravenemu_v3_state_size : un frontend appelle presque
+    // État sérialisé par ravenemu_state_size : un frontend appelle presque
     // toujours save_state juste après, machine inchangée. Toute fonction qui
     // peut modifier la machine doit appeler machine_may_change().
     std::vector<std::uint8_t> state_cache;
@@ -52,16 +52,16 @@ int attempt(F&& fn) noexcept {
     return 0;
 }
 
-void machine_may_change(ravenemu_v3_bridge* handle) noexcept {
+void machine_may_change(ravenemu_bridge* handle) noexcept {
     if (handle) handle->state_cache_valid = false;
 }
 
-void require_gba(const ravenemu_v3_bridge* handle) {
+void require_gba(const ravenemu_bridge* handle) {
     if (!handle || !handle->core) throw std::invalid_argument("Null handle");
     if (handle->core->console() != ravenemu::Console::game_boy_advance) throw std::invalid_argument("Not a GBA handle");
 }
 
-void require_loaded(const ravenemu_v3_bridge* handle) {
+void require_loaded(const ravenemu_bridge* handle) {
     if (!handle || !handle->core || !handle->loaded)
         throw std::runtime_error("No ROM loaded");
 }
@@ -73,21 +73,21 @@ constexpr std::array<std::uint32_t, 4> dmg_palette = {
 
 extern "C" {
 
-int ravenemu_v3_api_version(void) { return RAVENEMU_V3_API_VERSION; }
-const char* ravenemu_v3_version(void) { return RAVENEMU_VERSION; }
+int ravenemu_api_version(void) { return RAVENEMU_API_VERSION; }
+const char* ravenemu_version(void) { return RAVENEMU_VERSION; }
 
-ravenemu_v3_bridge* ravenemu_v3_create(int system) {
-    ravenemu_v3_bridge* result = nullptr;
+ravenemu_bridge* ravenemu_create(int system) {
+    ravenemu_bridge* result = nullptr;
     attempt([&] {
-        auto handle = std::make_unique<ravenemu_v3_bridge>();
+        auto handle = std::make_unique<ravenemu_bridge>();
         switch (system) {
-        case RAVENEMU_V3_GB:
+        case RAVENEMU_GB:
             handle->core = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::dmg);
             break;
-        case RAVENEMU_V3_GBC:
+        case RAVENEMU_GBC:
             handle->core = ravenemu::gbc::make_core();
             break;
-        case RAVENEMU_V3_GBA:
+        case RAVENEMU_GBA:
             handle->core = ravenemu::make_gba_core(std::nullopt);
             break;
         default:
@@ -98,10 +98,10 @@ ravenemu_v3_bridge* ravenemu_v3_create(int system) {
     });
     return result;
 }
-void ravenemu_v3_destroy(ravenemu_v3_bridge* handle) { delete handle; }
-const char* ravenemu_v3_last_error(void) { return error_message.c_str(); }
+void ravenemu_destroy(ravenemu_bridge* handle) { delete handle; }
+const char* ravenemu_last_error(void) { return error_message.c_str(); }
 
-int ravenemu_v3_load(ravenemu_v3_bridge* handle, const uint8_t* rom, size_t rom_size,
+int ravenemu_load(ravenemu_bridge* handle, const uint8_t* rom, size_t rom_size,
                       const uint8_t* battery, size_t battery_size) {
     machine_may_change(handle);
     return attempt([&] {
@@ -113,32 +113,32 @@ int ravenemu_v3_load(ravenemu_v3_bridge* handle, const uint8_t* rom, size_t rom_
         handle->loaded = true;
     });
 }
-int ravenemu_v3_reset(ravenemu_v3_bridge* handle) {
+int ravenemu_reset(ravenemu_bridge* handle) {
     machine_may_change(handle);
     return attempt([&] { require_loaded(handle); handle->core->reset(); });
 }
-int ravenemu_v3_set_button(ravenemu_v3_bridge* handle, int button, int pressed) {
+int ravenemu_set_button(ravenemu_bridge* handle, int button, int pressed) {
     machine_may_change(handle);
     return attempt([&] {
         require_loaded(handle);
-        if (button < RAVENEMU_V3_UP || button > RAVENEMU_V3_R)
+        if (button < RAVENEMU_UP || button > RAVENEMU_R)
             throw std::invalid_argument("Invalid button");
         handle->core->set_button(static_cast<ravenemu::Button>(button), pressed != 0);
     });
 }
-int ravenemu_v3_video_width(const ravenemu_v3_bridge* handle) {
+int ravenemu_video_width(const ravenemu_bridge* handle) {
     return handle && handle->core ? handle->core->video_spec().width : 0;
 }
-int ravenemu_v3_video_height(const ravenemu_v3_bridge* handle) {
+int ravenemu_video_height(const ravenemu_bridge* handle) {
     return handle && handle->core ? handle->core->video_spec().height : 0;
 }
-double ravenemu_v3_video_fps(const ravenemu_v3_bridge* handle) {
+double ravenemu_video_fps(const ravenemu_bridge* handle) {
     return handle && handle->core ? handle->core->video_spec().refresh_rate_hz : 0;
 }
-int ravenemu_v3_audio_rate(const ravenemu_v3_bridge* handle) {
+int ravenemu_audio_rate(const ravenemu_bridge* handle) {
     return handle && handle->core ? handle->core->audio_spec().sample_rate_hz : 0;
 }
-int ravenemu_v3_run_frame(ravenemu_v3_bridge* handle, uint32_t* argb, size_t pixel_capacity) {
+int ravenemu_run_frame(ravenemu_bridge* handle, uint32_t* argb, size_t pixel_capacity) {
     machine_may_change(handle);
     return attempt([&] {
         require_loaded(handle);
@@ -152,7 +152,7 @@ int ravenemu_v3_run_frame(ravenemu_v3_bridge* handle, uint32_t* argb, size_t pix
         }
     });
 }
-size_t ravenemu_v3_read_audio(ravenemu_v3_bridge* handle,
+size_t ravenemu_read_audio(ravenemu_bridge* handle,
                               int16_t* output, size_t sample_capacity) {
     machine_may_change(handle);
     size_t count = 0;
@@ -163,7 +163,7 @@ size_t ravenemu_v3_read_audio(ravenemu_v3_bridge* handle,
     });
     return count;
 }
-size_t ravenemu_v3_read_achievement_memory(const ravenemu_v3_bridge* handle,
+size_t ravenemu_read_achievement_memory(const ravenemu_bridge* handle,
                                            uint32_t address, uint8_t* output,
                                            size_t capacity) {
     size_t read = 0;
@@ -178,7 +178,7 @@ size_t ravenemu_v3_read_achievement_memory(const ravenemu_v3_bridge* handle,
     return read;
 }
 
-size_t ravenemu_v3_state_size(ravenemu_v3_bridge* handle) {
+size_t ravenemu_state_size(ravenemu_bridge* handle) {
     size_t count = 0;
     attempt([&] {
         require_loaded(handle);
@@ -188,7 +188,7 @@ size_t ravenemu_v3_state_size(ravenemu_v3_bridge* handle) {
     });
     return count;
 }
-int ravenemu_v3_save_state(ravenemu_v3_bridge* handle, uint8_t* output, size_t capacity) {
+int ravenemu_save_state(ravenemu_bridge* handle, uint8_t* output, size_t capacity) {
     return attempt([&] {
         require_loaded(handle);
         if (!handle->state_cache_valid) {
@@ -200,7 +200,7 @@ int ravenemu_v3_save_state(ravenemu_v3_bridge* handle, uint8_t* output, size_t c
         std::copy(state.begin(), state.end(), output);
     });
 }
-int ravenemu_v3_load_state(ravenemu_v3_bridge* handle, const uint8_t* state, size_t size) {
+int ravenemu_load_state(ravenemu_bridge* handle, const uint8_t* state, size_t size) {
     machine_may_change(handle);
     return attempt([&] {
         require_loaded(handle);
@@ -208,7 +208,7 @@ int ravenemu_v3_load_state(ravenemu_v3_bridge* handle, const uint8_t* state, siz
         handle->core->load_state({state, size});
     });
 }
-size_t ravenemu_v3_battery_size(ravenemu_v3_bridge* handle) {
+size_t ravenemu_battery_size(ravenemu_bridge* handle) {
     machine_may_change(handle);
     size_t count = 0;
     attempt([&] {
@@ -218,13 +218,13 @@ size_t ravenemu_v3_battery_size(ravenemu_v3_bridge* handle) {
     });
     return count;
 }
-int ravenemu_v3_copy_battery(ravenemu_v3_bridge* handle, uint8_t* output, size_t capacity) {
-    return ravenemu_v3_copy_battery_generation(handle, output, capacity, nullptr);
+int ravenemu_copy_battery(ravenemu_bridge* handle, uint8_t* output, size_t capacity) {
+    return ravenemu_copy_battery_generation(handle, output, capacity, nullptr);
 }
-int ravenemu_v3_battery_dirty(const ravenemu_v3_bridge* handle) {
+int ravenemu_battery_dirty(const ravenemu_bridge* handle) {
     return handle && handle->core && handle->loaded && handle->core->battery_ram_dirty() ? 1 : 0;
 }
-int ravenemu_v3_copy_battery_generation(ravenemu_v3_bridge* handle, uint8_t* output,
+int ravenemu_copy_battery_generation(ravenemu_bridge* handle, uint8_t* output,
                                         size_t capacity, uint64_t* generation) {
     machine_may_change(handle);
     return attempt([&] {
@@ -237,14 +237,14 @@ int ravenemu_v3_copy_battery_generation(ravenemu_v3_bridge* handle, uint8_t* out
         if (generation) *generation = battery->generation;
     });
 }
-int ravenemu_v3_acknowledge_battery(ravenemu_v3_bridge* handle, uint64_t generation) {
+int ravenemu_acknowledge_battery(ravenemu_bridge* handle, uint64_t generation) {
     machine_may_change(handle);
     return attempt([&] {
         require_loaded(handle);
         handle->core->acknowledge_battery_ram_saved(generation);
     });
 }
-int ravenemu_v3_set_gba_save_type(ravenemu_v3_bridge* handle, int save_type) {
+int ravenemu_set_gba_save_type(ravenemu_bridge* handle, int save_type) {
     return attempt([&] {
         require_gba(handle);
         static constexpr std::array<std::optional<ravenemu::GbaSaveType>, 7> types{
@@ -255,15 +255,15 @@ int ravenemu_v3_set_gba_save_type(ravenemu_v3_bridge* handle, int save_type) {
         handle->core->set_gba_forced_save_type(types[static_cast<std::size_t>(save_type)]);
     });
 }
-int ravenemu_v3_set_gba_rtc(ravenemu_v3_bridge* handle, int rtc) {
+int ravenemu_set_gba_rtc(ravenemu_bridge* handle, int rtc) {
     return attempt([&] {
         require_gba(handle);
-        if (rtc < RAVENEMU_V3_GBA_RTC_AUTO || rtc > RAVENEMU_V3_GBA_RTC_ON) throw std::invalid_argument("Invalid GBA RTC mode");
-        handle->core->set_gba_forced_rtc(rtc == RAVENEMU_V3_GBA_RTC_AUTO ? std::nullopt
-                                                                         : std::optional<bool>{rtc == RAVENEMU_V3_GBA_RTC_ON});
+        if (rtc < RAVENEMU_GBA_RTC_AUTO || rtc > RAVENEMU_GBA_RTC_ON) throw std::invalid_argument("Invalid GBA RTC mode");
+        handle->core->set_gba_forced_rtc(rtc == RAVENEMU_GBA_RTC_AUTO ? std::nullopt
+                                                                         : std::optional<bool>{rtc == RAVENEMU_GBA_RTC_ON});
     });
 }
-int ravenemu_v3_rumble_active(const ravenemu_v3_bridge* handle) {
+int ravenemu_rumble_active(const ravenemu_bridge* handle) {
     return handle && handle->core && handle->loaded && handle->core->rumble_active() ? 1 : 0;
 }
 } // extern "C"

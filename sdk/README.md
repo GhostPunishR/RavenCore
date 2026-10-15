@@ -4,13 +4,13 @@
 
 Elle propose le chargement de ROMs, les dimensions et le rendu ARGB8888 d'une frame, les boutons, l'audio stéréo PCM16, les sauvegardes batterie et les save states. Chaque appel est synchrone. Le frontend doit gérer la cadence, l'audio temps réel, le cycle de vie et la persistance.
 
-`ravenemu_v3_api_version()` doit être comparé à `RAVENEMU_V3_API_VERSION` avant tout autre appel, et `ravenemu_v3_version()` donne la version de la bibliothèque. Pour la sauvegarde batterie, `ravenemu_v3_battery_dirty()` indique si elle a changé ; il suffit alors de la copier avec `ravenemu_v3_copy_battery_generation()`, de l'écrire, puis d'acquitter la génération reçue avec `ravenemu_v3_acknowledge_battery()`. Une écriture du jeu survenue après la copie la laisse marquée comme modifiée.
+`ravenemu_api_version()` doit être comparé à `RAVENEMU_API_VERSION` avant tout autre appel, et `ravenemu_version()` donne la version de la bibliothèque. Pour la sauvegarde batterie, `ravenemu_battery_dirty()` indique si elle a changé ; il suffit alors de la copier avec `ravenemu_copy_battery_generation()`, de l'écrire, puis d'acquitter la génération reçue avec `ravenemu_acknowledge_battery()`. Une écriture du jeu survenue après la copie la laisse marquée comme modifiée.
 
-Pour un jeu GBA dont la détection échoue, `ravenemu_v3_set_gba_save_type()` impose le type de sauvegarde et `ravenemu_v3_set_gba_rtc()` la présence de l'horloge de cartouche. Ces réglages prennent effet au prochain `ravenemu_v3_load()` ou `ravenemu_v3_reset()`. Ils échouent sur un handle GB ou GBC. Après chaque `ravenemu_v3_run_frame()`, `ravenemu_v3_rumble_active()` indique si le moteur de vibration de la cartouche tourne (GB MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) ; le frontend le transmet au vibreur de l'appareil.
+Pour un jeu GBA dont la détection échoue, `ravenemu_set_gba_save_type()` impose le type de sauvegarde et `ravenemu_set_gba_rtc()` la présence de l'horloge de cartouche. Ces réglages prennent effet au prochain `ravenemu_load()` ou `ravenemu_reset()`. Ils échouent sur un handle GB ou GBC. Après chaque `ravenemu_run_frame()`, `ravenemu_rumble_active()` indique si le moteur de vibration de la cartouche tourne (GB MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) ; le frontend le transmet au vibreur de l'appareil.
 
-`ravenemu_v3_read_achievement_memory()` lit l'espace d'adresses de RetroAchievements sans faire avancer l'émulation. Une zone non exposée donne une lecture plus courte que demandé : le frontend doit utiliser le nombre d'octets renvoyé.
+`ravenemu_read_achievement_memory()` lit l'espace d'adresses de RetroAchievements sans faire avancer l'émulation. Une zone non exposée donne une lecture plus courte que demandé : le frontend doit utiliser le nombre d'octets renvoyé.
 
-La bibliothèque est liée statiquement aux moteurs C++20. Les structures C++ ne traversent jamais cette interface. La version 0 de l'API est une préversion : ne pas supposer une ABI stabilisée. Pour connaître les erreurs, utiliser `ravenemu_v3_last_error()` sur le même thread que l'appel ayant échoué.
+La bibliothèque est liée statiquement aux moteurs C++20. Les structures C++ ne traversent jamais cette interface. La version 0 de l'API est une préversion : ne pas supposer une ABI stabilisée. Pour connaître les erreurs, utiliser `ravenemu_last_error()` sur le même thread que l'appel ayant échoué.
 
 Pour la compiler :
 

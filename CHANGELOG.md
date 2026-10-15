@@ -4,7 +4,9 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 ## Non publié
 
-Rien pour l'instant.
+### Modifié
+
+- Suppression des marqueurs de génération dans les noms du SDK C : fonctions et types `ravenemu_*`, constantes `RAVENEMU_*`. Les consommateurs doivent adapter leurs noms d'appel et être recompilés. La logique des moteurs, l'API C++ et les formats de sauvegarde ne changent pas.
 
 ## 0.1.2 - 2026-10-13
 
@@ -60,7 +62,7 @@ Cette version regroupe les travaux pour sortir RavenGBA de l'état expérimental
 
 #### Cartouches GBA
 
-- Vibration de Drill Dozer et de WarioWare: Twisted! (broche 3 du GPIO), reconnus par leur code de jeu. Elle est transmise à la manette par l'adaptateur Libretro et exposée par `ravenemu_v3_rumble_active()`.
+- Vibration de Drill Dozer et de WarioWare: Twisted! (broche 3 du GPIO), reconnus par leur code de jeu. Elle est transmise à la manette par l'adaptateur Libretro et exposée par `ravenemu_rumble_active()`.
 - Port série sans câble : les transferts en horloge interne et en mode multijoueur se terminent et lèvent leur interruption. Les jeux qui attendaient la fin d'un transfert ne restent plus bloqués.
 
 #### Libretro / RetroArch
@@ -69,8 +71,8 @@ Cette version regroupe les travaux pour sortir RavenGBA de l'état expérimental
 
 #### API C
 
-- `ravenemu_v3_read_achievement_memory()` lit l'espace d'adresses utilisé par RetroAchievements : carte mémoire de la console, RAM de cartouche et banques de WRAM CGB pour GB/GBC ; IWRAM, EWRAM puis sauvegarde pour GBA. La lecture n'avance pas l'émulation et ne passe pas par le bus ; une zone non exposée donne une lecture plus courte que demandé ([#10](https://github.com/GhostPunishR/RavenCore/pull/10)).
-- `ravenemu_v3_set_gba_save_type()` et `ravenemu_v3_set_gba_rtc()` imposent le type de sauvegarde et l'horloge d'un jeu GBA ; le réglage prend effet au prochain chargement ou reset. `ravenemu_v3_rumble_active()` indique si le moteur de vibration de la cartouche (GB MBC5 Rumble ou GBA) tourne. Ces ajouts ne changent pas `RAVENEMU_V3_API_VERSION`.
+- `ravenemu_read_achievement_memory()` lit l'espace d'adresses utilisé par RetroAchievements : carte mémoire de la console, RAM de cartouche et banques de WRAM CGB pour GB/GBC ; IWRAM, EWRAM puis sauvegarde pour GBA. La lecture n'avance pas l'émulation et ne passe pas par le bus ; une zone non exposée donne une lecture plus courte que demandé ([#10](https://github.com/GhostPunishR/RavenCore/pull/10)).
+- `ravenemu_set_gba_save_type()` et `ravenemu_set_gba_rtc()` imposent le type de sauvegarde et l'horloge d'un jeu GBA ; le réglage prend effet au prochain chargement ou reset. `ravenemu_rumble_active()` indique si le moteur de vibration de la cartouche (GB MBC5 Rumble ou GBA) tourne. Ces ajouts ne changent pas `RAVENEMU_API_VERSION`.
 
 #### Publication
 
@@ -145,8 +147,8 @@ Première version de RavenCore, alors nommé RavenEmu Cores : les moteurs GB, GB
 #### API C et SDK
 
 - API C `bridge.h` pour les frontends non C++ : chargement de ROM, image ARGB8888, audio PCM16, boutons, sauvegardes batterie et états instantanés ([#3](https://github.com/GhostPunishR/RavenCore/pull/3)).
-- Vérification de version : `ravenemu_v3_api_version()`, `RAVENEMU_V3_API_VERSION` et `ravenemu_v3_version()` ([#7](https://github.com/GhostPunishR/RavenCore/pull/7)).
-- Suivi des écritures batterie : `ravenemu_v3_battery_dirty()`, `ravenemu_v3_copy_battery_generation()` et `ravenemu_v3_acknowledge_battery()`. Un frontend n'écrit la sauvegarde que si elle a changé ([#7](https://github.com/GhostPunishR/RavenCore/pull/7)).
+- Vérification de version : `ravenemu_api_version()`, `RAVENEMU_API_VERSION` et `ravenemu_version()` ([#7](https://github.com/GhostPunishR/RavenCore/pull/7)).
+- Suivi des écritures batterie : `ravenemu_battery_dirty()`, `ravenemu_copy_battery_generation()` et `ravenemu_acknowledge_battery()`. Un frontend n'écrit la sauvegarde que si elle a changé ([#7](https://github.com/GhostPunishR/RavenCore/pull/7)).
 - En-tête C++ `sdk.hpp` avec une fabrique simplifiée.
 - Paquet CMake installable : `find_package(RavenEmuCores)`, puis les cibles `RavenEmu::ravenemu_cores` ou `RavenEmu::ravenemu_c_api` ([#5](https://github.com/GhostPunishR/RavenCore/pull/5)).
 
