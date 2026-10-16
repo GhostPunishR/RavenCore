@@ -2,7 +2,9 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
-## Non publié
+## 0.3.0 - 2026-10-16
+
+Cette version émule les capteurs des cartouches GBA ([#16](https://github.com/GhostPunishR/RavenCore/pull/16)) et rend jouables les jeux Classic NES Series ([#17](https://github.com/GhostPunishR/RavenCore/pull/17)). Le format des états GBA change, d'où la nouvelle version mineure ; l'API C ne fait que s'enrichir.
 
 ### Ajouté
 
@@ -22,6 +24,8 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 - **GBA : format 13**, qui ajoute l'état des capteurs en fin d'état. Les formats 12 et 11 se rechargent, capteurs à leur état initial.
 - **GB/GBC : format 11**, inchangé.
+- **API C : version 0**, inchangée : les nouvelles fonctions s'ajoutent sans modifier les existantes.
+- Le paquet CMake se demande désormais avec `find_package(RavenCore 0.3)`.
 
 ## 0.2.0 - 2026-10-15
 
