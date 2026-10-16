@@ -280,6 +280,49 @@ void les_mosaiques_des_plans_et_des_objets_ne_se_melangent_pas() {
     check(par_les_plans.pixel(1, 100) == par_les_plans.pixel(0, 100), "les quartets des plans n'ont pas groupé le plan");
 }
 
+/**
+ * Fenêtre 0 sur tout l'écran, qui affiche BG0 et les objets mais coupe les
+ * effets spéciaux (bit 5 de `WININ` à 0), comme sur la carte de Pokémon
+ * Émeraude. BG0 est bleu, l'objet 8x8 en (0,0) est rouge ; BG0 est 2e cible
+ * de `BLDCNT`, à parts égales dans `BLDALPHA`.
+ */
+void setup_window_without_effects(Fixture& fixture, int object_mode, int blend_control) {
+    fixture.reg(0x00, 0x3140);                          // mode 0, BG0, objets, fenêtre 0, mappage 1D
+    fixture.reg(0x08, 0x1080);                          // BG0 : 8 bpp, carte en 0x8000 (tuile 0 partout)
+    for (int offset = 0; offset < 64; ++offset) fixture.bus.vram[static_cast<std::size_t>(offset)] = 1;
+    for (int offset = 0; offset < 64; ++offset) fixture.bus.vram[static_cast<std::size_t>(0x10000 + offset)] = 1;
+    fixture.palette(1, 0x7c00);                         // BG0 bleu
+    fixture.palette(257, 0x001f);                       // objet rouge
+    fixture.oam(0, 0x2000 | object_mode << 10);         // y = 0, 8 bpp
+    fixture.oam(2, 0x0000);                             // x = 0, 8x8
+    fixture.oam(4, 0x0000);                             // tuile 0, priorité 0
+    fixture.reg(0x40, 0x00f0);                          // WIN0H : colonnes 0 à 239
+    fixture.reg(0x44, 0x00a0);                          // WIN0V : lignes 0 à 159
+    fixture.reg(0x48, 0x0011);                          // WININ : BG0 et objets, sans effets
+    fixture.reg(0x4a, 0x0000);
+    fixture.reg(0x50, blend_control);
+    fixture.reg(0x52, 0x0808);                          // BLDALPHA : 8/16 et 8/16
+}
+
+/**
+ * Un objet semi-transparent est toujours 1re cible de l'alpha blending
+ * (GBATEK). Le bit qui coupe les effets d'une fenêtre ne l'en empêche pas :
+ * sans cette règle, le brouillard de Pokémon Émeraude couvre tout le décor. Le même objet en mode normal, désigné 1re cible par
+ * `BLDCNT`, reste en revanche opaque dans cette fenêtre.
+ */
+void un_objet_semi_transparent_se_melange_dans_une_fenetre_sans_effets() {
+    Fixture semi;
+    setup_window_without_effects(semi, 1, 0x0100);      // 2e cible BG0, aucun effet
+    semi.render_frame();
+    check(semi.pixel(0, 0) == static_cast<std::int32_t>(0xff7f007fU), "l'objet semi-transparent n'est pas mélangé au plan");
+    check(semi.pixel(8, 0) == static_cast<std::int32_t>(0xff0000ffU), "le plan seul n'est plus bleu à côté de l'objet");
+
+    Fixture normal;
+    setup_window_without_effects(normal, 0, 0x0150);    // 1re cible objets, alpha, 2e cible BG0
+    normal.render_frame();
+    check(normal.pixel(0, 0) == static_cast<std::int32_t>(0xffff0000U), "la fenêtre sans effets n'empêche plus le mélange d'un objet normal");
+}
+
 } // namespace
 
 } // namespace ravenemu::gba::testing
@@ -293,5 +336,6 @@ int main() {
     la_mosaique_d_un_plan_affine_fige_le_bloc();
     la_mosaique_d_un_objet_repete_le_coin_du_bloc();
     les_mosaiques_des_plans_et_des_objets_ne_se_melangent_pas();
+    un_objet_semi_transparent_se_melange_dans_une_fenetre_sans_effets();
     return 0;
 }

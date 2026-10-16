@@ -376,9 +376,13 @@ private:
     }
     std::int32_t color_effect(std::size_t x, int mode, int blend, std::int32_t top, int top_layer,
                               std::int32_t bottom, int bottom_layer, bool semi) const noexcept {
-        if ((window_mask_[x] & window_effects) == 0) return top;
-        const auto target1 = (blend & (1 << top_layer)) != 0; const auto target2 = (blend & (1 << (8 + bottom_layer))) != 0;
+        const auto target2 = (blend & (1 << (8 + bottom_layer))) != 0;
+        // Un objet semi-transparent se mélange à une 2e cible même dans une
+        // fenêtre qui coupe les effets : la carte de Pokémon Émeraude couvre
+        // tout l'écran d'une telle fenêtre, et son brouillard en dépend.
         if (semi && target2) return alpha(top, bottom);
+        if ((window_mask_[x] & window_effects) == 0) return top;
+        const auto target1 = (blend & (1 << top_layer)) != 0;
         if (!target1) return top;
         if (mode == 1 && target2) return alpha(top, bottom);
         if (mode == 2) return brightness(top, true);
