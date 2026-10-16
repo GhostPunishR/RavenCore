@@ -126,13 +126,13 @@ public:
     }
     /**
      * Après un reset, la nouvelle cartouche reprend ce que gardait l'ancienne :
-     * mémoire, réglages de l'horloge, et une écriture pas encore enregistrée
-     * reste à enregistrer.
+     * mémoire, réglages de l'horloge et compteur de générations. Une écriture
+     * pas encore enregistrée reste à enregistrer.
      */
     void keep_battery_of(const Cartridge& previous) {
         if (save_ && previous.save_) {
             save_->import(previous.save_->data());
-            if (previous.save_->dirty()) save_->mark_restored_after(previous.save_->generation());
+            save_->continue_after(previous.save_->generation(), previous.save_->dirty());
         }
         if (auto* clock = rtc(); clock && previous.rtc()) clock->restore(previous.rtc()->settings());
     }

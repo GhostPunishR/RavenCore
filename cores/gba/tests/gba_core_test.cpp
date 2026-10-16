@@ -340,7 +340,8 @@ void achievement_memory_map_test() {
 
 /**
  * Un reset ne perd pas une écriture pas encore enregistrée : la sauvegarde
- * reste à réécrire, et un acquittement d'avant le reset ne compte plus.
+ * reste à réécrire, et un acquittement d'avant le reset ne compte plus. Son
+ * compteur ne repart pas de zéro : une génération déjà rendue ne resservira pas.
  */
 void reset_keeps_unsaved_battery_test() {
     auto core = ravenemu::make_gba_core(ravenemu::GbaSaveType::sram);
@@ -357,6 +358,14 @@ void reset_keeps_unsaved_battery_test() {
     check(after && after->data == before->data, "reset GBA : SRAM altérée");
     core->acknowledge_battery_ram_saved(after->generation);
     check(!core->battery_ram_dirty(), "reset GBA : acquittement refusé");
+
+    // Sauvegarde à jour : le reset ne la marque pas, et l'acquittement tardif
+    // d'une génération rendue avant lui ne couvre pas l'écriture qui suit.
+    core->reset();
+    check(!core->battery_ram_dirty(), "reset GBA : sauvegarde à jour marquée à réécrire");
+    core->run_frame(frame, true);
+    core->acknowledge_battery_ram_saved(before->generation);
+    check(core->battery_ram_dirty(), "reset GBA : génération déjà rendue réutilisée");
 }
 
 /**

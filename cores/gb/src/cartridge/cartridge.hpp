@@ -68,6 +68,13 @@ public:
         generation_ = previous_generation + 1;
         saved_generation_ = previous_generation;
     }
+    // Reprend le compteur de la cartouche qu'elle remplace au reset : une
+    // génération déjà rendue ne resservira jamais, et une écriture pas encore
+    // enregistrée reste à enregistrer.
+    void continue_after(std::uint64_t previous_generation, bool previous_dirty) noexcept {
+        generation_ = previous_generation + (previous_dirty ? 1U : 0U);
+        saved_generation_ = previous_generation;
+    }
 
     [[nodiscard]] static std::unique_ptr<Cartridge> create(
         RomImage rom,

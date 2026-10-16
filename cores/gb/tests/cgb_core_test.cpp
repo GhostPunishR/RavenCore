@@ -126,6 +126,14 @@ void game_boy_color_and_battery_test() {
     check(after_reset && after_reset->data == battery, "reset GB : RAM altérée");
     battery_core->acknowledge_battery_ram_saved(after_reset->generation);
     check(!battery_core->battery_ram_dirty(), "reset GB : acquittement refusé");
+
+    // Sauvegarde à jour : le reset ne la marque pas, et l'acquittement tardif
+    // d'une génération rendue avant lui ne couvre pas la modification qui suit.
+    battery_core->reset();
+    check(!battery_core->battery_ram_dirty(), "reset GB : sauvegarde à jour marquée à réécrire");
+    battery_core->load_state(state);
+    battery_core->acknowledge_battery_ram_saved(restored->generation);
+    check(battery_core->battery_ram_dirty(), "reset GB : génération déjà rendue réutilisée");
 }
 
 void mbc6_large_state_test() {

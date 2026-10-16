@@ -43,6 +43,13 @@ public:
         generation_ = previous_generation + 1;
         saved_generation_ = previous_generation;
     }
+    // Reprend le compteur de la mémoire qu'elle remplace au reset : une
+    // génération déjà rendue ne resservira jamais, et une écriture pas encore
+    // enregistrée reste à enregistrer.
+    void continue_after(std::uint64_t previous_generation, bool previous_dirty) noexcept {
+        generation_ = previous_generation + (previous_dirty ? 1U : 0U);
+        saved_generation_ = previous_generation;
+    }
     virtual void save_state(BinaryWriter& out) const { out.raw(data_); }
     virtual void load_state(BinaryReader& in) { in.raw(data_); }
     virtual int read(int address) = 0;
