@@ -20,9 +20,15 @@ public:
      * solaire de Boktai ou le gyroscope de WarioWare: Twisted! ; un composant
      * absent ne répond pas.
      */
-    Gpio(Rtc::Clock clock, bool rtc, bool rumble, bool solar = false, bool gyro = false)
-        : rtc_(std::move(clock)), has_rtc_(rtc), has_rumble_(rumble), has_solar_(solar), has_gyro_(gyro) {}
+    Gpio(Rtc::Clock clock, Rtc::Changed rtc_changed, bool rtc, bool rumble, bool solar = false, bool gyro = false)
+        : rtc_(std::move(clock), std::move(rtc_changed)),
+          has_rtc_(rtc),
+          has_rumble_(rumble),
+          has_solar_(solar),
+          has_gyro_(gyro) {}
     [[nodiscard]] bool has_rtc() const noexcept { return has_rtc_; }
+    [[nodiscard]] Rtc* rtc() noexcept { return has_rtc_ ? &rtc_ : nullptr; }
+    [[nodiscard]] const Rtc* rtc() const noexcept { return has_rtc_ ? &rtc_ : nullptr; }
     [[nodiscard]] bool rumble_active() const noexcept { return has_rumble_ && (direction_ & data_ & 8) != 0; }
     [[nodiscard]] bool has_solar() const noexcept { return has_solar_; }
     [[nodiscard]] bool has_gyro() const noexcept { return has_gyro_; }

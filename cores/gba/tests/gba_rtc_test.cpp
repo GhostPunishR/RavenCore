@@ -4,9 +4,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <ctime>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -59,6 +61,7 @@ std::vector<std::uint8_t> rom(bool with_rtc) {
 
 /** Commandes telles que les émettent les jeux : `0110 <commande:3> <lecture:1>`. */
 constexpr int cmd_reset = 0x60;
+constexpr int cmd_write_status = 0x62;
 constexpr int cmd_read_status = 0x63;
 constexpr int cmd_read_date_time = 0x65;
 constexpr int cmd_write_date_time = 0x64;
@@ -317,6 +320,125 @@ void reset_test() {
     check(bytes[4] == to_bcd(expected.tm_hour), "la remise à zéro n'a pas restauré l'heure hôte");
 }
 
+std::array<int, 7> read_date_time(Master& master) {
+    master.begin();
+    master.command(cmd_read_date_time);
+    std::array<int, 7> bytes{};
+    for (auto& value : bytes) value = master.read_byte();
+    master.end();
+    return bytes;
+}
+
+constexpr std::size_t sram_size = 32U * 1024U;
+
+/**
+ * L'heure réglée par le jeu est enregistrée à la suite de la sauvegarde, dans
+ * le bloc de 16 octets de mGBA, et la sauvegarde est signalée à réécrire. Une
+ * heure plus tard, une autre machine relit ce bloc : l'horloge repart de
+ * l'heure réglée et a avancé avec l'appareil.
+ */
+void clock_setting_saved_with_battery_test() {
+    Fixture source;
+    check(!source.cartridge.save()->dirty(), "sauvegarde neuve marquée à réécrire");
+    source.master.begin();
+    source.master.command(cmd_write_date_time);
+    for (const auto value : {0x30, 0x06, 0x01, 0x00, 0x08, 0x00, 0x00}) source.master.write_byte(value);
+    source.master.end();
+    check(source.cartridge.save()->dirty(), "heure réglée par le jeu non signalée à enregistrer");
+
+    const auto battery = source.cartridge.export_battery();
+    check(battery.size() == sram_size + 16, "réglages de l'horloge absents de la sauvegarde");
+    const auto* trailer = battery.data() + sram_size;
+    check(trailer[0] == 0x30 && trailer[1] == 0x06 && trailer[2] == 0x01 && trailer[4] == 0x08 && trailer[5] == 0x00 &&
+              trailer[6] == 0x00,
+          "date du jeu mal enregistrée");
+    check(trailer[7] == 0x40, "registre d'état mal enregistré");
+    std::uint64_t latch{};
+    for (unsigned byte = 0; byte < 8; ++byte) latch |= std::uint64_t{trailer[8 + byte]} << (8U * byte);
+    check(latch == static_cast<std::uint64_t>(frozen_epoch), "heure de l'appareil mal enregistrée");
+
+    Fixture later{true, std::nullopt, frozen_epoch + 3600};
+    later.cartridge.import_battery(battery);
+    check(!later.cartridge.save()->dirty(), "sauvegarde relue marquée à réécrire");
+    const auto bytes = read_date_time(later.master);
+    check(bytes[0] == 0x30 && bytes[1] == 0x06 && bytes[2] == 0x01, "date réglée perdue au rechargement");
+    check(bytes[4] == 0x09 && bytes[5] == 0x00, "l'horloge relue n'a pas avancé avec l'appareil");
+}
+
+/** Une horloge jamais réglée suit l'appareil ; réécrire le même état ne change rien. */
+void unchanged_clock_follows_device_test() {
+    Fixture source;
+    source.master.begin();
+    source.master.command(cmd_write_status);
+    source.master.write_byte(0x40);
+    source.master.end();
+    check(!source.cartridge.save()->dirty(), "état inchangé signalé à enregistrer");
+
+    constexpr std::int64_t next_day = frozen_epoch + 86'400 + 754;
+    Fixture later{true, std::nullopt, next_day};
+    later.cartridge.import_battery(source.cartridge.export_battery());
+    const auto expected = local_time(next_day);
+    const auto bytes = read_date_time(later.master);
+    check(bytes[2] == to_bcd(expected.tm_mday) && bytes[4] == to_bcd(expected.tm_hour) &&
+              bytes[5] == to_bcd(expected.tm_min) && bytes[6] == to_bcd(expected.tm_sec),
+          "horloge jamais réglée décalée après rechargement");
+}
+
+/**
+ * Une sauvegarde sans bloc (ancienne version, autre émulateur) ou avec un bloc
+ * vierge laisse l'horloge à l'heure de l'appareil. FlashGBX remplit l'octet
+ * d'état de 0x01 : l'heure est reprise, pas cet octet.
+ */
+void missing_or_blank_clock_settings_test() {
+    const auto expected = local_time(frozen_epoch);
+    const auto shows_device_time = [&](const std::vector<std::uint8_t>& battery) {
+        Fixture fixture;
+        fixture.cartridge.import_battery(battery);
+        const auto bytes = read_date_time(fixture.master);
+        return bytes[4] == to_bcd(expected.tm_hour) && bytes[5] == to_bcd(expected.tm_min) &&
+               fixture.master.transaction_read(cmd_read_status) == 0x40;
+    };
+    check(shows_device_time(std::vector<std::uint8_t>(sram_size, 0)), "sauvegarde sans bloc : horloge décalée");
+    check(shows_device_time(std::vector<std::uint8_t>(sram_size + 16, 0xff)), "bloc vierge accepté");
+
+    auto flashgbx = Fixture{}.cartridge.export_battery();
+    flashgbx[sram_size + 4] = 0x23;  // 23 h
+    flashgbx[sram_size + 7] = 0x01;
+    Fixture fixture;
+    fixture.cartridge.import_battery(flashgbx);
+    check(read_date_time(fixture.master)[4] == 0x23, "heure d'un bloc FlashGBX ignorée");
+    check(fixture.master.transaction_read(cmd_read_status) == 0x40, "octet de remplissage FlashGBX pris pour l'état");
+}
+
+/**
+ * Au passage à l'heure d'hiver, 2 h 30 revient deux fois. Le bloc ne dit pas
+ * laquelle : relu, il doit garder une horloge jamais réglée à l'heure exacte,
+ * sans la décaler d'une heure pour toujours.
+ */
+void ambiguous_hour_keeps_device_time_test() {
+#if !defined(_WIN32)
+    const char* previous = std::getenv("TZ");
+    const std::string saved = previous ? previous : "";
+    setenv("TZ", "Europe/Paris", 1);
+    tzset();
+    constexpr std::int64_t summer = 1'792'888'200;  // 2026-10-25 02:30 CEST
+    constexpr std::int64_t winter = summer + 3600;  // 2026-10-25 02:30 CET
+    if (local_time(summer).tm_hour == 2 && local_time(winter).tm_hour == 2) {
+        for (const auto& [epoch, hour_later] : {std::pair{summer, 0x02}, std::pair{winter, 0x03}}) {
+            Fixture source{true, std::nullopt, epoch};
+            Fixture later{true, std::nullopt, epoch + 3600};
+            later.cartridge.import_battery(source.cartridge.export_battery());
+            check(read_date_time(later.master)[4] == hour_later, "heure ambiguë : horloge décalée d'une heure");
+        }
+    }
+    if (previous)
+        setenv("TZ", saved.c_str(), 1);
+    else
+        unsetenv("TZ");
+    tzset();
+#endif
+}
+
 /**
  * Tant que le registre de contrôle n'autorise pas la relecture, les adresses du
  * GPIO rendent les octets de la ROM. C'est ce qui permet à une cartouche sans
@@ -417,5 +539,9 @@ int main() {
     absent_rtc_reads_rom_test();
     mid_transfer_state_validation_test();
     gpio_pin_state_validation_test();
+    clock_setting_saved_with_battery_test();
+    unchanged_clock_follows_device_test();
+    missing_or_blank_clock_settings_test();
+    ambiguous_hour_keeps_device_time_test();
     return 0;
 }

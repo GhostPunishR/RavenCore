@@ -23,7 +23,7 @@ public:
         auto image = std::make_shared<const std::vector<std::uint8_t>>(rom.begin(), rom.end());
         const auto traits = RomTraits::detect(rom);
         auto replacement = new_machine(image, traits);
-        if (!battery.empty() && replacement->cartridge.save()) replacement->cartridge.save()->import(battery);
+        if (!battery.empty()) replacement->cartridge.import_battery(battery);
         loaded_rom_ = std::move(image);
         rom_traits_ = traits;
         rom_hash_ = detail::sha256(rom);
@@ -31,10 +31,8 @@ public:
     }
     void reset() override {
         require_loaded();
-        std::vector<std::uint8_t> battery;
-        if (const auto* save = machine_->cartridge.save()) battery = save->data();
         auto replacement = new_machine(loaded_rom_, rom_traits_);
-        if (!battery.empty() && replacement->cartridge.save()) replacement->cartridge.save()->import(battery);
+        replacement->cartridge.keep_battery_of(machine_->cartridge);
         configure_measurement(*replacement, measuring_time_);
         machine_ = std::move(replacement);
     }
@@ -86,8 +84,7 @@ public:
     }
     std::optional<BatterySnapshot> snapshot_battery_ram() override {
         if (!machine_ || !machine_->cartridge.save()) return std::nullopt;
-        const auto* save = machine_->cartridge.save();
-        return BatterySnapshot{save->data(), save->generation()};
+        return BatterySnapshot{machine_->cartridge.export_battery(), machine_->cartridge.save()->generation()};
     }
     void acknowledge_battery_ram_saved(std::uint64_t generation) noexcept override {
         if (machine_ && machine_->cartridge.save()) machine_->cartridge.save()->acknowledge(generation);

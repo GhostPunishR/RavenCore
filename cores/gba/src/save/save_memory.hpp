@@ -34,6 +34,8 @@ public:
         std::fill(data_.begin() + static_cast<std::ptrdiff_t>(count), data_.end(), 0);
         saved_generation_ = generation_;
     }
+    // Un réglage enregistré avec la mémoire a changé (horloge de la cartouche).
+    void mark_modified() noexcept { written(); }
     void acknowledge(std::uint64_t generation) noexcept {
         if (generation == generation_) saved_generation_ = generation;
     }

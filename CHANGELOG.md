@@ -4,11 +4,13 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 ## 0.4.1 - 2026-10-16
 
-Cette version corrige le redémarrage des DMA GBA ([#21](https://github.com/GhostPunishR/RavenCore/pull/21)), qui laissait GTA Advance sur un écran noir au début d'une nouvelle partie, et accélère le cœur GBA. L'API et les formats ne changent pas.
+Cette version corrige le redémarrage des DMA GBA ([#21](https://github.com/GhostPunishR/RavenCore/pull/21)), qui laissait GTA Advance sur un écran noir au début d'une nouvelle partie, garde l'heure réglée par un jeu GBA dans sa sauvegarde et accélère le cœur GBA. L'API et le format des états ne changent pas ; la sauvegarde d'un jeu GBA à horloge gagne 16 octets.
 
 ### Corrigé
 
 - **GBA : réécriture du contrôle d'un DMA déjà actif.** Un canal ne recharge ses adresses et ne lance un transfert immédiat que quand le bit 15 de son contrôle passe de 0 à 1, comme le décrit GBATEK. Le cœur relançait le canal à chaque écriture où ce bit valait 1. GTA Advance arrête son DMA de son en réécrivant `0xB600` en `0x8400`, bit 15 gardé, avant d'effacer ce bit : le cœur lançait alors 0x4000 mots depuis FIFO A à travers tous les registres d'E/S, et le jeu restait sur un écran noir après le choix du nom. Une réécriture garde désormais le canal en l'état et ne change que ses réglages.
+- **GBA : réglages de l'horloge de la cartouche perdus.** L'heure réglée par un jeu et le registre d'état de l'horloge n'étaient gardés que dans les états instantanés : au chargement suivant de la ROM, comme après un reset, l'horloge revenait à l'heure de l'appareil. Ils suivent désormais la sauvegarde, dans le bloc de 16 octets que mGBA place après la mémoire de la puce : date et heure du jeu, registre d'état, puis heure de l'appareil au même instant. Un réglage changé par le jeu marque la sauvegarde à réécrire, et le reset reprend les réglages en cours.
+- **GB/GBC et GBA : reset avant l'enregistrement.** Une écriture du jeu pas encore enregistrée par le frontend était oubliée au reset : la sauvegarde ne se réécrivait qu'à l'écriture suivante. Elle reste désormais à enregistrer, et un acquittement antérieur au reset ne compte plus.
 
 ### Modifié
 
@@ -19,6 +21,11 @@ Cette version corrige le redémarrage des DMA GBA ([#21](https://github.com/Ghos
 
 - **GBA : format 13** et **GB/GBC : format 11**, inchangés : les états créés avec la version 0.4.0 se rechargent. L'état d'activation de chaque canal DMA se déduit des registres d'E/S restaurés.
 - **API C : version 0**, inchangée. Le paquet CMake se demande toujours avec `find_package(RavenCore 0.4)`.
+
+### Compatibilité des sauvegardes
+
+- **GBA, jeux à horloge** (Pokémon Rubis, Saphir et Émeraude, Boktai, etc.) : la sauvegarde rendue par `snapshot_battery_ram()`, `ravenemu_copy_battery_generation()` et le `SAVE_RAM` de Libretro est la mémoire de la puce suivie du bloc de 16 octets de mGBA. Une sauvegarde sans ce bloc, d'une version précédente ou d'un autre émulateur, se charge comme avant, horloge à l'heure de l'appareil. Les versions précédentes de RavenCore et mGBA relisent les nouvelles sauvegardes.
+- Les autres jeux GBA et tous les jeux GB/GBC gardent exactement la même sauvegarde.
 
 ## 0.4.0 - 2026-10-16
 

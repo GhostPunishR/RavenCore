@@ -32,9 +32,12 @@ public:
     }
     void reset() override {
         require_loaded();
+        const auto& previous = *machine_->cartridge;
         const auto battery = machine_->cartridge->export_battery();
         auto replacement = new_machine(loaded_rom_);
         if (battery) replacement->cartridge->import_battery(*battery);
+        // Une écriture pas encore enregistrée reste à enregistrer après le reset.
+        if (previous.dirty()) replacement->cartridge->mark_restored_after(previous.generation());
         install_machine(std::move(replacement));
     }
     void run_frame(std::span<std::int32_t> framebuffer, bool) override {
