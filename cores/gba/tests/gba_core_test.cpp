@@ -287,6 +287,36 @@ void rumble_cartridge_test() {
     expect_failure<std::exception>([&] { clock->load_state(legacy); }, "ancien état accepté par une horloge");
 }
 
+/**
+ * Le bus SRAM d'une cartouche à EEPROM est vide : il se lit 0xFF et une
+ * écriture n'y reste pas. Les jeux Classic NES Series écrivent puis relisent
+ * 0x0E000000 et affichent « GAME PAK ERROR » si l'octet est resté, comme sur une
+ * copie équipée de SRAM. Sans type de sauvegarde détecté, la SRAM de repli reste.
+ */
+void eeprom_cartridge_has_no_sram_test() {
+    auto rom = minimal_gba_rom();
+    // LDR r0, =0x0E000000 ; MOV r1, #0x5A ; STRB r1, [r0] ; LDRB r2, [r0] ;
+    // LDR r3, =0x03000000 ; STRB r2, [r3] ; B .
+    const std::array<std::uint32_t, 9> program{0xe59f0014U, 0xe3a0105aU, 0xe5c01000U, 0xe5d02000U, 0xe59f3008U,
+                                               0xe5c32000U, 0xeafffffeU, 0x0e000000U, 0x03000000U};
+    for (std::size_t index = 0; index < program.size(); ++index)
+        for (unsigned byte = 0; byte < 4; ++byte)
+            rom[index * 4U + byte] = static_cast<std::uint8_t>(program[index] >> (byte * 8U));
+    std::vector<std::int32_t> frame(240U * 160U);
+    const auto read_back = [&](std::optional<ravenemu::GbaSaveType> save_type) {
+        auto core = ravenemu::make_gba_core(save_type);
+        core->load_rom(rom, {});
+        core->run_frame(frame, false);
+        std::array<std::uint8_t, 1> out{};
+        check(core->read_achievement_memory(0, out) == 1, "IWRAM illisible");
+        return out[0];
+    };
+    check(read_back(ravenemu::GbaSaveType::eeprom_8k) == 0xff, "EEPROM 8 Kio : écriture restée sur le bus SRAM");
+    check(read_back(ravenemu::GbaSaveType::eeprom_512) == 0xff, "EEPROM 512 o : écriture restée sur le bus SRAM");
+    check(read_back(ravenemu::GbaSaveType::sram) == 0x5a, "SRAM : écriture perdue");
+    check(read_back(std::nullopt) == 0x5a, "sans sauvegarde détectée : SRAM de repli perdue");
+}
+
 } // namespace
 
 /** Carte mémoire exposée aux succès : IWRAM, EWRAM puis sauvegarde. */
@@ -317,5 +347,6 @@ int main() {
     gba_smoke_test();
     gba_save_detection_test();
     rumble_cartridge_test();
+    eeprom_cartridge_has_no_sram_test();
     return 0;
 }
