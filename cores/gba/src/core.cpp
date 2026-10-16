@@ -241,6 +241,13 @@ public:
         out.i32(m.bus.sequential_address());
         // Format 13 : capteurs de cartouche.
         for (const auto value : m.cartridge.export_sensor_state()) out.i32(value);
+        // Format 14 : tampon de préchargement et démarrage des timers.
+        const auto& prefetch = m.bus.prefetch();
+        out.u32(prefetch.head);
+        out.i32(prefetch.count);
+        out.i32(prefetch.progress);
+        out.boolean(prefetch.active);
+        for (const auto value : m.timers.export_start_delay()) out.i32(value);
         return std::move(out).take();
     }
     void load_state(std::span<const std::uint8_t> bytes) override {
@@ -329,6 +336,18 @@ public:
             for (auto& value : sensors) value = in.i32();
             m.cartridge.import_sensor_state(sensors);
         }
+        // Avant le format 14, le tampon de préchargement repart vide.
+        if (version >= 14) {
+            Bus::Prefetch prefetch;
+            prefetch.head = in.u32();
+            prefetch.count = in.i32();
+            prefetch.progress = in.i32();
+            prefetch.active = in.boolean();
+            m.bus.restore_prefetch(prefetch);
+            std::array<std::int32_t, 4> delays{};
+            for (auto& value : delays) value = in.i32();
+            m.timers.import_start_delay(delays);
+        }
         if (!in.exhausted()) throw SaveStateError("État GBA corrompu (données excédentaires)");
         if (auto* save = m.cartridge.save()) {
             const auto* previous = machine_->cartridge.save();
@@ -339,7 +358,7 @@ public:
     }
 
 private:
-    static constexpr std::uint16_t state_version = 13;
+    static constexpr std::uint16_t state_version = 14;
 
     template <std::size_t N>
     static void read_array(BinaryReader& in, std::array<std::uint8_t, N>& output) {

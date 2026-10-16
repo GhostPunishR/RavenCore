@@ -77,11 +77,21 @@ public:
         const auto pc = state.regs[15];
         const auto instruction = pipeline_[0];
         const auto prefetched = fetch(add32(pc, 2 * width));
-        int cost{};
+        // Le bus compte les cycles de chaque accès, attentes comprises ;
+        // l'instruction ne rend que ses cycles internes (I), qui suivent ses accès.
+        int internal{};
         if (state.thumb)
-            cost = execute_thumb(static_cast<int>(u32(instruction) & 0xffffU));
+            internal = execute_thumb(static_cast<int>(u32(instruction) & 0xffffU));
         else
-            cost = check_condition(static_cast<int>(u32(instruction) >> 28U)) ? execute_arm(instruction) : 1;
+            internal = check_condition(static_cast<int>(u32(instruction) >> 28U)) ? execute_arm(instruction) : 0;
+        if (internal > 0) {
+            bus.idle(internal);
+            // Préchargement désactivé : après les cycles internes d'une
+            // instruction en ROM, la lecture suivante redevient non séquentielle
+            // (GBATEK, « Prefetch Disable Bug »).
+            const auto region = u32(pc) >> 24U;
+            if (!bus.timing.prefetch_enabled() && region >= 0x08U && region <= 0x0dU) bus.break_access_sequence();
+        }
         if (branched_) {
             bus.break_access_sequence();
         } else {
@@ -89,7 +99,7 @@ public:
             pipeline_[0] = pipeline_[1];
             pipeline_[1] = prefetched;
         }
-        return cost + bus.take_wait_cycles();
+        return bus.take_wait_cycles();
     }
     // Contenu du pipeline, conservé dans les états instantanés.
     struct Pipeline {

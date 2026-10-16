@@ -110,7 +110,6 @@ ctest --test-dir build --output-on-failure
 - **GB / GBC** : les 198 tests publics retenus passent. Des suites plus exigeantes (Mealybug Tearoom, SameSuite, gbmicrotest) échouent encore en partie.
 - **GBA** : expérimental. Les suites gba-tests et FuzzARM passent, mais le cœur n'a pas encore été essayé sur un large panel de jeux. Non émulés pour l'instant :
   - le câble link et le mode UART ;
-  - le tampon de préchargement de la cartouche ;
   - l'exception d'instruction indéfinie.
 - **Capteurs** : ceux des cartouches GBA suivent les mesures publiées par GBATEK, mais n'ont pas encore été essayés en jeu. Le sens des axes d'inclinaison (GBA et MBC7) et l'échelle du gyroscope restent à confirmer.
 - **RetroAchievements** : pas encore activé dans les cœurs Libretro, et le mode Hardcore n'est pas pris en charge. L'API C expose déjà la mémoire nécessaire. L'intégration de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte.

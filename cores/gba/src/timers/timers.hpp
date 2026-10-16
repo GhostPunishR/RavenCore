@@ -19,6 +19,8 @@ public:
         if (!was_enabled && (value & 0x80) != 0) {
             counter_[index] = reload_[index];
             prescaler_counter_[index] = 0;
+            // Le compteur part 2 cycles après l'écriture qui active le timer.
+            start_delay_[index] = start_latency;
         }
         cycles_until_overflow_ = compute_budget();
     }
@@ -28,7 +30,8 @@ public:
             const auto settings = control_[index];
             if ((settings & 0x80) == 0 || (settings & 0x04) != 0) return counter_[index];
             const auto prescale = prescale_[static_cast<std::size_t>(settings & 3)];
-            return counter_[index] + (prescaler_counter_[index] + pending_cycles_) / prescale;
+            const auto running = std::max(0, pending_cycles_ - start_delay_[index]);
+            return counter_[index] + (prescaler_counter_[index] + running) / prescale;
         }
         flush();
         return counter_[index];
@@ -73,8 +76,23 @@ public:
         pending_cycles_ = 0;
         cycles_until_overflow_ = compute_budget();
     }
+    // Format 14 : cycles restant avant que chaque timer activé ne compte.
+    std::array<std::int32_t, 4> export_start_delay() {
+        flush();
+        std::array<std::int32_t, 4> result{};
+        std::copy(start_delay_.begin(), start_delay_.end(), result.begin());
+        return result;
+    }
+    void import_start_delay(std::span<const std::int32_t> state) {
+        if (state.size() != 4) throw SaveStateError("État timers GBA invalide");
+        for (const auto value : state) {
+            if (value < 0 || value > start_latency) throw SaveStateError("État timers GBA invalide");
+        }
+        std::copy_n(state.begin(), 4, start_delay_.begin());
+        cycles_until_overflow_ = compute_budget();
+    }
     void reset() noexcept {
-        counter_.fill(0); reload_.fill(0); control_.fill(0); prescaler_counter_.fill(0);
+        counter_.fill(0); reload_.fill(0); control_.fill(0); prescaler_counter_.fill(0); start_delay_.fill(0);
         pending_cycles_ = 0; cycles_until_overflow_ = no_overflow;
     }
     std::function<void(int)> on_overflow;
@@ -82,6 +100,7 @@ public:
 private:
     static constexpr int no_overflow = std::numeric_limits<int>::max();
     static constexpr std::array prescale_{1, 64, 256, 1024};
+    static constexpr int start_latency = 2;
     void flush() {
         const auto cycles = std::exchange(pending_cycles_, 0);
         if (cycles > 0) apply_cycles(cycles);
@@ -93,7 +112,7 @@ private:
             const auto settings = control_[i];
             if ((settings & 0x80) == 0 || (settings & 0x04) != 0) continue;
             const auto divisor = prescale_[static_cast<std::size_t>(settings & 3)];
-            const auto cycles = (0x10000 - counter_[i]) * divisor - prescaler_counter_[i];
+            const auto cycles = (0x10000 - counter_[i]) * divisor - prescaler_counter_[i] + start_delay_[i];
             budget = std::min(budget, cycles);
         }
         return budget;
@@ -103,7 +122,10 @@ private:
             const auto settings = control_[i];
             if ((settings & 0x80) == 0 || (settings & 0x04) != 0) continue;
             const auto divisor = prescale_[static_cast<std::size_t>(settings & 3)];
-            const auto total = prescaler_counter_[i] + cycles;
+            const auto waited = std::min(start_delay_[i], cycles);
+            start_delay_[i] -= waited;
+            if (cycles == waited) continue;
+            const auto total = prescaler_counter_[i] + cycles - waited;
             prescaler_counter_[i] = total % divisor;
             if (total >= divisor) advance(static_cast<int>(i), total / divisor);
         }
@@ -137,6 +159,7 @@ private:
     std::array<int, 4> reload_{};
     std::array<int, 4> control_{};
     std::array<int, 4> prescaler_counter_{};
+    std::array<int, 4> start_delay_{};
     int pending_cycles_{};
     int cycles_until_overflow_{no_overflow};
 };

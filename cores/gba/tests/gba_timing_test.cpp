@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -267,10 +268,146 @@ void corrupt_timer_state_is_rejected() {
     }
 }
 
+// Cartouche de 8 Kio, `code` (Thumb) à 0x08000100.
+ravenemu::gba::RomImage thumb_cartridge(std::initializer_list<std::uint16_t> code = {}) {
+    std::vector<std::uint8_t> rom(0x2000);
+    rom[0xb2] = 0x96;
+    auto at = std::size_t{0x100};
+    for (const auto half : code) {
+        rom[at++] = static_cast<std::uint8_t>(half);
+        rom[at++] = static_cast<std::uint8_t>(half >> 8U);
+    }
+    return std::make_shared<const std::vector<std::uint8_t>>(std::move(rom));
+}
+
+void cartridge_prefetch_timing() {
+    using ravenemu::gba::i32;
+    ravenemu::gba::Machine machine(thumb_cartridge(), ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; });
+    auto& bus = machine.bus;
+    // WAITCNT = 0x4000 : WS0 à 4 attentes hors séquence, 2 à la suite, tampon
+    // actif. Un demi-mot coûte 5 cycles hors séquence, 3 à la suite (GBATEK).
+    bus.write16(i32(0x04000204U), 0x4000);
+    const auto fetch = [&](std::uint32_t address) {
+        bus.take_wait_cycles();
+        bus.fetch16(i32(address));
+        return bus.take_wait_cycles();
+    };
+    const auto read = [&](std::uint32_t address) {
+        bus.take_wait_cycles();
+        bus.read16(i32(address));
+        return bus.take_wait_cycles();
+    };
+    const auto idle = [&](int cycles) { bus.idle(cycles); bus.take_wait_cycles(); };
+
+    check(fetch(0x08000200U) == 5, "préchargement : premier accès non séquentiel mal compté");
+    idle(6);  // deux demi-mots lus d'avance
+    check(fetch(0x08000202U) == 1, "préchargement : instruction du tampon à plus d'un cycle");
+    check(fetch(0x08000204U) == 1, "préchargement : seconde instruction du tampon à plus d'un cycle");
+    check(fetch(0x08000206U) == 1, "préchargement : demi-mot en cours non payé au reste de sa lecture");
+    check(fetch(0x08000208U) == 3, "préchargement : tampon vide, lecture séquentielle mal comptée");
+
+    fetch(0x08000400U);
+    idle(100);
+    for (std::uint32_t index = 1; index <= 8; ++index)
+        check(fetch(0x08000400U + 2U * index) == 1, "préchargement : le tampon ne garde pas huit demi-mots");
+
+    fetch(0x08000600U);
+    idle(6);
+    check(fetch(0x08000700U) == 5, "préchargement : un saut n'a pas vidé le tampon");
+
+    // Un accès de données à la cartouche arrête l'unité ; la lecture d'après repart de zéro.
+    fetch(0x08000800U);
+    idle(6);
+    check(read(0x08001000U) == 5, "préchargement : lecture de données mal comptée");
+    check(fetch(0x08000802U) == 5, "préchargement : l'accès aux données n'a pas arrêté l'unité");
+
+    // Tombé sur le dernier cycle d'un demi-mot en cours, il attend ce cycle.
+    fetch(0x08000a00U);
+    idle(2);
+    check(read(0x08001000U) == 6, "préchargement : dernier cycle du demi-mot en cours non attendu");
+
+    // Les accès à la RAM interne laissent l'unité lire.
+    fetch(0x08000c00U);
+    for (int index = 0; index < 3; ++index) bus.read32(i32(0x03000000U));
+    check(fetch(0x08000c02U) == 1, "préchargement : arrêté par un accès à la RAM interne");
+
+    bus.write16(i32(0x04000204U), 0);
+    check(fetch(0x08000e00U) == 5 && fetch(0x08000e02U) == 3, "préchargement coupé : attentes de la ROM fausses");
+    idle(10);
+    check(fetch(0x08000e04U) == 3, "préchargement coupé : l'unité a lu d'avance");
+}
+
+void prefetch_disable_bug() {
+    // LSL r0, r1 (registre : un cycle interne), puis NOP. Sans préchargement,
+    // l'instruction qui suit un cycle interne en ROM est relue hors séquence
+    // (GBATEK, « Prefetch Disable Bug »).
+    const auto cycles = [](int wait_control) {
+        ravenemu::gba::Machine machine(thumb_cartridge({0x4088, 0x46c0, 0x46c0, 0x46c0, 0xe7fe}),
+                                       ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; });
+        machine.bus.write16(ravenemu::gba::i32(0x04000204U), wait_control);
+        machine.cpu.reset(ravenemu::gba::i32(0x08000100U));
+        machine.cpu.state.thumb = true;
+        machine.bus.take_wait_cycles();
+        std::array<int, 3> steps{};
+        for (auto& step : steps) step = machine.cpu.step();
+        return steps;
+    };
+    // LSL : remplissage du pipeline (5 + 3), lecture suivante (3), cycle interne (1).
+    check(cycles(0) == std::array{12, 5, 3}, "préchargement coupé : lecture après cycle interne restée séquentielle");
+    check(cycles(0x4000) == std::array{12, 2, 3}, "préchargement : cycle interne non mis à profit par l'unité");
+}
+
+void prefetch_state_is_validated() {
+    ravenemu::gba::Machine machine(thumb_cartridge(), ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; });
+    auto& bus = machine.bus;
+    using Prefetch = ravenemu::gba::Bus::Prefetch;
+    const auto rejected = [&](const Prefetch& value, const char* message) {
+        expect_failure<ravenemu::SaveStateError>([&] { bus.restore_prefetch(value); }, message);
+    };
+    rejected({0x08000102U, 0, 0, 1, true}, "unité active acceptée sans préchargement");
+    bus.write16(ravenemu::gba::i32(0x04000204U), 0x4000);
+    bus.restore_prefetch({0x08000102U, 3, 1, 1, true});
+    check(bus.prefetch().count == 3 && bus.prefetch().progress == 1 && bus.prefetch().halfword_cycles == 3,
+          "état du préchargement mal restauré");
+    rejected({0x08000102U, 9, 0, 1, true}, "plus de huit demi-mots acceptés");
+    rejected({0x08000103U, 0, 0, 1, true}, "adresse impaire acceptée");
+    rejected({0x08000102U, 0, 3, 1, true}, "lecture en cours plus longue qu'un demi-mot acceptée");
+    rejected({0x08000102U, 2, 0, 1, false}, "unité arrêtée avec des demi-mots acceptée");
+}
+
+void timer_counts_two_cycles_after_enable() {
+    ravenemu::gba::InterruptController interrupts;
+    ravenemu::gba::Timers timers(interrupts);
+    timers.control_write(0, 0x80);  // actif, pré-diviseur 1
+    timers.tick(1);
+    check(timers.counter(0) == 0, "timer GBA parti avant sa latence de démarrage");
+    timers.tick(9);
+    check(timers.counter(0) == 8, "timer GBA : latence de démarrage de 2 cycles non respectée");
+}
+
+void io_registers_are_not_mirrored() {
+    using ravenemu::gba::i32;
+    ravenemu::gba::Machine machine(thumb_cartridge(), ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; });
+    auto& bus = machine.bus;
+    bus.write16(i32(0x04000200U), 0x0001);
+    // Trace de débogage mGBA : écrite hors des registres, elle se perd.
+    bus.write16(i32(0x04fff600U), 0x6954);
+    bus.write32(i32(0x04010200U), 0x7fff);
+    check(bus.read16(i32(0x04000200U)) == 0x0001, "écriture hors des registres d'E/S reportée sur IE");
+    check(static_cast<std::uint32_t>(bus.read32(i32(0x04000800U))) == 0x0d000020U &&
+              static_cast<std::uint32_t>(bus.read32(i32(0x04020800U))) == 0x0d000020U,
+          "registre de contrôle mémoire 0x04000800 mal lu");
+}
+
 } // namespace
 
 int main() {
     corrupt_timer_state_is_rejected();
+    cartridge_prefetch_timing();
+    prefetch_disable_bug();
+    prefetch_state_is_validated();
+    timer_counts_two_cycles_after_enable();
+    io_registers_are_not_mirrored();
     frame_overshoot_does_not_accumulate();
     long_dma_stops_at_frame_boundary();
     dma_effects_follow_elapsed_cycles();

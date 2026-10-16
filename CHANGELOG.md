@@ -2,6 +2,30 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## Non publié
+
+### Ajouté
+
+- **GBA : tampon de préchargement de la cartouche** (WAITCNT bit 14, GBATEK « GamePak Prefetch »). Pendant que le CPU n'utilise pas le bus de la cartouche (cycles internes, accès à la RAM ou aux registres), une unité lit d'avance jusqu'à huit demi-mots de code à la suite de la dernière instruction lue en ROM. Une instruction déjà lue coûte alors 1 cycle, celle en cours de lecture le reste de sa lecture. Un saut vide le tampon ; un accès de données à la cartouche arrête l'unité, et attend d'un cycle s'il tombe sur le dernier cycle d'un demi-mot en cours. Le tampon remplace l'approximation précédente, qui rendait gratuite toute lecture séquentielle en ROM dès que le préchargement était activé, comme le font presque tous les jeux du commerce : leur code tourne désormais à la cadence de la console.
+
+### Corrigé
+
+- **GBA : durée des instructions.** Chaque accès au bus coûte désormais 1 cycle plus ses attentes, et une instruction n'y ajoute que ses cycles internes. Les chargements simples (LDR, LDRH, LDRB, LDRSB, LDRSH, sauf LDR relatif à PC en Thumb), POP et LDMIA en Thumb retrouvent le cycle interne qui leur manquait ; STM en ARM perd le cycle de trop qu'il comptait. Le premier accès de chaque bloc de 128 Kio de la cartouche est non séquentiel.
+- **GBA : préchargement désactivé.** Sans tampon, l'instruction qui suit un cycle interne en ROM est relue hors séquence (GBATEK, « Prefetch Disable Bug »).
+- **GBA : timers et registres d'E/S au cycle près.** Un timer compte à partir de 2 cycles après l'écriture qui l'active. Les périphériques sont avancés jusqu'au cycle exact d'un accès aux registres, au milieu de l'instruction, et non plus à sa fin.
+- **GBA : registres d'E/S répétés dans toute leur région.** Seuls 0x04000000 à 0x040003FF répondent ; 0x04xx0800 rend la valeur du contrôle mémoire (0x0D000020). Ailleurs, une lecture rend le bus ouvert et une écriture se perd. Une trace de débogage écrite à 0x04FFF600, comme celle de mGBA, écrasait sinon le registre IE et bloquait le programme en attente d'interruption.
+
+Mesures avec la suite de test de mGBA (licence MIT, exécutée en local) : les échecs de la suite « Timing » passent de 785 à 340, ceux de « Timers » de 591 à 561 et ceux de « Timer IRQ » de 90 à 54. Tous les échecs restants de la suite Timing concernent la durée des appels du BIOS et des DMA, qui ne sont pas encore comptées au cycle près.
+
+### Modifié
+
+- **GBA : environ 5 % plus lent** sur Pokémon Émeraude (3,30 ms → 3,50 ms par image sur un PC), le prix du tampon de préchargement. Grand Theft Auto et Zelda gardent la même vitesse. La fenêtre de lecture d'instructions reste désormais ouverte après un saut ou un accès de données dans la même zone, ce qui compense une bonne partie du surcoût.
+
+### Compatibilité des états instantanés
+
+- **GBA : format 14.** L'état garde le tampon de préchargement et le démarrage des timers. Les états au format 13 (versions 0.4.x) se rechargent, tampon vide. Un état au format 14 ne se recharge pas dans une version 0.4.x.
+- **GB/GBC : format 11**, inchangé. **API C : version 0**, inchangée.
+
 ## 0.4.1 - 2026-10-16
 
 Cette version corrige le redémarrage des DMA GBA ([#21](https://github.com/GhostPunishR/RavenCore/pull/21)), qui laissait GTA Advance sur un écran noir au début d'une nouvelle partie, garde l'heure réglée par un jeu GBA dans sa sauvegarde et accélère le cœur GBA. L'API et le format des états ne changent pas ; la sauvegarde d'un jeu GBA à horloge gagne 16 octets.

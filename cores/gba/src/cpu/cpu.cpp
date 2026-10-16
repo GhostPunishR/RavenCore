@@ -6,7 +6,7 @@ int Cpu::execute_arm(std::int32_t instruction) {
     const auto raw = u32(instruction);
     if ((raw & 0x0fff'fff0U) == 0x012f'ff10U) {
         branch_exchange(read_reg(static_cast<int>(raw & 15U)));
-        return 3;
+        return 0;
     }
     switch ((raw >> 25U) & 7U) {
     case 0:
@@ -28,7 +28,7 @@ int Cpu::execute_arm(std::int32_t instruction) {
 int Cpu::arm_undefined(std::int32_t instruction) {
     bus.diagnostics.report(DiagnosticEvent::undefined_instruction,
                            "instruction ARM indéfinie " + std::to_string(u32(instruction)));
-    return 1;
+    return 0;
 }
 
 int Cpu::arm_branch(std::int32_t instruction) {
@@ -36,7 +36,7 @@ int Cpu::arm_branch(std::int32_t instruction) {
     const auto offset = sign_extend((raw & 0x00ff'ffffU) << 2U, 26);
     if ((raw & 0x0100'0000U) != 0) write_reg(14, add32(state.regs[15], 4));
     branch_to(add32(read_reg(15), offset));
-    return 3;
+    return 0;
 }
 
 int Cpu::arm_data_or_psr(std::int32_t instruction) {
@@ -83,8 +83,9 @@ int Cpu::arm_data_without_flags(std::uint32_t raw, int opcode) {
     default: value = ~y; break;
     }
     write_reg(rd, i32(value));
-    // Décalage par registre : 1I de plus ; écrire PC recharge le pipeline.
-    return (rd == 15 ? 3 : 1) + (pc_extra != 0 ? 1 : 0);
+    // Décalage par registre : 1I. Écrire PC recharge le pipeline, compté
+    // par les lectures de l'instruction suivante.
+    return pc_extra != 0 ? 1 : 0;
 }
 
 int Cpu::arm_data(std::int32_t instruction, bool immediate, int opcode, bool set_flags) {
@@ -152,7 +153,7 @@ int Cpu::arm_data(std::int32_t instruction, bool immediate, int opcode, bool set
         }
     }
     if (writes) write_reg(rd, result);
-    return (rd == 15 && writes ? 3 : 1) + (register_shift ? 1 : 0);
+    return register_shift ? 1 : 0;
 }
 
 std::int32_t Cpu::arm_operand2(std::int32_t instruction, bool immediate, int pc_extra) {
@@ -182,7 +183,7 @@ int Cpu::arm_psr(std::int32_t instruction) {
     const auto use_spsr = ((raw >> 22U) & 1U) != 0;
     if (((raw >> 21U) & 1U) == 0) {
         write_reg(static_cast<int>((raw >> 12U) & 15U), use_spsr ? state.spsr() : state.cpsr());
-        return 1;
+        return 0;
     }
     std::int32_t operand{};
     if (((raw >> 25U) & 1U) != 0) {
@@ -201,7 +202,7 @@ int Cpu::arm_psr(std::int32_t instruction) {
         if (state.mode == CpuState::mode_user) mask &= 0xff000000U;
         state.set_cpsr(i32((u32(state.cpsr()) & ~mask) | (u32(operand) & mask)), (mask & 0xffU) != 0);
     }
-    return 1;
+    return 0;
 }
 
 int Cpu::arm_single_transfer(std::int32_t instruction) {
@@ -235,7 +236,8 @@ int Cpu::arm_single_transfer(std::int32_t instruction) {
             bus.write32(address, value);
         if (!pre || write_back) write_reg(rn, new_base);
     }
-    return 2;
+    // LDR : 1S + 1N + 1I ; STR : 2N. Les accès sont comptés par le bus.
+    return load ? 1 : 0;
 }
 
 int Cpu::arm_multiply(std::int32_t instruction) {
@@ -248,7 +250,7 @@ int Cpu::arm_multiply(std::int32_t instruction) {
     write_reg(rd, result);
     if (((raw >> 20U) & 1U) != 0) set_nz(result);
     // 1S + mI, plus 1I pour MLA.
-    return 1 + multiply_cycles(multiplier, true) + (accumulate ? 1 : 0);
+    return multiply_cycles(multiplier, true) + (accumulate ? 1 : 0);
 }
 
 int Cpu::arm_multiply_long(std::int32_t instruction) {
@@ -273,7 +275,7 @@ int Cpu::arm_multiply_long(std::int32_t instruction) {
     }
     // 1S + (m + 1)I, plus 1I pour UMLAL/SMLAL ; m ne s'arrête sur des 1 qu'en signé.
     const auto accumulate = ((raw >> 21U) & 1U) != 0;
-    return 2 + multiply_cycles(multiplier, signed_multiply) + (accumulate ? 1 : 0);
+    return 1 + multiply_cycles(multiplier, signed_multiply) + (accumulate ? 1 : 0);
 }
 
 int Cpu::arm_swap(std::int32_t instruction) {
@@ -290,7 +292,7 @@ int Cpu::arm_swap(std::int32_t instruction) {
         bus.write32(address, source);
         write_reg(rd, old);
     }
-    return 4;
+    return 1;
 }
 
 int Cpu::arm_halfword(std::int32_t instruction) {
@@ -323,7 +325,7 @@ int Cpu::arm_halfword(std::int32_t instruction) {
         bus.write16(address, rd == 15 ? add32(read_reg(15), 4) : read_reg(rd));
         if (!pre || write_back) write_reg(rn, new_base);
     }
-    return 2;
+    return load ? 1 : 0;
 }
 
 int Cpu::arm_block(std::int32_t instruction) {
@@ -378,12 +380,13 @@ int Cpu::arm_block(std::int32_t instruction) {
         if (psr_user && state.has_spsr()) state.set_cpsr(state.spsr(), true);
         branch_to(*loaded_pc);
     }
-    return static_cast<int>(count) + 2;
+    // LDM : nS + 1N + 1I ; STM : (n-1)S + 2N.
+    return load ? 1 : 0;
 }
 
 int Cpu::arm_swi(std::int32_t instruction) {
     execute_swi(static_cast<int>((u32(instruction) >> 16U) & 0xffU), add32(state.regs[15], 4));
-    return 3;
+    return 0;
 }
 
 void Cpu::thumb_arithmetic_flags(std::int32_t value) noexcept {
@@ -395,7 +398,7 @@ void Cpu::thumb_arithmetic_flags(std::int32_t value) noexcept {
 int Cpu::thumb_undefined(int instruction) {
     bus.diagnostics.report(DiagnosticEvent::undefined_instruction,
                            "instruction Thumb indéfinie " + std::to_string(instruction));
-    return 1;
+    return 0;
 }
 
 int Cpu::execute_thumb(int instruction) {
@@ -415,7 +418,7 @@ int Cpu::execute_thumb(int instruction) {
             const auto result = subtract ? add_with_carry(read_reg(rs), ~b, 1) : add_with_carry(read_reg(rs), b, 0);
             write_reg(rd, result);
             thumb_arithmetic_flags(result);
-            return 1;
+            return 0;
         }
         if ((instr & 0xe000U) == 0) {
             const auto type = static_cast<int>((instr >> 11U) & 3U);
@@ -426,7 +429,7 @@ int Cpu::execute_thumb(int instruction) {
             write_reg(rd, result);
             set_nz(result);
             state.carry = shifter_carry;
-            return 1;
+            return 0;
         }
         [[fallthrough]];
     case 1:
@@ -450,7 +453,7 @@ int Cpu::execute_thumb(int instruction) {
                 write_reg(rd, result);
                 thumb_arithmetic_flags(result);
             }
-            return 1;
+            return 0;
         }
         [[fallthrough]];
     case 2:
@@ -522,8 +525,8 @@ int Cpu::execute_thumb(int instruction) {
             } else if (shift)
                 state.carry = shifter_carry;
             // MUL : 1S + mI (m selon Rd d'origine) ; décalage par registre : 1S + 1I.
-            if (opcode == 13) return 1 + multiply_cycles(u32(a), true);
-            return shift ? 2 : 1;
+            if (opcode == 13) return multiply_cycles(u32(a), true);
+            return shift ? 1 : 0;
         }
         if ((instr & 0xfc00U) == 0x4400U) {
             const auto opcode = static_cast<int>((instr >> 8U) & 3U);
@@ -537,12 +540,12 @@ int Cpu::execute_thumb(int instruction) {
                 write_reg(rd, read_reg(rs));
             else
                 branch_exchange(read_reg(rs));
-            return opcode != 1 && rd == 15 ? 3 : 1;
+            return 0;
         }
         if ((instr & 0xf800U) == 0x4800U) {
             const auto rd = static_cast<int>((instr >> 8U) & 7U);
             write_reg(rd, bus.read32(add32(i32(u32(read_reg(15)) & ~2U), i32((instr & 0xffU) << 2U))));
-            return 3;
+            return 1;
         }
         if ((instr & 0xf200U) == 0x5000U) {
             const auto load = ((instr >> 11U) & 1U) != 0;
@@ -556,7 +559,7 @@ int Cpu::execute_thumb(int instruction) {
                 bus.write8(address, read_reg(rd));
             else
                 bus.write32(address, read_reg(rd));
-            return 2;
+            return load ? 1 : 0;
         }
         if ((instr & 0xf200U) == 0x5200U) {
             const auto h = ((instr >> 11U) & 1U) != 0;
@@ -572,7 +575,7 @@ int Cpu::execute_thumb(int instruction) {
                 write_reg(rd, sign_extend(static_cast<unsigned>(bus.read8(address)), 8));
             else
                 write_reg(rd, load_signed_halfword(address));
-            return 2;
+            return !s && !h ? 0 : 1;
         }
         [[fallthrough]];
     case 3:
@@ -589,7 +592,7 @@ int Cpu::execute_thumb(int instruction) {
                 bus.write8(address, read_reg(rd));
             else
                 bus.write32(address, read_reg(rd));
-            return 2;
+            return load ? 1 : 0;
         }
         [[fallthrough]];
     case 4:
@@ -602,7 +605,7 @@ int Cpu::execute_thumb(int instruction) {
                 write_reg(rd, load_halfword(address));
             else
                 bus.write16(address, read_reg(rd));
-            return 2;
+            return load ? 1 : 0;
         }
         if ((instr & 0xf000U) == 0x9000U) {
             const auto load = ((instr >> 11U) & 1U) != 0;
@@ -612,7 +615,7 @@ int Cpu::execute_thumb(int instruction) {
                 write_reg(rd, load_word_rotated(address));
             else
                 bus.write32(address, read_reg(rd));
-            return 2;
+            return load ? 1 : 0;
         }
         [[fallthrough]];
     case 5:
@@ -620,12 +623,12 @@ int Cpu::execute_thumb(int instruction) {
             const auto rd = static_cast<int>((instr >> 8U) & 7U);
             const auto base = ((instr >> 11U) & 1U) != 0 ? read_reg(13) : i32(u32(read_reg(15)) & ~2U);
             write_reg(rd, add32(base, static_cast<int>((instr & 0xffU) << 2U)));
-            return 1;
+            return 0;
         }
         if ((instr & 0xff00U) == 0xb000U) {
             const auto offset = static_cast<std::int32_t>((instr & 0x7fU) << 2U);
             write_reg(13, add32(read_reg(13), ((instr >> 7U) & 1U) != 0 ? -offset : offset));
-            return 1;
+            return 0;
         }
         if ((instr & 0xf600U) == 0xb400U) {
             const auto load = ((instr >> 11U) & 1U) != 0;
@@ -654,7 +657,8 @@ int Cpu::execute_thumb(int instruction) {
                     }
                 if (extra) bus.write32(address, read_reg(14));
             }
-            return count + 1;
+            // POP : nS + 1N + 1I ; PUSH : (n-1)S + 2N.
+            return load ? 1 : 0;
         }
         [[fallthrough]];
     case 6:
@@ -671,7 +675,7 @@ int Cpu::execute_thumb(int instruction) {
                 else
                     bus.write32(base, add32(read_reg(15), 2));
                 write_reg(rb, add32(base, 0x40));
-                return load ? 3 : 2;
+                return load ? 1 : 0;
             }
             const auto final_base = add32(base, static_cast<std::int32_t>(std::popcount(list)) * 4);
             auto address = base;
@@ -687,33 +691,33 @@ int Cpu::execute_thumb(int instruction) {
                     address = add32(address, 4);
                 }
             if (!(load && (list & (1U << rb)) != 0)) write_reg(rb, final_base);
-            return static_cast<int>(std::popcount(list)) + 1;
+            return load ? 1 : 0;
         }
         if ((instr & 0xff00U) == 0xdf00U) {
             execute_swi(static_cast<int>(instr & 0xffU), add32(state.regs[15], 2));
-            return 3;
+            return 0;
         }
         if ((instr & 0xf000U) == 0xd000U) {
             const auto condition = static_cast<int>((instr >> 8U) & 15U);
-            if (condition >= 14 || !check_condition(condition)) return 1;
+            if (condition >= 14 || !check_condition(condition)) return 0;
             branch_to(add32(read_reg(15), sign_extend((instr & 0xffU) << 1U, 9)));
-            return 3;
+            return 0;
         }
         [[fallthrough]];
     case 7:
         if ((instr & 0xf800U) == 0xe000U) {
             branch_to(add32(read_reg(15), sign_extend((instr & 0x7ffU) << 1U, 12)));
-            return 3;
+            return 0;
         }
         if ((instr & 0xf800U) == 0xf000U) {
             write_reg(14, add32(read_reg(15), sign_extend((instr & 0x7ffU) << 12U, 23)));
-            return 1;
+            return 0;
         }
         if ((instr & 0xf800U) == 0xf800U) {
             const auto target = add32(read_reg(14), static_cast<int>((instr & 0x7ffU) << 1U));
             write_reg(14, i32(u32(add32(state.regs[15], 2)) | 1U));
             branch_to(target);
-            return 3;
+            return 0;
         }
     default: break;
     }

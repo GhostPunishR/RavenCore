@@ -166,6 +166,28 @@ void audio_state_continuation_test() {
     check(core->save_state() == unchanged, "failed load changed GBA machine");
 }
 
+void prefetch_state_continuation_test() {
+    // Boucle en ROM, tampon de préchargement actif (WAITCNT = 0x4317) : un
+    // état pris en pleine lecture d'avance doit reprendre au même cycle.
+    auto rom = minimal_gba_rom();
+    const std::array<std::uint32_t, 9> code{
+        0xe59f0014, 0xe59f1014, 0xe5801204, 0xe3a03403,  // r0 = E/S, WAITCNT, r3 = IWRAM
+        0xe2822001, 0xe5832000, 0xeafffffc,              // boucle : ++r2, rangé en IWRAM
+        0x04000000, 0x00004317};
+    for (std::size_t i = 0; i < code.size(); ++i)
+        for (unsigned b = 0; b < 4; ++b) rom[i * 4 + b] = static_cast<std::uint8_t>(code[i] >> (8U * b));
+    auto core = ravenemu::make_gba_core(std::nullopt);
+    core->load_rom(rom, {});
+    std::vector<std::int32_t> frame(240 * 160);
+    core->run_frame(frame, false);
+    const auto state = core->save_state();
+    core->run_frame(frame, false);
+    const auto continued = core->save_state();
+    core->load_state(state);
+    core->run_frame(frame, false);
+    check(core->save_state() == continued, "préchargement GBA : reprise d'état décalée");
+}
+
 void invalid_rom_test() {
     auto rom = minimal_gba_rom();
     rom[0xb2] = 0;
@@ -416,6 +438,7 @@ int main() {
     public_header_factory_test();
     odd_audio_capacity_keeps_stereo_frames_test();
     audio_state_continuation_test();
+    prefetch_state_continuation_test();
     invalid_rom_test();
     gba_smoke_test();
     gba_save_detection_test();

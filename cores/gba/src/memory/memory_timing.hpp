@@ -26,10 +26,15 @@ public:
         const auto extra = width / bus_width(address) - 1;
         return extra <= 0 ? first : first + extra * (unit_wait(address, true) + 1);
     }
+    // Le tampon de préchargement de la cartouche est modélisé par le bus
+    // (Prefetch) : une lecture d'instruction coûte ici comme une lecture.
     [[nodiscard]] int instruction_wait(std::int32_t address, int width, bool sequential) const noexcept {
-        const auto region = (u32(address) >> 24U) & 0xffU;
-        if (sequential && (wait_control_ & 0x4000) != 0 && region >= 0x08U && region <= 0x0dU) return 0;
         return wait_states(address, width, sequential);
+    }
+    [[nodiscard]] bool prefetch_enabled() const noexcept { return (wait_control_ & 0x4000) != 0; }
+    // Durée d'une lecture séquentielle de 16 bits dans la ROM, attentes comprises.
+    [[nodiscard]] int sequential_halfword_cycles(std::uint32_t address) const noexcept {
+        return 1 + unit_wait(i32(address), true);
     }
     /**
      * Même résultat que wait_states / instruction_wait, lu dans une table

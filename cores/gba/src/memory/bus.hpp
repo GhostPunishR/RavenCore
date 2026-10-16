@@ -44,7 +44,41 @@ public:
     void write8(std::int32_t address, int value);
     void write16(std::int32_t address, int value);
     void write32(std::int32_t address, std::int32_t value);
+    // Cycles écoulés depuis le dernier relevé : chaque accès compte 1 cycle
+    // plus ses attentes, et idle() ajoute les cycles internes du CPU.
     int take_wait_cycles() noexcept { return std::exchange(wait_cycles, 0); }
+    void idle(int cycles) noexcept {
+        wait_cycles += cycles;
+        prefetch_idle(cycles);
+    }
+    /**
+     * Tampon de préchargement de la cartouche (WAITCNT bit 14, GBATEK
+     * « GamePak Prefetch »). Pendant que le CPU n'utilise pas le bus de la
+     * cartouche (cycles internes, accès à la RAM ou aux E/S), une unité lit
+     * à la suite les demi-mots de code qui suivent la dernière instruction
+     * lue en ROM, huit au plus. Une instruction déjà lue coûte alors 1 cycle,
+     * celle que l'unité est en train de lire le reste de sa lecture. Un saut
+     * vide le tampon ; un accès de données à la cartouche arrête l'unité.
+     */
+    struct Prefetch {
+        std::uint32_t head{};    // prochain demi-mot que l'unité lira
+        int count{};             // demi-mots prêts, de head - 2 × count à head - 2
+        int progress{};          // cycles déjà passés à lire le demi-mot head
+        int halfword_cycles{1};  // durée d'une lecture séquentielle de 16 bits
+        bool active{};
+    };
+    static constexpr int prefetch_capacity = 8;
+    [[nodiscard]] const Prefetch& prefetch() const noexcept { return prefetch_; }
+    // Après restauration de WAITCNT : la durée d'un demi-mot en découle.
+    void restore_prefetch(const Prefetch& value) {
+        const auto cycles = timing.sequential_halfword_cycles(value.head);
+        if (value.count < 0 || value.count > prefetch_capacity || value.progress < 0 || value.progress >= cycles ||
+            (value.head & 1U) != 0 || (!value.active && (value.count != 0 || value.progress != 0)) ||
+            (value.active && !timing.prefetch_enabled()))
+            throw SaveStateError("État GBA corrompu (préchargement)");
+        prefetch_ = value;
+        prefetch_.halfword_cycles = cycles;
+    }
     void break_access_sequence() noexcept { next_sequential_address = -1; }
     // Adresse qu'un accès séquentiel viserait : conservée dans les états, sans
     // quoi le premier accès après un chargement paierait une attente de trop.
@@ -96,10 +130,87 @@ private:
     Eeprom* eeprom_{};
     SaveMemory* byte_save_{};  // SRAM ou Flash : la puce du bus 8 bits
     static constexpr int io_mask = 0x3ff;
+    // Les registres d'E/S n'occupent que 0x04000000..0x040003FF : ils ne se
+    // répètent pas dans le reste de la région, où une écriture se perd. Une
+    // trace de débogage écrite à 0x04FFF600 (mGBA) écrasait sinon IE.
+    static constexpr std::uint32_t memory_control_reset = 0x0d00'0020U;
+    [[nodiscard]] static bool io_mapped(std::uint32_t address) noexcept { return (address & 0x00ff'fc00U) == 0; }
     void account(std::int32_t address, int width, bool fetch = false) noexcept {
-        const auto sequential = address == next_sequential_address;
-        wait_cycles += timing.cached_wait(address, width, sequential, fetch);
+        auto sequential = address == next_sequential_address;
         next_sequential_address = add32(address, width);
+        const auto region = u32(address) >> 24U;
+        if (region >= 0x08U && region <= 0x0fU) {
+            // Chaque bloc de 128 Kio de la cartouche, comme l'entrée dans sa
+            // région, commence par un accès non séquentiel (GBATEK).
+            if ((u32(address) & 0x1ffffU) == 0) sequential = false;
+            if (fetch && region <= 0x0dU && timing.prefetch_enabled()) {
+                wait_cycles += prefetch_fetch(u32(address), width, 1 + timing.cached_wait(address, width, sequential, true),
+                                              timing.sequential_halfword_cycles(u32(address)));
+                return;
+            }
+            // Un accès de données qui tombe sur le dernier cycle d'un demi-mot
+            // que l'unité de préchargement lit encore attend ce cycle ; plus tôt,
+            // la lecture en cours est abandonnée (mesures de la suite mGBA).
+            if (prefetch_.active && prefetch_.progress == prefetch_.halfword_cycles - 1) ++wait_cycles;
+            wait_cycles += 1 + timing.cached_wait(address, width, sequential, fetch);
+            prefetch_stop();
+            return;
+        }
+        const auto cost = 1 + timing.cached_wait(address, width, sequential, fetch);
+        wait_cycles += cost;
+        prefetch_idle(cost);
+    }
+    Prefetch prefetch_{};
+    void prefetch_idle(int cycles) noexcept {
+        auto& unit = prefetch_;
+        if (!unit.active || unit.count == prefetch_capacity) return;
+        unit.progress += cycles;
+        // Au plus huit demi-mots : une boucle courte plutôt qu'une division.
+        while (unit.progress >= unit.halfword_cycles) {
+            unit.progress -= unit.halfword_cycles;
+            unit.head += 2U;
+            if (++unit.count == prefetch_capacity) {
+                unit.progress = 0;
+                return;
+            }
+        }
+    }
+    void prefetch_stop() noexcept {
+        prefetch_.active = false;
+        prefetch_.count = 0;
+        prefetch_.progress = 0;
+    }
+    // Durée de la lecture de l'instruction `address` (width octets) en ROM,
+    // tampon actif. `miss_cost` : coût d'une lecture normale (saut, unité
+    // arrêtée) ; `halfword_cycles` : durée d'un demi-mot séquentiel à cette adresse.
+    int prefetch_fetch(std::uint32_t address, int width, int miss_cost, int halfword_cycles) noexcept {
+        auto& unit = prefetch_;
+        const auto halfwords = width / 2;
+        if (unit.active && address == unit.head - 2U * static_cast<std::uint32_t>(unit.count)) {
+            if (unit.count >= halfwords) {
+                // Instruction déjà dans le tampon : 1 cycle, pendant lequel
+                // l'unité lit toujours (un tampon plein se libère d'abord).
+                if (++unit.progress == unit.halfword_cycles) {
+                    unit.progress = 0;
+                    unit.head += 2U;
+                    ++unit.count;
+                }
+                unit.count -= halfwords;
+                return 1;
+            }
+            // L'unité lit encore la suite : le demi-mot en cours s'achève après
+            // le reste de sa lecture, les suivants un par un, et passent
+            // directement au CPU.
+            const auto beyond = halfwords - unit.count;
+            const auto ready = unit.halfword_cycles - unit.progress + (beyond - 1) * unit.halfword_cycles;
+            unit.head += 2U * static_cast<std::uint32_t>(beyond);
+            unit.count = 0;
+            unit.progress = 0;
+            return ready;
+        }
+        // Saut, ou unité arrêtée : lecture normale, puis l'unité repart derrière elle.
+        unit = {address + static_cast<std::uint32_t>(width), 0, 0, halfword_cycles, true};
+        return miss_cost;
     }
     /**
      * Fenêtre de lecture d'instructions : zone contiguë (IWRAM, EWRAM ou ROM
@@ -109,15 +220,32 @@ private:
      */
     struct FetchWindow {
         std::uint32_t low{1}; std::uint32_t size{}; const std::uint8_t* base{};
-        int wait16{}; int wait32{};
+        int wait16{}; int wait32{};    // lecture séquentielle, cycle d'accès compris
+        int nwait16{}; int nwait32{};  // lecture non séquentielle (saut, après une donnée)
+        int halfword_cycles{1};        // ROM : durée d'un demi-mot pour le tampon
+        bool cart{};      // ROM : le bus de la cartouche est occupé par la lecture
+        bool prefetch{};  // ROM avec le tampon de préchargement actif
     };
     [[nodiscard]] const std::uint8_t* fetch_window_hit(std::uint32_t aligned, std::uint32_t width) noexcept {
-        const auto offset = aligned - fetch_window_.low;
-        if (i32(aligned) != next_sequential_address || offset >= fetch_window_.size || fetch_window_.size - offset < width) return nullptr;
-        wait_cycles += width == 4 ? fetch_window_.wait32 : fetch_window_.wait16;
+        const auto& window = fetch_window_;
+        const auto offset = aligned - window.low;
+        if (offset >= window.size || window.size - offset < width) return nullptr;
+        // Après un saut ou un accès de données, la lecture reste dans la fenêtre
+        // mais n'est plus séquentielle ; le début d'un bloc de 128 Kio de la
+        // cartouche ne l'est jamais.
+        const auto sequential = i32(aligned) == next_sequential_address && (!window.cart || (aligned & 0x1ffffU) != 0);
         next_sequential_address = i32(aligned + width);
+        const auto cost = width == 4 ? (sequential ? window.wait32 : window.nwait32)
+                                     : (sequential ? window.wait16 : window.nwait16);
+        if (window.prefetch) wait_cycles += prefetch_fetch(aligned, static_cast<int>(width), cost, window.halfword_cycles);
+        else {
+            // Préchargement coupé, l'unité est à l'arrêt : seule une lecture
+            // hors cartouche la laisserait avancer.
+            wait_cycles += cost;
+            if (!window.cart) prefetch_idle(cost);
+        }
         executing_bios = false;
-        return fetch_window_.base + offset;
+        return window.base + offset;
     }
     void open_fetch_window(std::uint32_t address) noexcept {
         const auto region = address >> 24U;
@@ -125,16 +253,25 @@ private:
         if (region == 0x02U) window = {0x0200'0000U, 0x4'0000U, ewram.data()};
         else if (region == 0x03U) window = {0x0300'0000U, 0x8000U, iwram.data()};
         else if (region >= 0x08U && region <= 0x0dU) {
-            // Une région impaire couvre la seconde moitié d'une ROM de 32 Mio ;
-            // le GPIO (0xC4..0xC9, région paire) reste sur le chemin complet.
+            // Fenêtre limitée au bloc de 128 Kio de l'adresse : le premier
+            // accès du bloc suivant est non séquentiel. Le GPIO (0xC4..0xC9)
+            // reste sur le chemin complet.
             const auto rom = cartridge.rom();
-            const std::size_t start = (region & 1U) != 0 ? 0x0100'0000U : (cartridge.gpio() ? 0x100U : 0U);
-            if (rom.size() <= start) return;
-            const auto size = static_cast<std::uint32_t>(std::min<std::size_t>(rom.size() - start, 0x0100'0000U - (start & 0xffffU)));
-            window = {(region << 24U) + static_cast<std::uint32_t>(start & 0xffffU), size, rom.data() + start};
+            const auto offset = address & 0x01ff'ffffU;
+            const auto block = offset & ~0x1ffffU;
+            const auto start = block == 0 && cartridge.gpio() ? 0x100U : block;
+            if (offset < start || rom.size() <= start) return;
+            const auto end = std::min<std::size_t>(rom.size(), std::size_t{block} + 0x20000U);
+            window = {(address & ~0x01ff'ffffU) + start, static_cast<std::uint32_t>(end - start), rom.data() + start};
+            window.cart = true;
+            window.prefetch = timing.prefetch_enabled();
+            window.halfword_cycles = timing.sequential_halfword_cycles(window.low);
         } else return;
-        window.wait16 = timing.cached_wait(i32(window.low), 2, true, true);
-        window.wait32 = timing.cached_wait(i32(window.low), 4, true, true);
+        const auto low = i32(window.low);
+        window.wait16 = 1 + timing.cached_wait(low, 2, true, true);
+        window.wait32 = 1 + timing.cached_wait(low, 4, true, true);
+        window.nwait16 = 1 + timing.cached_wait(low, 2, false, true);
+        window.nwait32 = 1 + timing.cached_wait(low, 4, false, true);
         fetch_window_ = window;
     }
     FetchWindow fetch_window_{};
