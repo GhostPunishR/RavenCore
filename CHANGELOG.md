@@ -4,11 +4,16 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 ## 0.4.1 - 2026-10-16
 
-Cette version corrige le redémarrage des DMA GBA ([#21](https://github.com/GhostPunishR/RavenCore/pull/21)), qui laissait GTA Advance sur un écran noir au début d'une nouvelle partie. L'API et les formats ne changent pas.
+Cette version corrige le redémarrage des DMA GBA ([#21](https://github.com/GhostPunishR/RavenCore/pull/21)), qui laissait GTA Advance sur un écran noir au début d'une nouvelle partie, et accélère le cœur GBA. L'API et les formats ne changent pas.
 
 ### Corrigé
 
 - **GBA : réécriture du contrôle d'un DMA déjà actif.** Un canal ne recharge ses adresses et ne lance un transfert immédiat que quand le bit 15 de son contrôle passe de 0 à 1, comme le décrit GBATEK. Le cœur relançait le canal à chaque écriture où ce bit valait 1. GTA Advance arrête son DMA de son en réécrivant `0xB600` en `0x8400`, bit 15 gardé, avant d'effacer ce bit : le cœur lançait alors 0x4000 mots depuis FIFO A à travers tous les registres d'E/S, et le jeu restait sur un écran noir après le choix du nom. Une réécriture garde désormais le canal en l'état et ne change que ses réglages.
+
+### Modifié
+
+- **GBA : environ 12 % plus rapide** sur Pokémon Émeraude (3,76 ms → 3,30 ms par image sur un PC). Le bus cherchait le type de la puce de sauvegarde par `dynamic_cast` à chaque accès 16 bits ; il la classe désormais une fois, à la création de la cartouche. Le résultat de l'émulation ne change pas.
+- Code : décompressions du BIOS GBA (BitUnPack, LZ77, Huffman, RLE, filtres différentiels) dans `bios/decompression.hpp`, avec un test pour chacune ; fichiers les plus denses reformatés à une instruction par ligne (`.clang-format`). Ni le comportement ni le code compilé du formatage ne changent.
 
 ### Compatibilité des états instantanés
 
