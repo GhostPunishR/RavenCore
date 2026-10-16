@@ -2,9 +2,9 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
-## Non publié
+## 0.4.0 - 2026-10-16
 
-Cette version retire les derniers restes de l'ancien nom, RavenEmu Cores. Les cibles du paquet CMake changent de nom : la prochaine version sera donc une 0.4.0. Les moteurs, l'API C et les formats des états ne changent pas.
+Cette version retire les derniers restes de l'ancien nom, RavenEmu Cores ([#20](https://github.com/GhostPunishR/RavenCore/pull/20)). Les cibles du paquet CMake changent de nom, d'où la nouvelle version mineure. Les moteurs, l'API C et les formats des états ne changent pas.
 
 ### Supprimé
 
@@ -17,6 +17,12 @@ Cette version retire les derniers restes de l'ancien nom, RavenEmu Cores. Les ci
 - **Inclusion par `add_subdirectory()` ou FetchContent** : la cible C++ `ravenemu_cores` devient `ravencore`. `ravenemu_c_api`, `ravenemu_common`, `gb_raven_core`, `gbc_raven_core` et `gba_raven_core` gardent leur nom. Le dossier `cores/` ne déclare plus son propre `project()`, vestige de l'import des moteurs depuis RavenEmu : les variables `ravenemu_cores_*` qu'il créait disparaissent. Un projet qui déclare RavenCore avec FetchContent sous le nom `ravenemu_cores`, comme RavenEmu, garde sa variable `ravenemu_cores_SOURCE_DIR`, qui vient de FetchContent.
 
 Le préfixe `ravenemu` reste celui de l'API : fonctions C `ravenemu_*`, espace de noms C++ `ravenemu::`, en-têtes `ravenemu/`, options `RAVENEMU_*` et cœurs Libretro `ravenemu_*_libretro`.
+
+### Compatibilité des états instantanés
+
+- **GBA : format 13** et **GB/GBC : format 11**, inchangés : les états créés avec la version 0.3 se rechargent.
+- **API C : version 0**, inchangée.
+- Le paquet CMake se demande désormais avec `find_package(RavenCore 0.4)`.
 
 ## 0.3.1 - 2026-10-16
 
