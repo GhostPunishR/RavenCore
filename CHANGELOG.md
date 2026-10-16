@@ -2,6 +2,19 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.3.1 - 2026-10-16
+
+Cette version corrige le rendu des objets semi-transparents GBA ([#19](https://github.com/GhostPunishR/RavenCore/pull/19)), qui masquaient le décor de Pokémon Émeraude sous son brouillard. L'API et les formats ne changent pas.
+
+### Corrigé
+
+- **GBA : objets semi-transparents dans une fenêtre sans effets.** Un objet semi-transparent (mode 1 de l'attribut 0) se mélange désormais à la 2e cible même dans une fenêtre dont le bit « effets spéciaux » de `WININ`/`WINOUT` est à 0. Pokémon Émeraude couvre toute sa carte d'une telle fenêtre, si bien que son brouillard, opaque, masquait entièrement le décor. Les effets normaux restent coupés par la fenêtre.
+
+### Compatibilité des états instantanés
+
+- **GBA : format 13** et **GB/GBC : format 11**, inchangés : les états créés avec la version 0.3.0 se rechargent.
+- **API C : version 0**, inchangée. Le paquet CMake se demande toujours avec `find_package(RavenCore 0.3)`.
+
 ## 0.3.0 - 2026-10-16
 
 Cette version émule les capteurs des cartouches GBA ([#16](https://github.com/GhostPunishR/RavenCore/pull/16)) et rend jouables les jeux Classic NES Series ([#17](https://github.com/GhostPunishR/RavenCore/pull/17)). Le format des états GBA change, d'où la nouvelle version mineure ; l'API C ne fait que s'enrichir.
