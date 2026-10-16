@@ -10,10 +10,15 @@ public:
     explicit Cpu(Bus& bus) : bus(bus) {}
     void reset(std::int32_t entry) {
         state.reset();
-        state.switch_mode(CpuState::mode_supervisor); state.regs[13] = i32(0x03007fe0U);
-        state.switch_mode(CpuState::mode_irq); state.regs[13] = i32(0x03007fa0U);
-        state.switch_mode(CpuState::mode_system); state.regs[13] = i32(0x03007f00U);
-        state.thumb = false; state.irq_disabled = false; state.regs[15] = entry;
+        state.switch_mode(CpuState::mode_supervisor);
+        state.regs[13] = i32(0x03007fe0U);
+        state.switch_mode(CpuState::mode_irq);
+        state.regs[13] = i32(0x03007fa0U);
+        state.switch_mode(CpuState::mode_system);
+        state.regs[13] = i32(0x03007f00U);
+        state.thumb = false;
+        state.irq_disabled = false;
+        state.regs[15] = entry;
         pipeline_valid_ = false;
     }
     [[nodiscard]] std::int32_t read_reg(int index) const noexcept {
@@ -21,25 +26,40 @@ public:
         return add32(state.regs[15], state.thumb ? 4 : 8);
     }
     void write_reg(int index, std::int32_t value) noexcept {
-        if (index == 15) branch_to(value); else state.regs[static_cast<std::size_t>(index)] = value;
+        if (index == 15)
+            branch_to(value);
+        else
+            state.regs[static_cast<std::size_t>(index)] = value;
     }
     void branch_to(std::int32_t address) noexcept {
-        state.regs[15] = i32(u32(address) & (state.thumb ? ~1U : ~3U)); branched_ = true; pipeline_valid_ = false;
+        state.regs[15] = i32(u32(address) & (state.thumb ? ~1U : ~3U));
+        branched_ = true;
+        pipeline_valid_ = false;
     }
     void branch_exchange(std::int32_t address) noexcept {
         state.thumb = (u32(address) & 1U) != 0;
-        state.regs[15] = i32(u32(address) & (state.thumb ? ~1U : ~3U)); branched_ = true; pipeline_valid_ = false;
+        state.regs[15] = i32(u32(address) & (state.thumb ? ~1U : ~3U));
+        branched_ = true;
+        pipeline_valid_ = false;
     }
     void execute_swi(int number, std::int32_t return_address) {
         // Le vrai BIOS saute puis revient : le pipeline est rechargé, et voit
         // donc le code qu'un SWI (CpuSet, décompression) vient d'écrire.
-        if (swi_handler) { swi_handler(number); pipeline_valid_ = false; }
-        else raise_exception(CpuState::mode_supervisor, 0x08, return_address);
+        if (swi_handler) {
+            swi_handler(number);
+            pipeline_valid_ = false;
+        } else
+            raise_exception(CpuState::mode_supervisor, 0x08, return_address);
     }
     void raise_exception(int mode, std::int32_t vector, std::int32_t return_address) {
         const auto saved = state.cpsr();
-        state.switch_mode(mode); state.set_spsr(saved); state.regs[14] = return_address;
-        state.irq_disabled = true; state.thumb = false; state.regs[15] = vector; branched_ = true;
+        state.switch_mode(mode);
+        state.set_spsr(saved);
+        state.regs[14] = return_address;
+        state.irq_disabled = true;
+        state.thumb = false;
+        state.regs[15] = vector;
+        branched_ = true;
         pipeline_valid_ = false;
     }
     /**
@@ -50,39 +70,57 @@ public:
      * le pipeline, rechargé (avec ses attentes mémoire) à l'instruction suivante.
      */
     int step() {
-        branched_ = false; bus.take_wait_cycles();
+        branched_ = false;
+        bus.take_wait_cycles();
         if (!pipeline_valid_ || pipeline_thumb_ != state.thumb) refill_pipeline();
         const auto width = state.thumb ? 2 : 4;
         const auto pc = state.regs[15];
         const auto instruction = pipeline_[0];
         const auto prefetched = fetch(add32(pc, 2 * width));
         int cost{};
-        if (state.thumb) cost = execute_thumb(static_cast<int>(u32(instruction) & 0xffffU));
-        else cost = check_condition(static_cast<int>(u32(instruction) >> 28U)) ? execute_arm(instruction) : 1;
+        if (state.thumb)
+            cost = execute_thumb(static_cast<int>(u32(instruction) & 0xffffU));
+        else
+            cost = check_condition(static_cast<int>(u32(instruction) >> 28U)) ? execute_arm(instruction) : 1;
         if (branched_) {
             bus.break_access_sequence();
         } else {
             state.regs[15] = add32(pc, width);
-            pipeline_[0] = pipeline_[1]; pipeline_[1] = prefetched;
+            pipeline_[0] = pipeline_[1];
+            pipeline_[1] = prefetched;
         }
         return cost + bus.take_wait_cycles();
     }
     // Contenu du pipeline, conservé dans les états instantanés.
-    struct Pipeline { std::array<std::int32_t, 2> opcodes{}; bool valid{}; bool thumb{}; };
+    struct Pipeline {
+        std::array<std::int32_t, 2> opcodes{};
+        bool valid{};
+        bool thumb{};
+    };
     [[nodiscard]] Pipeline pipeline() const noexcept { return {pipeline_, pipeline_valid_, pipeline_thumb_}; }
     void restore_pipeline(const Pipeline& value) noexcept {
-        pipeline_ = value.opcodes; pipeline_valid_ = value.valid; pipeline_thumb_ = value.thumb;
+        pipeline_ = value.opcodes;
+        pipeline_valid_ = value.valid;
+        pipeline_thumb_ = value.thumb;
     }
     [[nodiscard]] bool check_condition(int condition) const noexcept {
         if (condition == 14) return true;  // AL, de loin la plus fréquente
         switch (condition & 15) {
-        case 0: return state.zero; case 1: return !state.zero; case 2: return state.carry;
-        case 3: return !state.carry; case 4: return state.negative; case 5: return !state.negative;
-        case 6: return state.overflow; case 7: return !state.overflow;
-        case 8: return state.carry && !state.zero; case 9: return !state.carry || state.zero;
-        case 10: return state.negative == state.overflow; case 11: return state.negative != state.overflow;
+        case 0: return state.zero;
+        case 1: return !state.zero;
+        case 2: return state.carry;
+        case 3: return !state.carry;
+        case 4: return state.negative;
+        case 5: return !state.negative;
+        case 6: return state.overflow;
+        case 7: return !state.overflow;
+        case 8: return state.carry && !state.zero;
+        case 9: return !state.carry || state.zero;
+        case 10: return state.negative == state.overflow;
+        case 11: return state.negative != state.overflow;
         case 12: return !state.zero && state.negative == state.overflow;
-        case 13: return state.zero || state.negative != state.overflow; case 14: return true;
+        case 13: return state.zero || state.negative != state.overflow;
+        case 14: return true;
         default: return false;
         }
     }
@@ -90,7 +128,10 @@ public:
         const auto raw = u32(value);
         switch (type & 3) {
         case 0:
-            if (amount == 0) { shifter_carry = state.carry; return value; }
+            if (amount == 0) {
+                shifter_carry = state.carry;
+                return value;
+            }
             shifter_carry = ((raw >> (32U - static_cast<unsigned>(amount))) & 1U) != 0;
             return i32(raw << static_cast<unsigned>(amount));
         case 1: {
@@ -100,7 +141,10 @@ public:
         }
         case 2: {
             const auto n = amount == 0 ? 32U : static_cast<unsigned>(amount);
-            if (n >= 32U) { shifter_carry = value < 0; return value < 0 ? -1 : 0; }
+            if (n >= 32U) {
+                shifter_carry = value < 0;
+                return value < 0 ? -1 : 0;
+            }
             shifter_carry = ((raw >> (n - 1U)) & 1U) != 0;
             return value >> n;
         }
@@ -116,20 +160,38 @@ public:
     std::int32_t shift_register(std::int32_t value, int type, int amount) noexcept {
         const auto n = static_cast<unsigned>(amount) & 0xffU;
         const auto raw = u32(value);
-        if (n == 0) { shifter_carry = state.carry; return value; }
+        if (n == 0) {
+            shifter_carry = state.carry;
+            return value;
+        }
         switch (type & 3) {
         case 0:
-            if (n < 32U) { shifter_carry = ((raw >> (32U - n)) & 1U) != 0; return i32(raw << n); }
-            shifter_carry = n == 32U && (raw & 1U) != 0; return 0;
+            if (n < 32U) {
+                shifter_carry = ((raw >> (32U - n)) & 1U) != 0;
+                return i32(raw << n);
+            }
+            shifter_carry = n == 32U && (raw & 1U) != 0;
+            return 0;
         case 1:
-            if (n < 32U) { shifter_carry = ((raw >> (n - 1U)) & 1U) != 0; return i32(raw >> n); }
-            shifter_carry = n == 32U && value < 0; return 0;
+            if (n < 32U) {
+                shifter_carry = ((raw >> (n - 1U)) & 1U) != 0;
+                return i32(raw >> n);
+            }
+            shifter_carry = n == 32U && value < 0;
+            return 0;
         case 2:
-            if (n >= 32U) { shifter_carry = value < 0; return value < 0 ? -1 : 0; }
-            shifter_carry = ((raw >> (n - 1U)) & 1U) != 0; return value >> n;
+            if (n >= 32U) {
+                shifter_carry = value < 0;
+                return value < 0 ? -1 : 0;
+            }
+            shifter_carry = ((raw >> (n - 1U)) & 1U) != 0;
+            return value >> n;
         default: {
             const auto rotate = n & 31U;
-            if (rotate == 0) { shifter_carry = value < 0; return value; }
+            if (rotate == 0) {
+                shifter_carry = value < 0;
+                return value;
+            }
             shifter_carry = ((raw >> (rotate - 1U)) & 1U) != 0;
             return i32(std::rotr(raw, static_cast<int>(rotate)));
         }
@@ -142,7 +204,10 @@ public:
         last_overflow = ((a ^ result) & (b ^ result)) < 0;
         return result;
     }
-    void set_nz(std::int32_t value) noexcept { state.negative = value < 0; state.zero = value == 0; }
+    void set_nz(std::int32_t value) noexcept {
+        state.negative = value < 0;
+        state.zero = value == 0;
+    }
     // Cycles internes m d'une multiplication sur l'ARM7TDMI : le multiplieur
     // s'arrête dès que les octets de poids fort de l'opérande sont tous à 0
     // (ou tous à 1 pour une multiplication signée).
@@ -202,7 +267,8 @@ private:
     void refill_pipeline() {
         pipeline_thumb_ = state.thumb;
         const auto pc = state.regs[15];
-        pipeline_[0] = fetch(pc); pipeline_[1] = fetch(add32(pc, state.thumb ? 2 : 4));
+        pipeline_[0] = fetch(pc);
+        pipeline_[1] = fetch(add32(pc, state.thumb ? 2 : 4));
         pipeline_valid_ = true;
     }
     bool branched_{};
@@ -211,4 +277,4 @@ private:
     bool pipeline_thumb_{};
 };
 
-} // namespace ravenemu::gba
+}  // namespace ravenemu::gba

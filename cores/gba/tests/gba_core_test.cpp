@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <ctime>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -337,6 +338,78 @@ void achievement_memory_map_test() {
     check(read(0x50000, 1) == 0 && read(0x58000, 1) == 0, "lecture au-delà de la sauvegarde acceptée");
 }
 
+/**
+ * Un reset ne perd pas une écriture pas encore enregistrée : la sauvegarde
+ * reste à réécrire, et un acquittement d'avant le reset ne compte plus. Son
+ * compteur ne repart pas de zéro : une génération déjà rendue ne resservira pas.
+ */
+void reset_keeps_unsaved_battery_test() {
+    auto core = ravenemu::make_gba_core(ravenemu::GbaSaveType::sram);
+    core->load_rom(minimal_gba_rom(), {});
+    std::vector<std::int32_t> frame(core->video_spec().pixel_count());
+    core->run_frame(frame, true);
+    const auto before = core->snapshot_battery_ram();
+    check(before && core->battery_ram_dirty(), "écriture SRAM GBA non signalée");
+    core->reset();
+    check(core->battery_ram_dirty(), "reset GBA : écriture non enregistrée oubliée");
+    core->acknowledge_battery_ram_saved(before->generation);
+    check(core->battery_ram_dirty(), "reset GBA : acquittement d'avant le reset accepté");
+    const auto after = core->snapshot_battery_ram();
+    check(after && after->data == before->data, "reset GBA : SRAM altérée");
+    core->acknowledge_battery_ram_saved(after->generation);
+    check(!core->battery_ram_dirty(), "reset GBA : acquittement refusé");
+
+    // Sauvegarde à jour : le reset ne la marque pas, et l'acquittement tardif
+    // d'une génération rendue avant lui ne couvre pas l'écriture qui suit.
+    core->reset();
+    check(!core->battery_ram_dirty(), "reset GBA : sauvegarde à jour marquée à réécrire");
+    core->run_frame(frame, true);
+    core->acknowledge_battery_ram_saved(before->generation);
+    check(core->battery_ram_dirty(), "reset GBA : génération déjà rendue réutilisée");
+}
+
+/**
+ * L'heure réglée par un jeu suit sa sauvegarde (bloc de 16 octets de mGBA) :
+ * relue au chargement de la ROM, gardée par le reset.
+ */
+void rtc_settings_follow_battery_test() {
+    constexpr std::int64_t epoch = 1'767'225'600;
+    constexpr std::int64_t ten_days = 10 * 86'400;
+    constexpr std::size_t sram = 32U * 1024U;
+    auto core = ravenemu::make_gba_core(ravenemu::GbaSaveType::sram);
+    core->set_gba_forced_rtc(true);
+    core->set_clock_epoch(epoch);
+    core->load_rom(minimal_gba_rom(), {});
+    auto battery = core->snapshot_battery_ram()->data;
+    check(battery.size() == sram + 16, "réglages de l'horloge GBA absents de la sauvegarde");
+
+    // Même date de jeu, relevée dix jours plus tôt sur l'appareil : le jeu
+    // avait avancé son horloge de dix jours.
+    for (unsigned byte = 0; byte < 8; ++byte)
+        battery[sram + 8 + byte] =
+            static_cast<std::uint8_t>(static_cast<std::uint64_t>(epoch - ten_days) >> (8U * byte));
+    core->load_rom(minimal_gba_rom(), battery);
+
+    const auto seconds = static_cast<std::time_t>(epoch + ten_days);
+    std::tm expected{};
+#if defined(_WIN32)
+    localtime_s(&expected, &seconds);
+#else
+    localtime_r(&seconds, &expected);
+#endif
+    const auto bcd = [](int value) {
+        return static_cast<std::uint8_t>(((value / 10) << 4) | (value % 10));
+    };
+    const auto loaded = core->snapshot_battery_ram()->data;
+    check(loaded[sram + 1] == bcd(expected.tm_mon + 1) && loaded[sram + 2] == bcd(expected.tm_mday) &&
+              loaded[sram + 4] == bcd(expected.tm_hour),
+          "heure réglée par le jeu perdue au chargement de la ROM");
+    check(!core->battery_ram_dirty(), "sauvegarde relue marquée à réécrire");
+
+    core->reset();
+    check(core->snapshot_battery_ram()->data == loaded, "heure réglée par le jeu perdue au reset");
+}
+
 int main() {
     achievement_memory_map_test();
     keypad_interrupt_state_validation_test();
@@ -348,5 +421,7 @@ int main() {
     gba_save_detection_test();
     rumble_cartridge_test();
     eeprom_cartridge_has_no_sram_test();
+    reset_keeps_unsaved_battery_test();
+    rtc_settings_follow_battery_test();
     return 0;
 }

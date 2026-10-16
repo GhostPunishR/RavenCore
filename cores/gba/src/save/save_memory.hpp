@@ -34,11 +34,20 @@ public:
         std::fill(data_.begin() + static_cast<std::ptrdiff_t>(count), data_.end(), 0);
         saved_generation_ = generation_;
     }
+    // Un réglage enregistré avec la mémoire a changé (horloge de la cartouche).
+    void mark_modified() noexcept { written(); }
     void acknowledge(std::uint64_t generation) noexcept {
         if (generation == generation_) saved_generation_ = generation;
     }
     void mark_restored_after(std::uint64_t previous_generation) noexcept {
         generation_ = previous_generation + 1;
+        saved_generation_ = previous_generation;
+    }
+    // Reprend le compteur de la mémoire qu'elle remplace au reset : une
+    // génération déjà rendue ne resservira jamais, et une écriture pas encore
+    // enregistrée reste à enregistrer.
+    void continue_after(std::uint64_t previous_generation, bool previous_dirty) noexcept {
+        generation_ = previous_generation + (previous_dirty ? 1U : 0U);
         saved_generation_ = previous_generation;
     }
     virtual void save_state(BinaryWriter& out) const { out.raw(data_); }

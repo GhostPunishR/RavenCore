@@ -77,7 +77,12 @@ public:
         const auto rtc = forced_rtc.value_or(rtc_detected_);
         const auto& sensors = traits.sensors;
         if (rtc || traits.rumble || sensors.solar || sensors.rotation) {
-            gpio_ = std::make_unique<Gpio>(std::move(clock), rtc, traits.rumble, sensors.solar, sensors.rotation);
+            // Un réglage d'horloge changé par le jeu est à enregistrer, comme une écriture en mémoire.
+            auto changed = [save = save_.get()] {
+                if (save) save->mark_modified();
+            };
+            gpio_ = std::make_unique<Gpio>(std::move(clock), std::move(changed), rtc, traits.rumble, sensors.solar,
+                                           sensors.rotation);
         }
         if (sensors.tilt) tilt_ = std::make_unique<TiltSensor>();
     }
@@ -95,6 +100,42 @@ public:
     [[nodiscard]] const SaveMemory* save() const noexcept { return save_.get(); }
     [[nodiscard]] Gpio* gpio() noexcept { return gpio_.get(); }
     [[nodiscard]] const Gpio* gpio() const noexcept { return gpio_.get(); }
+    [[nodiscard]] Rtc* rtc() noexcept { return gpio_ ? gpio_->rtc() : nullptr; }
+    [[nodiscard]] const Rtc* rtc() const noexcept { return gpio_ ? gpio_->rtc() : nullptr; }
+    /**
+     * Sauvegarde telle que le frontend la conserve : la mémoire de la puce,
+     * suivie, sur une cartouche à horloge, des réglages de celle-ci (bloc de
+     * 16 octets de mGBA). Vide sans mémoire de sauvegarde.
+     */
+    [[nodiscard]] std::vector<std::uint8_t> export_battery() const {
+        if (!save_) return {};
+        auto result = save_->data();
+        if (const auto* clock = rtc()) {
+            const auto settings = clock->export_battery();
+            result.insert(result.end(), settings.begin(), settings.end());
+        }
+        return result;
+    }
+    /** Relit [export_battery] ; une sauvegarde sans réglages d'horloge laisse celle-ci à l'heure de l'appareil. */
+    void import_battery(std::span<const std::uint8_t> battery) {
+        if (!save_) return;
+        save_->import(battery);
+        const auto size = save_->data().size();
+        if (auto* clock = rtc(); clock && battery.size() >= size + Rtc::battery_size)
+            clock->import_battery(battery.subspan(size, Rtc::battery_size));
+    }
+    /**
+     * Après un reset, la nouvelle cartouche reprend ce que gardait l'ancienne :
+     * mémoire, réglages de l'horloge et compteur de générations. Une écriture
+     * pas encore enregistrée reste à enregistrer.
+     */
+    void keep_battery_of(const Cartridge& previous) {
+        if (save_ && previous.save_) {
+            save_->import(previous.save_->data());
+            save_->continue_after(previous.save_->generation(), previous.save_->dirty());
+        }
+        if (auto* clock = rtc(); clock && previous.rtc()) clock->restore(previous.rtc()->settings());
+    }
     /** Vrai si la ROM porte la signature de la bibliothèque Seiko. */
     [[nodiscard]] bool rtc_detected() const noexcept { return rtc_detected_; }
     /** Capteur d'inclinaison logé dans la zone SRAM, ou nullptr. */

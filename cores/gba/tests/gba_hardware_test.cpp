@@ -9,8 +9,8 @@
 
 /**
  * Fidélité matérielle du cœur GBA, d'après GBATEK : appels du BIOS, HALTCNT,
- * port série sans câble, capture vidéo par DMA3, temps de rendu des objets,
- * bus ouvert et durées des multiplications.
+ * port série sans câble, capture vidéo par DMA3, redémarrage d'un DMA, temps
+ * de rendu des objets, bus ouvert et durées des multiplications.
  */
 namespace ravenemu::gba::testing {
 
@@ -153,6 +153,106 @@ void dma3_video_capture() {
     check((fixture.io16(0xde) & 0x8000) == 0, "capture : DMA3 non arrêté à la ligne 162");
 }
 
+// Décompressions du BIOS (SWI 0x10 à 0x18), sur des flux construits d'après
+// les formats de GBATEK. Les jeux n'en exercent qu'une partie (LZ77 et RLE) :
+// ce test couvre aussi BitUnPack, Huffman et les filtres différentiels.
+std::vector<int> decompress(int swi, std::initializer_list<int> stream, int output_bytes, std::int32_t parameters = 0) {
+    Fixture fixture;
+    auto& bus = fixture.bus();
+    const auto source = i32(0x0200'0000U);
+    const auto destination = i32(0x0201'0000U);
+    auto at = source;
+    for (const auto byte : stream) {
+        bus.write8(at, byte);
+        at = add32(at, 1);
+    }
+    auto& registers = fixture.machine().cpu.state.regs;
+    registers[0] = source;
+    registers[1] = destination;
+    registers[2] = parameters;
+    fixture.machine().bios.handle_swi(swi);
+    std::vector<int> output;
+    for (int index = 0; index < output_bytes; ++index) output.push_back(bus.read8(add32(destination, index)));
+    return output;
+}
+
+void bios_decompression() {
+    // LZ77 : en-tête 0x10, 9 octets ; trois littéraux puis une copie de 6
+    // octets à distance 3 (longueur - 3 = 3, distance - 1 = 2).
+    const std::vector<int> abcabcabc{'A', 'B', 'C', 'A', 'B', 'C', 'A', 'B', 'C'};
+    check(decompress(0x11, {0x10, 9, 0, 0, 0x10, 'A', 'B', 'C', 0x30, 0x02}, 9) == abcabcabc, "LZ77 (WRAM)");
+    check(decompress(0x12, {0x10, 9, 0, 0, 0x10, 'A', 'B', 'C', 0x30, 0x02}, 9) == abcabcabc, "LZ77 (VRAM)");
+    // RLE : 5 × 'A' (0x80 | 5 - 3), puis 2 octets bruts (2 - 1).
+    const std::vector<int> rle{'A', 'A', 'A', 'A', 'A', 'X', 'Y'};
+    check(decompress(0x14, {0x30, 7, 0, 0, 0x82, 'A', 0x01, 'X', 'Y'}, 7) == rle, "RLE (WRAM)");
+    check(decompress(0x15, {0x30, 7, 0, 0, 0x82, 'A', 0x01, 'X', 'Y'}, 7) == rle, "RLE (VRAM)");
+    // Filtres différentiels : chaque valeur ajoute un écart à la précédente.
+    check(decompress(0x16, {0x81, 4, 0, 0, 1, 1, 1, 1}, 4) == std::vector<int>{1, 2, 3, 4}, "Diff8 (WRAM)");
+    check(decompress(0x17, {0x81, 4, 0, 0, 1, 1, 1, 1}, 4) == std::vector<int>{1, 2, 3, 4}, "Diff8 (VRAM)");
+    check(decompress(0x18, {0x82, 4, 0, 0, 0x00, 0x01, 0x01, 0x00}, 4) == std::vector<int>{0x00, 0x01, 0x01, 0x01},
+          "Diff16");
+    // Huffman 8 bits : racine en S+5 (0xC0, deux feuilles), feuilles 'A' et
+    // 'B' en S+6 et S+7, flux en S+8 lu bit 31 en premier : 0, 1, 1, 0.
+    check(decompress(0x13, {0x28, 4, 0, 0, 0x01, 0xc0, 'A', 'B', 0, 0, 0, 0x60}, 4) ==
+              std::vector<int>{'A', 'B', 'B', 'A'},
+          "Huffman");
+    // BitUnPack : l'octet 0x93 donne, de 2 bits en 2 bits, 3, 0, 1, 2 ; le
+    // décalage 1 s'applique sauf aux zéros (bit 31 du décalage à 0), puis
+    // chaque valeur occupe 4 bits du mot écrit : 0x00003204.
+    const auto parameters = i32(0x0200'0100U);
+    Fixture fixture;
+    auto& bus = fixture.bus();
+    bus.write8(i32(0x0200'0000U), 0x93);
+    bus.write16(parameters, 1);
+    bus.write8(add32(parameters, 2), 2);
+    bus.write8(add32(parameters, 3), 4);
+    bus.write32(add32(parameters, 4), 1);
+    auto& registers = fixture.machine().cpu.state.regs;
+    registers[0] = i32(0x0200'0000U);
+    registers[1] = i32(0x0201'0000U);
+    registers[2] = parameters;
+    fixture.machine().bios.handle_swi(0x10);
+    check(u32(bus.read32(i32(0x0201'0000U))) == 0x0000'3204U, "BitUnPack");
+}
+
+// Un DMA ne redémarre que quand le bit 15 de son contrôle passe de 0 à 1.
+// GTA Advance arrête son DMA de son en réécrivant 0xB600 en 0x8400 (bit 15
+// gardé, déclenchement immédiat), puis efface le bit 15 : si la réécriture
+// relançait le canal, 0x4000 mots partiraient de FIFO A à travers les E/S.
+void rewriting_an_enabled_dma_keeps_it_stopped() {
+    Fixture fixture;
+    auto& bus = fixture.bus();
+    for (std::uint32_t index = 0; index < 0x100; ++index) {
+        bus.write32(i32(0x0200'0000U + index * 4), i32(0x4a10'4a10U));
+    }
+    bus.write16(i32(0x0400'0200U), 0x0005);         // IE : V-Blank et V-Count
+    bus.write32(i32(0x0400'00bcU), i32(0x0200'0000U));
+    bus.write32(i32(0x0400'00c0U), i32(0x0400'00a0U));  // FIFO A
+    bus.write16(i32(0x0400'00c4U), 0);
+    bus.write16(i32(0x0400'00c6U), 0xb600);         // actif, FIFO, 32 bits, répétition
+    bus.write16(i32(0x0400'00c6U), 0x8400);         // bit 15 gardé, immédiat
+    fixture.machine().run_frame(4096);
+    check(fixture.io16(0x200) == 0x0005, "DMA relancé sans passage de 0 à 1 : E/S écrasées");
+    check(fixture.io16(0xc6) == 0x8400, "réglages du DMA actif non conservés");
+    bus.write16(i32(0x0400'00c6U), 0x0400);
+    check(fixture.io16(0xc6) == 0x0400, "DMA non arrêté");
+
+    // Un DMA immédiat efface son bit 15 en fin de transfert : la réécriture
+    // suivante est un nouveau passage de 0 à 1, qui relance la copie.
+    bus.write32(i32(0x0200'1000U), 0x1111);
+    bus.write32(i32(0x0400'00d4U), i32(0x0200'1000U));
+    bus.write32(i32(0x0400'00d8U), i32(0x0200'2000U));
+    bus.write16(i32(0x0400'00dcU), 1);
+    bus.write16(i32(0x0400'00deU), 0x8400);
+    fixture.machine().run_frame(256);
+    check(u32(bus.read32(i32(0x0200'2000U))) == 0x1111, "DMA immédiat non lancé");
+    check((fixture.io16(0xde) & 0x8000) == 0, "DMA immédiat resté actif");
+    bus.write32(i32(0x0200'1000U), 0x2222);
+    bus.write16(i32(0x0400'00deU), 0x8400);
+    fixture.machine().run_frame(256);
+    check(u32(bus.read32(i32(0x0200'2000U))) == 0x2222, "DMA immédiat non relancé après sa fin");
+}
+
 // Temps de rendu des objets : 1210 cycles par ligne (954 si H-Blank libre).
 // Des objets 64×64 hors écran consomment ce temps ; l'objet visible suivant
 // n'est tracé que sur les colonnes qu'il reste.
@@ -256,7 +356,9 @@ int main() {
     soft_reset_follows_return_flag();
     haltcnt_write_halts();
     serial_without_cable();
+    bios_decompression();
     dma3_video_capture();
+    rewriting_an_enabled_dma_keeps_it_stopped();
     object_rendering_budget();
     open_bus_returns_prefetch();
     multiply_and_shift_timings();

@@ -1,0 +1,35 @@
+# Style des sources C++ de RavenCore, calqué sur le cœur GB : une instruction
+# par ligne, 120 colonnes. Appliqué aux fichiers au fil de leurs retouches.
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++20
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 120
+AccessModifierOffset: -4
+IndentCaseLabels: false
+NamespaceIndentation: None
+FixNamespaceComments: true
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Empty
+AllowShortLambdasOnASingleLine: Inline
+AllowShortEnumsOnASingleLine: true
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBraces: Attach
+PointerAlignment: Left
+ReferenceAlignment: Left
+SortIncludes: Never
+IncludeBlocks: Preserve
+ReflowComments: false
+AlignTrailingComments: true
+SpacesBeforeTrailingComments: 2
+PackConstructorInitializers: NextLine
+BreakConstructorInitializers: BeforeColon
+InsertBraces: false
+SeparateDefinitionBlocks: Leave
+EmptyLineBeforeAccessModifier: Leave
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1

@@ -1,0 +1,6 @@
+# Commits de formatage seul, ignorés par git blame :
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub les ignore d'office dans sa vue blame.
+
+# Formatage : une instruction par ligne dans les fichiers les plus denses
+0d883ad2fb26c7fa059770b78e555833c42bc65f

@@ -7,7 +7,12 @@ namespace ravenemu::gba {
 class Rtc {
 public:
     using Clock = std::function<std::int64_t()>;
-    explicit Rtc(Clock clock) : clock_(std::move(clock)) {}
+    // Appelé quand le jeu change un réglage que la pile du composant conserve.
+    using Changed = std::function<void()>;
+    // Réglages enregistrés avec la sauvegarde : bloc de 16 octets de mGBA.
+    static constexpr std::size_t battery_size = 16;
+
+    explicit Rtc(Clock clock, Changed changed = {}) : clock_(std::move(clock)), changed_(std::move(changed)) {}
 
     int pin_state(int data, int direction) const noexcept {
         auto result = data & direction;
@@ -49,7 +54,73 @@ public:
         validate_state();
     }
 
+    /**
+     * Réglages de l'horloge à placer après la mémoire de sauvegarde, comme le
+     * fait mGBA : date et heure du jeu en BCD (année, mois, jour, jour de la
+     * semaine, heure, minute, seconde), registre d'état, puis l'heure de
+     * l'appareil au même instant (secondes Unix, 64 bits petit-boutiste).
+     * L'écart entre les deux heures est celui qu'a réglé le jeu.
+     */
+    [[nodiscard]] std::array<std::uint8_t, battery_size> export_battery() const {
+        const auto host = clock_();
+        const auto now = local_time(host + offset_seconds_);
+        std::array<std::uint8_t, battery_size> result{};
+        const std::array<int, 8> fields{bcd((now.tm_year + 1900) % 100),
+                                        bcd(now.tm_mon + 1),
+                                        bcd(now.tm_mday),
+                                        now.tm_wday,
+                                        bcd(now.tm_hour),
+                                        bcd(now.tm_min),
+                                        bcd(now.tm_sec),
+                                        status_};
+        std::copy(fields.begin(), fields.end(), result.begin());
+        for (unsigned byte = 0; byte < 8; ++byte)
+            result[8 + byte] = static_cast<std::uint8_t>(static_cast<std::uint64_t>(host) >> (8U * byte));
+        return result;
+    }
+    /** Relit un bloc d'[export_battery] ; un bloc vierge ou incohérent est ignoré. */
+    void import_battery(std::span<const std::uint8_t> bytes) {
+        if (bytes.size() != battery_size) return;
+        std::uint64_t latch{};
+        for (unsigned byte = 0; byte < 8; ++byte) latch |= std::uint64_t{bytes[8 + byte]} << (8U * byte);
+        const auto host = static_cast<std::int64_t>(latch);
+        const auto field = [&](std::size_t index, int minimum, int maximum) {
+            const int value = bytes[index];
+            const bool digits = (value & 15) <= 9 && (value >> 4) <= 9;
+            return digits && from_bcd(value) >= minimum && from_bcd(value) <= maximum ? from_bcd(value) : -1;
+        };
+        std::tm date{};
+        date.tm_year = 100 + field(0, 0, 99);
+        date.tm_mon = field(1, 1, 12) - 1;
+        date.tm_mday = field(2, 1, 31);
+        date.tm_hour = field(4, 0, 23);
+        date.tm_min = field(5, 0, 59);
+        date.tm_sec = field(6, 0, 59);
+        if (date.tm_year < 100 || date.tm_mon < 0 || date.tm_mday < 1 || date.tm_hour < 0 || date.tm_min < 0 ||
+            date.tm_sec < 0 || host < -max_offset || host > max_offset)
+            return;
+        const auto epoch = wall_clock_epoch(date, host);
+        if (!epoch || *epoch - host < -max_offset || *epoch - host > max_offset) return;
+        offset_seconds_ = *epoch - host;
+        // FlashGBX remplit cet octet de 0x01, valeur impossible sur le composant.
+        if (bytes[7] != 1) status_ = 0x40 | (bytes[7] & 0x0e);
+    }
+
+    /** Ce que la pile du composant conserve, transmis tel quel d'une machine à la suivante. */
+    struct Settings {
+        std::int64_t offset_seconds{};
+        int status{0x40};
+    };
+    [[nodiscard]] Settings settings() const noexcept { return {offset_seconds_, status_}; }
+    void restore(const Settings& value) noexcept {
+        offset_seconds_ = value.offset_seconds;
+        status_ = value.status;
+    }
+
 private:
+    // Une heure lointaine de plusieurs millénaires reste représentable
+    // sans que `clock_() + offset_seconds_` puisse déborder.
+    static constexpr std::int64_t max_offset = std::int64_t{1} << 40;
     static constexpr int idle = 0;
     static constexpr int command_phase = 1;
     static constexpr int reading = 2;
@@ -72,9 +143,6 @@ private:
             return value >= minimum && value <= maximum;
         };
         const bool transferring = phase_ == reading || phase_ == writing;
-        // Une heure lointaine de plusieurs millénaires reste représentable
-        // sans que `clock_() + offset_seconds_` puisse déborder.
-        constexpr std::int64_t max_offset = std::int64_t{1} << 40;
         const bool valid = bit(sck_) && bit(sio_) && bit(chip_select_) && bit(sio_out_) &&
             in_range(phase_, idle, writing) && in_range(shift_, 0, 0xff) &&
             in_range(bit_index_, 0, 7) && in_range(command_, 0, 7) &&
@@ -89,8 +157,8 @@ private:
     }
     static int bcd(int value) noexcept { return ((value / 10) << 4) | (value % 10); }
     static int from_bcd(int value) noexcept { return ((value >> 4) & 15) * 10 + (value & 15); }
-    std::tm game_time() const {
-        const auto seconds = static_cast<std::time_t>(clock_() + offset_seconds_);
+    static std::tm local_time(std::int64_t epoch) {
+        const auto seconds = static_cast<std::time_t>(epoch);
         std::tm result{};
 #if defined(_WIN32)
         localtime_s(&result, &seconds);
@@ -98,6 +166,39 @@ private:
         localtime_r(&seconds, &result);
 #endif
         return result;
+    }
+    std::tm game_time() const { return local_time(clock_() + offset_seconds_); }
+    /**
+     * Instant où l'heure locale affiche [date]. Au passage à l'heure d'hiver,
+     * une même heure revient deux fois : on garde l'instant le plus proche de
+     * [near], ce qui rend exact le cas courant d'une horloge jamais réglée.
+     */
+    static std::optional<std::int64_t> wall_clock_epoch(std::tm date, std::int64_t near) {
+        const auto wanted = date;
+        date.tm_isdst = -1;
+        const auto found = std::mktime(&date);
+        if (found == static_cast<std::time_t>(-1)) return std::nullopt;
+        const auto shows_wanted = [&](std::int64_t epoch) {
+            const auto shown = local_time(epoch);
+            return shown.tm_year == wanted.tm_year && shown.tm_mon == wanted.tm_mon &&
+                   shown.tm_mday == wanted.tm_mday && shown.tm_hour == wanted.tm_hour &&
+                   shown.tm_min == wanted.tm_min && shown.tm_sec == wanted.tm_sec;
+        };
+        const auto distance = [near](std::int64_t epoch) {
+            return epoch > near ? epoch - near : near - epoch;
+        };
+        auto best = static_cast<std::int64_t>(found);
+        for (const auto other : {best - 3600, best + 3600}) {
+            if (shows_wanted(other) && (!shows_wanted(best) || distance(other) < distance(best))) best = other;
+        }
+        return best;
+    }
+    // Le jeu a changé un réglage conservé par la pile : la sauvegarde est à réécrire.
+    void set_settings(std::int64_t offset, int status) {
+        if (offset == offset_seconds_ && status == status_) return;
+        offset_seconds_ = offset;
+        status_ = status;
+        if (changed_) changed_();
     }
     void load_time(const std::tm& value, int at) noexcept {
         transfer_[static_cast<std::size_t>(at)] = bcd(value.tm_hour);
@@ -111,8 +212,7 @@ private:
         const auto is_reading = (byte & 1) != 0;
         shift_ = 0; bit_index_ = 0; byte_index_ = 0; transfer_.fill(0);
         if (command_ == 0) {
-            status_ = 0x40;
-            offset_seconds_ = 0;
+            set_settings(0, 0x40);
             phase_ = idle;
         } else if (command_ == 1) {
             byte_count_ = 1;
@@ -161,7 +261,7 @@ private:
     }
     void apply_written() {
         if (command_ == 1) {
-            status_ = 0x40 | (transfer_[0] & 0x0e);
+            set_settings(offset_seconds_, 0x40 | (transfer_[0] & 0x0e));
             return;
         }
         auto target = game_time();
@@ -181,10 +281,11 @@ private:
         // bibliothèque déterminer le régime de la nouvelle date.
         target.tm_isdst = -1;
         const auto epoch = std::mktime(&target);
-        if (epoch != static_cast<std::time_t>(-1)) offset_seconds_ = epoch - clock_();
+        if (epoch != static_cast<std::time_t>(-1)) set_settings(epoch - clock_(), status_);
     }
 
     Clock clock_;
+    Changed changed_;
     int sck_{};
     int sio_{};
     int chip_select_{};
