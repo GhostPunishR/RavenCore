@@ -9,8 +9,8 @@
 
 /**
  * Fidélité matérielle du cœur GBA, d'après GBATEK : appels du BIOS, HALTCNT,
- * port série sans câble, capture vidéo par DMA3, temps de rendu des objets,
- * bus ouvert et durées des multiplications.
+ * port série sans câble, capture vidéo par DMA3, redémarrage d'un DMA, temps
+ * de rendu des objets, bus ouvert et durées des multiplications.
  */
 namespace ravenemu::gba::testing {
 
@@ -153,6 +153,44 @@ void dma3_video_capture() {
     check((fixture.io16(0xde) & 0x8000) == 0, "capture : DMA3 non arrêté à la ligne 162");
 }
 
+// Un DMA ne redémarre que quand le bit 15 de son contrôle passe de 0 à 1.
+// GTA Advance arrête son DMA de son en réécrivant 0xB600 en 0x8400 (bit 15
+// gardé, déclenchement immédiat), puis efface le bit 15 : si la réécriture
+// relançait le canal, 0x4000 mots partiraient de FIFO A à travers les E/S.
+void rewriting_an_enabled_dma_keeps_it_stopped() {
+    Fixture fixture;
+    auto& bus = fixture.bus();
+    for (std::uint32_t index = 0; index < 0x100; ++index) {
+        bus.write32(i32(0x0200'0000U + index * 4), i32(0x4a10'4a10U));
+    }
+    bus.write16(i32(0x0400'0200U), 0x0005);         // IE : V-Blank et V-Count
+    bus.write32(i32(0x0400'00bcU), i32(0x0200'0000U));
+    bus.write32(i32(0x0400'00c0U), i32(0x0400'00a0U));  // FIFO A
+    bus.write16(i32(0x0400'00c4U), 0);
+    bus.write16(i32(0x0400'00c6U), 0xb600);         // actif, FIFO, 32 bits, répétition
+    bus.write16(i32(0x0400'00c6U), 0x8400);         // bit 15 gardé, immédiat
+    fixture.machine().run_frame(4096);
+    check(fixture.io16(0x200) == 0x0005, "DMA relancé sans passage de 0 à 1 : E/S écrasées");
+    check(fixture.io16(0xc6) == 0x8400, "réglages du DMA actif non conservés");
+    bus.write16(i32(0x0400'00c6U), 0x0400);
+    check(fixture.io16(0xc6) == 0x0400, "DMA non arrêté");
+
+    // Un DMA immédiat efface son bit 15 en fin de transfert : la réécriture
+    // suivante est un nouveau passage de 0 à 1, qui relance la copie.
+    bus.write32(i32(0x0200'1000U), 0x1111);
+    bus.write32(i32(0x0400'00d4U), i32(0x0200'1000U));
+    bus.write32(i32(0x0400'00d8U), i32(0x0200'2000U));
+    bus.write16(i32(0x0400'00dcU), 1);
+    bus.write16(i32(0x0400'00deU), 0x8400);
+    fixture.machine().run_frame(256);
+    check(u32(bus.read32(i32(0x0200'2000U))) == 0x1111, "DMA immédiat non lancé");
+    check((fixture.io16(0xde) & 0x8000) == 0, "DMA immédiat resté actif");
+    bus.write32(i32(0x0200'1000U), 0x2222);
+    bus.write16(i32(0x0400'00deU), 0x8400);
+    fixture.machine().run_frame(256);
+    check(u32(bus.read32(i32(0x0200'2000U))) == 0x2222, "DMA immédiat non relancé après sa fin");
+}
+
 // Temps de rendu des objets : 1210 cycles par ligne (954 si H-Blank libre).
 // Des objets 64×64 hors écran consomment ce temps ; l'objet visible suivant
 // n'est tracé que sur les colonnes qu'il reste.
@@ -257,6 +295,7 @@ int main() {
     haltcnt_write_halts();
     serial_without_cable();
     dma3_video_capture();
+    rewriting_an_enabled_dma_keeps_it_stopped();
     object_rendering_budget();
     open_bus_returns_prefetch();
     multiply_and_shift_timings();

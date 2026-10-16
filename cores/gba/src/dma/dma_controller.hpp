@@ -12,12 +12,19 @@ public:
 
     void control_write(int channel, int control) {
         const auto bit = 1 << channel;
-        if ((control & 0x8000) == 0) {
+        const auto index = static_cast<std::size_t>(channel);
+        const auto was_enabled = enabled_[index];
+        enabled_[index] = (control & 0x8000) != 0;
+        if (!enabled_[index]) {
             pending_requests_ &= ~bit;
-            if (active_channel_ != channel) suspended_[static_cast<std::size_t>(channel)] = {};
+            if (active_channel_ != channel) suspended_[index] = {};
             return;
         }
-        const auto index = static_cast<std::size_t>(channel);
+        // Seul le passage du bit 15 de 0 à 1 recharge les adresses et lance
+        // un transfert immédiat (GBATEK) : réécrire le registre d'un canal
+        // déjà actif ne change que ses réglages. GTA Advance arrête ainsi son
+        // DMA de son : 0xB600 devient 0x8400, puis le bit 15 est effacé.
+        if (was_enabled) return;
         source_[index] = i32(u32(read_io_word(source_offsets_[index])) & 0x0fff'ffffU);
         destination_[index] = i32(u32(read_io_word(destination_offsets_[index])) & 0x0fff'ffffU);
         if (timing(control) == 0) request_transfer(channel);
@@ -44,6 +51,7 @@ public:
         if ((control & 0x8000) == 0 || timing(control) != 3) return;
         if (vcount == 162) {
             bus_.io[static_cast<std::size_t>(control_offsets_[3] + 1)] = static_cast<std::uint8_t>((control & ~0x8000) >> 8);
+            enabled_[3] = false;
             return;
         }
         if (vcount >= 2 && vcount < 162) request_transfer(3);
@@ -162,6 +170,11 @@ public:
         fifo_transfer_ = values[16] != 0;
         pending_requests_ = pending_requests;
         suspended_ = suspended;
+        // Les registres d'E/S sont rechargés avant le DMA : le bit
+        // d'activation de chaque canal s'en déduit, sans champ d'état.
+        for (std::size_t channel = 0; channel < enabled_.size(); ++channel) {
+            enabled_[channel] = (read_io_half(control_offsets_[channel]) & 0x8000) != 0;
+        }
         if (active()) bus_.break_access_sequence();
     }
 
@@ -179,6 +192,7 @@ public:
         fifo_transfer_ = false;
         pending_requests_ = 0;
         suspended_.fill({});
+        enabled_.fill(false);
         last_channel = -1;
     }
 
@@ -417,6 +431,7 @@ private:
             const auto cleared = active_control_ & ~0x8000;
             bus_.io[static_cast<std::size_t>(control_offsets_[index] + 1)] =
                 static_cast<std::uint8_t>(cleared >> 8);
+            enabled_[index] = false;
         }
         last_channel = channel;
         active_channel_ = -1;
@@ -447,6 +462,9 @@ private:
     bool fifo_transfer_{};
     int pending_requests_{};
     std::array<SuspendedTransfer, 4> suspended_{};
+    // Bit 15 de chaque registre de contrôle tel que le canal l'a vu en
+    // dernier : les E/S portent déjà la nouvelle valeur quand il est écrit.
+    std::array<bool, 4> enabled_{};
 };
 
 inline void dma_control_write(DmaController* dma, int channel, int value) {
