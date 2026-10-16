@@ -51,7 +51,17 @@ public:
         run_frame(ppu.cycles_until_next_frame());
     }
     void run_frame(int cycles) {
-        auto elapsed = 0; bus.diagnostics.begin_frame();
+        bus.diagnostics.begin_frame();
+        run_for(cycles);
+    }
+    /**
+     * Avance d'au moins `cycles` cycles et rend ceux réellement écoulés (une
+     * instruction peut dépasser). Le câble link avance ainsi plusieurs
+     * machines par tranches ; il a pu changer le port série entre deux tranches.
+     */
+    int run_for(int cycles) {
+        auto elapsed = 0;
+        sync_peripherals();
         while (elapsed < cycles) {
             if (dma.active()) {
                 sync_peripherals();
@@ -81,6 +91,7 @@ public:
             if (pending_cycles_ >= next_event_) sync_peripherals();
         }
         sync_peripherals();
+        return elapsed;
     }
     /**
      * Les périphériques n'ont pas à être avancés après chaque instruction :

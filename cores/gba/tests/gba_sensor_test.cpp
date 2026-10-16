@@ -272,8 +272,9 @@ void sensor_save_state_test() {
     check(copied_x(*second) == tilted_low, "mesure du capteur perdue par l'état");
 
     // Format 14 : le bloc du préchargement et des timers suit celui des
-    // capteurs (tête, compte, progression, activité, quatre délais).
-    constexpr std::size_t prefetch_bytes = 4U + 4U + 4U + 1U + 4U * 4U;
+    // capteurs (tête, compte, progression, activité, quatre délais), puis
+    // l'état du câble link.
+    constexpr std::size_t prefetch_bytes = 4U + 4U + 4U + 1U + 4U * 4U + 4U * Serial::link_state_words;
     check(state[4] == 0 && state[5] == 14, "version d'état GBA inattendue");
 
     // État au format 13 : sans le bloc du format 14. Il se recharge, capteur compris.

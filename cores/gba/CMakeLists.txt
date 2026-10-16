@@ -2,6 +2,7 @@ add_library(gba_raven_core STATIC
     src/core.cpp
     src/cpu/cpu.cpp
     src/memory/bus.cpp
+    src/serial/serial.cpp
 )
 target_include_directories(gba_raven_core
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

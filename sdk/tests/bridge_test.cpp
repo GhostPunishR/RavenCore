@@ -168,6 +168,63 @@ int sensors_test() {
 
 } // namespace
 
+/* Deux GBA reliées : le parent lance un transfert multijoueur (programme
+ * assemblé avec llvm-mc, détaillé dans gba_core_test.cpp) et chaque console
+ * range SIOMULTI0 et SIOMULTI1 au début de l'IWRAM. */
+int link_cable_test() {
+    const std::uint32_t code[] = {
+        0xe59f208c, 0xe3a01000, 0xe1c211b4, 0xe3a01a02, 0xe3811003, 0xe1c210b8, 0xe1d230b8, 0xe3130004,
+        0x03a04caa, 0x13a04cbb, 0xe1c240ba, 0x1a000008, 0xe1d230b8, 0xe3130008, 0x0afffffc, 0xe3833080,
+        0xe1c230b8, 0xe1d230b8, 0xe3130080, 0x1afffffc, 0xea000005, 0xe1d230b8, 0xe3130080, 0x0afffffc,
+        0xe1d230b8, 0xe3130080, 0x1afffffc, 0xe3a05403, 0xe1d260b0, 0xe1c560b0, 0xe1d260b2, 0xe1c560b2,
+        0xe1d260b8, 0xe1c560b4, 0xe1d260b4, 0xe1c560b6, 0xeafffffe, 0x04000120};
+    auto rom = ravenemu::testing::minimal_gba_rom();
+    std::memcpy(rom.data(), code, sizeof code);  // petit-boutiste, comme la GBA
+    Handle parent(ravenemu_create(RAVENEMU_GBA), ravenemu_destroy);
+    Handle child(ravenemu_create(RAVENEMU_GBA), ravenemu_destroy);
+    if (!parent || !child || !ravenemu_load(parent.get(), rom.data(), rom.size(), nullptr, 0) ||
+        !ravenemu_load(child.get(), rom.data(), rom.size(), nullptr, 0)) return 60;
+    ravenemu_bridge* const pair[] = {parent.get(), child.get()};
+    std::unique_ptr<ravenemu_link, decltype(&ravenemu_link_destroy)> link(ravenemu_link_create(pair, 2), ravenemu_link_destroy);
+    if (!link) return 61;
+    if (ravenemu_link_create(pair, 2)) return 62;  // déjà reliées
+    std::vector<std::uint32_t> first(240 * 160), second(240 * 160);
+    std::uint32_t* const frames[] = {first.data(), second.data()};
+    if (ravenemu_run_frame(parent.get(), first.data(), first.size())) return 63;  // reliée : passe par le câble
+    if (ravenemu_link_run_frame(link.get(), frames, first.size() - 1)) return 64;
+    for (int frame = 0; frame < 3; ++frame)
+        if (!ravenemu_link_run_frame(link.get(), frames, first.size())) return 65;
+    for (auto* handle : pair) {
+        std::uint8_t received[4]{};
+        if (ravenemu_read_achievement_memory(handle, 0, received, sizeof received) != sizeof received) return 66;
+        if (received[0] != 0x00 || received[1] != 0xaa || received[2] != 0x00 || received[3] != 0xbb) return 67;
+    }
+    if ((first[0] & 0xFF000000u) != 0xFF000000u) return 68;
+
+    // Une GBA ne se relie pas à une Game Boy ; deux Game Boy, si.
+    auto gb_rom = ravenemu::testing::minimal_game_boy_rom();
+    Handle game_boy(ravenemu_create(RAVENEMU_GB), ravenemu_destroy);
+    Handle color(ravenemu_create(RAVENEMU_GBC), ravenemu_destroy);
+    if (!game_boy || !color || !ravenemu_load(game_boy.get(), gb_rom.data(), gb_rom.size(), nullptr, 0) ||
+        !ravenemu_load(color.get(), gb_rom.data(), gb_rom.size(), nullptr, 0)) return 69;
+    ravenemu_bridge* const mixed[] = {game_boy.get(), parent.get()};
+    if (ravenemu_link_create(mixed, 2)) return 70;
+    ravenemu_bridge* const game_boys[] = {game_boy.get(), color.get()};
+    std::unique_ptr<ravenemu_link, decltype(&ravenemu_link_destroy)> gb_link(ravenemu_link_create(game_boys, 2), ravenemu_link_destroy);
+    if (!gb_link) return 71;
+    std::vector<std::uint32_t> gb_first(160 * 144), gb_second(160 * 144);
+    std::uint32_t* const gb_frames[] = {gb_first.data(), gb_second.data()};
+    if (!ravenemu_link_run_frame(gb_link.get(), gb_frames, gb_first.size())) return 72;
+
+    // Détruire une console débranche le câble ; l'autre repart seule.
+    child.reset();
+    if (ravenemu_link_run_frame(link.get(), frames, first.size())) return 73;
+    if (!ravenemu_run_frame(parent.get(), first.data(), first.size())) return 74;
+    if (ravenemu_link_create(nullptr, 2) || ravenemu_link_run_frame(nullptr, frames, first.size())) return 75;
+    ravenemu_link_destroy(nullptr);
+    return 0;
+}
+
 int main() {
     if (ravenemu_api_version() != RAVENEMU_API_VERSION ||
         std::string(ravenemu_version()) != RAVENEMU_VERSION) {
@@ -188,6 +245,10 @@ int main() {
     }
     if (const int failure = gba_rumble_test()) {
         std::cerr << "GBA rumble failed (" << failure << "): " << ravenemu_last_error() << "\n";
+        return failure;
+    }
+    if (const int failure = link_cable_test()) {
+        std::cerr << "Link cable failed (" << failure << "): " << ravenemu_last_error() << "\n";
         return failure;
     }
     if (const int failure = sensors_test()) {

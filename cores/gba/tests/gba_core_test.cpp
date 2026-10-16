@@ -188,6 +188,114 @@ void prefetch_state_continuation_test() {
     check(core->save_state() == continued, "préchargement GBA : reprise d'état décalée");
 }
 
+// ROM dont le code ARM commence à 0x08000000, et lectures de l'IWRAM par
+// l'espace mémoire des succès (0x0000..0x7FFF).
+std::vector<std::uint8_t> rom_with(std::span<const std::uint32_t> code) {
+    auto rom = minimal_gba_rom();
+    for (std::size_t i = 0; i < code.size(); ++i)
+        for (unsigned b = 0; b < 4; ++b) rom[i * 4 + b] = static_cast<std::uint8_t>(code[i] >> (8U * b));
+    return rom;
+}
+std::uint32_t iwram(const ravenemu::Core& core, std::uint32_t address, std::size_t bytes) {
+    std::array<std::uint8_t, 4> data{};
+    check(core.read_achievement_memory(address, std::span(data).first(bytes)) == bytes, "IWRAM GBA illisible");
+    std::uint32_t value = 0;
+    for (std::size_t i = 0; i < bytes; ++i) value |= std::uint32_t{data[i]} << (8U * i);
+    return value;
+}
+
+void multiplayer_link_test() {
+    // Assemblé avec llvm-mc. Chaque console passe en multijoueur à 115200
+    // bauds, lit SI pour savoir si elle est parente, range 0xAA00 (parent) ou
+    // 0xBB00 (enfant) dans SIOMLT_SEND. Le parent attend SD puis lance le
+    // transfert ; l'enfant attend qu'il commence puis finisse. Chacune range
+    // ensuite SIOMULTI0, SIOMULTI1, SIOCNT et SIOMULTI2 en IWRAM.
+    const std::array<std::uint32_t, 38> code{
+        0xe59f208c, 0xe3a01000, 0xe1c211b4, 0xe3a01a02, 0xe3811003, 0xe1c210b8, 0xe1d230b8, 0xe3130004,
+        0x03a04caa, 0x13a04cbb, 0xe1c240ba, 0x1a000008, 0xe1d230b8, 0xe3130008, 0x0afffffc, 0xe3833080,
+        0xe1c230b8, 0xe1d230b8, 0xe3130080, 0x1afffffc, 0xea000005, 0xe1d230b8, 0xe3130080, 0x0afffffc,
+        0xe1d230b8, 0xe3130080, 0x1afffffc, 0xe3a05403, 0xe1d260b0, 0xe1c560b0, 0xe1d260b2, 0xe1c560b2,
+        0xe1d260b8, 0xe1c560b4, 0xe1d260b4, 0xe1c560b6, 0xeafffffe, 0x04000120};
+    const auto rom = rom_with(code);
+    auto parent = ravenemu::make_gba_core(std::nullopt);
+    auto child = ravenemu::make_gba_core(std::nullopt);
+    parent->load_rom(rom, {});
+    child->load_rom(rom, {});
+    const std::array<ravenemu::Core*, 2> players{parent.get(), child.get()};
+    auto cable = ravenemu::connect_link_cable(players);
+    check(cable->players() == 2, "câble GBA : nombre de joueurs");
+    std::vector<std::int32_t> first(240 * 160), second(240 * 160);
+    const std::array<std::span<std::int32_t>, 2> frames{first, second};
+    for (int frame = 0; frame < 3; ++frame) cable->run_frame(frames, false);
+    for (const auto* core : players) {
+        check(iwram(*core, 0, 2) == 0xaa00 && iwram(*core, 2, 2) == 0xbb00, "câble GBA : données multijoueur non échangées");
+        check(iwram(*core, 6, 2) == 0xffff, "câble GBA : troisième console absente non lue à 0xFFFF");
+    }
+    const auto parent_control = iwram(*parent, 4, 2);
+    const auto child_control = iwram(*child, 4, 2);
+    check((parent_control & 0x3c) == 0x08, "câble GBA : parent mal signalé (SI 0, SD 1, numéro 0)");
+    check((child_control & 0x3c) == 0x1c, "câble GBA : enfant mal signalé (SI 1, SD 1, numéro 1)");
+    check((parent_control & 0x80) == 0 && (child_control & 0x80) == 0, "câble GBA : transfert jamais terminé");
+
+    // Seule, la même ROM se croit enfant (SI tiré à 1) et attend un parent.
+    auto alone = ravenemu::make_gba_core(std::nullopt);
+    alone->load_rom(rom, {});
+    for (int frame = 0; frame < 3; ++frame) alone->run_frame(first, false);
+    check(iwram(*alone, 0, 2) == 0, "GBA sans câble : transfert multijoueur inattendu");
+}
+
+void normal_link_test() {
+    // Le joueur 0 (SI à 0 en multijoueur) devient maître en mode normal 32
+    // bits à 2 MHz : il laisse l'esclave se préparer (VCOUNT 10), puis attend
+    // que celui-ci, à horloge externe, tienne SO bas. Chacun range le mot reçu
+    // en IWRAM.
+    const std::array<std::uint32_t, 40> code{
+        0xe59f208c, 0xe3a01000, 0xe1c211b4, 0xe3a01a02, 0xe1c210b8, 0xe1d230b8, 0xe3130004, 0x059f4074,
+        0x159f4074, 0xe5824000, 0x1a00000f, 0xe3a01a01, 0xe381100b, 0xe1c210b8, 0xe3a00301, 0xe1d030b6,
+        0xe353000a, 0x3afffffc, 0xe1d230b8, 0xe3130004, 0x1afffffc, 0xe3833080, 0xe1c230b8, 0xe1d230b8,
+        0xe3130080, 0x1afffffc, 0xea000005, 0xe3a01a01, 0xe3811088, 0xe1c210b8, 0xe1d230b8, 0xe3130080,
+        0x1afffffc, 0xe3a05403, 0xe5926000, 0xe5856000, 0xeafffffe, 0x04000120, 0x11223344, 0x55667788};
+    const auto rom = rom_with(code);
+    auto master = ravenemu::make_gba_core(std::nullopt);
+    auto slave = ravenemu::make_gba_core(std::nullopt);
+    master->load_rom(rom, {});
+    slave->load_rom(rom, {});
+    const std::array<ravenemu::Core*, 2> players{master.get(), slave.get()};
+    auto cable = ravenemu::connect_link_cable(players);
+    std::vector<std::int32_t> first(240 * 160), second(240 * 160);
+    const std::array<std::span<std::int32_t>, 2> frames{first, second};
+    for (int frame = 0; frame < 3; ++frame) cable->run_frame(frames, true);
+    check(iwram(*master, 0, 4) == 0x55667788U, "câble GBA : le maître n'a pas reçu le mot de l'esclave");
+    check(iwram(*slave, 0, 4) == 0x11223344U, "câble GBA : l'esclave n'a pas reçu le mot du maître");
+
+    // Le câble est déterministe : la même partie donne le même état.
+    auto again_master = ravenemu::make_gba_core(std::nullopt);
+    auto again_slave = ravenemu::make_gba_core(std::nullopt);
+    again_master->load_rom(rom, {});
+    again_slave->load_rom(rom, {});
+    const std::array<ravenemu::Core*, 2> again{again_master.get(), again_slave.get()};
+    auto second_cable = ravenemu::connect_link_cable(again);
+    for (int frame = 0; frame < 3; ++frame) second_cable->run_frame(frames, true);
+    check(again_master->save_state() == master->save_state() && again_slave->save_state() == slave->save_state(),
+          "câble GBA : deux parties identiques divergent");
+}
+
+void link_cable_validation_test() {
+    auto gba = ravenemu::make_gba_core(std::nullopt);
+    auto other = ravenemu::make_gba_core(std::nullopt);
+    const std::array<ravenemu::Core*, 1> single{gba.get()};
+    expect_failure<std::invalid_argument>([&] { (void)ravenemu::connect_link_cable(single); }, "câble à une console accepté");
+    const std::array<ravenemu::Core*, 2> twice{gba.get(), gba.get()};
+    expect_failure<std::invalid_argument>([&] { (void)ravenemu::connect_link_cable(twice); }, "console reliée à elle-même");
+    const std::array<ravenemu::Core*, 2> pair{gba.get(), other.get()};
+    auto cable = ravenemu::connect_link_cable(pair);
+    std::vector<std::int32_t> first(240 * 160), second(240 * 160);
+    const std::array<std::span<std::int32_t>, 2> frames{first, second};
+    expect_failure<std::logic_error>([&] { cable->run_frame(frames, true); }, "câble GBA lancé sans ROM");
+    const std::array<std::span<std::int32_t>, 1> one_frame{first};
+    expect_failure<std::invalid_argument>([&] { cable->run_frame(one_frame, true); }, "câble GBA : image manquante");
+}
+
 void invalid_rom_test() {
     auto rom = minimal_gba_rom();
     rom[0xb2] = 0;
@@ -439,6 +547,9 @@ int main() {
     odd_audio_capacity_keeps_stereo_frames_test();
     audio_state_continuation_test();
     prefetch_state_continuation_test();
+    multiplayer_link_test();
+    normal_link_test();
+    link_cable_validation_test();
     invalid_rom_test();
     gba_smoke_test();
     gba_save_detection_test();

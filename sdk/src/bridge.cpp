@@ -28,6 +28,12 @@ struct ravenemu_bridge {
     // peut modifier la machine doit appeler machine_may_change().
     std::vector<std::uint8_t> state_cache;
     bool state_cache_valid = false;
+    ravenemu_link* link = nullptr;
+};
+
+struct ravenemu_link {
+    std::vector<ravenemu_bridge*> handles;
+    std::unique_ptr<ravenemu::LinkCable> cable;
 };
 
 namespace {
@@ -69,6 +75,22 @@ void require_loaded(const ravenemu_bridge* handle) {
 constexpr std::array<std::uint32_t, 4> dmg_palette = {
     0xFFE0F8D0u, 0xFF88C070u, 0xFF346856u, 0xFF081820u
 };
+
+void copy_frame(const ravenemu_bridge& handle, uint32_t* argb) noexcept {
+    const bool indexed = handle.core->framebuffer_format() == ravenemu::FramebufferFormat::indexed_4;
+    for (size_t i = 0; i < handle.framebuffer.size(); ++i) {
+        const auto pixel = static_cast<uint32_t>(handle.framebuffer[i]);
+        argb[i] = indexed ? dmg_palette[pixel & 3u] : (0xFF000000u | (pixel & 0x00FFFFFFu));
+    }
+}
+
+// Débranche le câble de toutes ses consoles ; la structure reste à libérer.
+void unplug(ravenemu_link& link) noexcept {
+    link.cable.reset();
+    for (auto* handle : link.handles)
+        if (handle) handle->link = nullptr;
+    link.handles.clear();
+}
 } // namespace
 
 extern "C" {
@@ -98,7 +120,10 @@ ravenemu_bridge* ravenemu_create(int system) {
     });
     return result;
 }
-void ravenemu_destroy(ravenemu_bridge* handle) { delete handle; }
+void ravenemu_destroy(ravenemu_bridge* handle) {
+    if (handle && handle->link) unplug(*handle->link);
+    delete handle;
+}
 const char* ravenemu_last_error(void) { return error_message.c_str(); }
 
 int ravenemu_load(ravenemu_bridge* handle, const uint8_t* rom, size_t rom_size,
@@ -144,12 +169,9 @@ int ravenemu_run_frame(ravenemu_bridge* handle, uint32_t* argb, size_t pixel_cap
         require_loaded(handle);
         if (!argb || pixel_capacity < handle->framebuffer.size())
             throw std::invalid_argument("Insufficient video buffer");
+        if (handle->link) throw std::logic_error("Linked handle: use ravenemu_link_run_frame");
         handle->core->run_frame(handle->framebuffer, true);
-        const bool indexed = handle->core->framebuffer_format() == ravenemu::FramebufferFormat::indexed_4;
-        for (size_t i = 0; i < handle->framebuffer.size(); ++i) {
-            const auto pixel = static_cast<uint32_t>(handle->framebuffer[i]);
-            argb[i] = indexed ? dmg_palette[pixel & 3u] : (0xFF000000u | (pixel & 0x00FFFFFFu));
-        }
+        copy_frame(*handle, argb);
     });
 }
 size_t ravenemu_read_audio(ravenemu_bridge* handle,
@@ -298,5 +320,49 @@ int ravenemu_set_tilt(ravenemu_bridge* handle, int x, int y) {
         handle->core->set_game_boy_acceleration(-x * units_per_g / 0x7fff, -y * units_per_g / 0x7fff);
     }
     return 1;
+}
+ravenemu_link* ravenemu_link_create(ravenemu_bridge* const* handles, size_t count) {
+    ravenemu_link* result = nullptr;
+    attempt([&] {
+        if (!handles || count < 2) throw std::invalid_argument("A link cable needs at least two handles");
+        std::vector<ravenemu::Core*> cores;
+        for (size_t i = 0; i < count; ++i) {
+            if (!handles[i] || !handles[i]->core) throw std::invalid_argument("Null handle");
+            if (handles[i]->link) throw std::invalid_argument("Handle already linked");
+            cores.push_back(handles[i]->core.get());
+        }
+        auto link = std::make_unique<ravenemu_link>();
+        link->cable = ravenemu::connect_link_cable(cores);
+        link->handles.assign(handles, handles + count);
+        for (auto* handle : link->handles) {
+            machine_may_change(handle);
+            handle->link = link.get();
+        }
+        result = link.release();
+    });
+    return result;
+}
+void ravenemu_link_destroy(ravenemu_link* link) {
+    if (!link) return;
+    for (auto* handle : link->handles) machine_may_change(handle);
+    unplug(*link);
+    delete link;
+}
+int ravenemu_link_run_frame(ravenemu_link* link, uint32_t* const* argb, size_t pixel_capacity) {
+    return attempt([&] {
+        if (!link || !link->cable) throw std::logic_error("Link cable unplugged");
+        if (!argb) throw std::invalid_argument("Insufficient video buffer");
+        std::vector<std::span<std::int32_t>> frames;
+        for (size_t i = 0; i < link->handles.size(); ++i) {
+            auto* handle = link->handles[i];
+            require_loaded(handle);
+            if (!argb[i] || pixel_capacity < handle->framebuffer.size())
+                throw std::invalid_argument("Insufficient video buffer");
+            machine_may_change(handle);
+            frames.emplace_back(handle->framebuffer);
+        }
+        link->cable->run_frame(frames, true);
+        for (size_t i = 0; i < link->handles.size(); ++i) copy_frame(*link->handles[i], argb[i]);
+    });
 }
 } // extern "C"

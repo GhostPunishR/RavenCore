@@ -150,6 +150,22 @@ public:
     using Error::Error;
 };
 
+class Core;
+
+/**
+ * Câble link entre cœurs d'un même processus, par exemple deux jeux sur un
+ * même appareil. Une fois reliés, les cœurs avancent ensemble par le
+ * run_frame du câble, et non plus chacun par le sien. Ils doivent survivre
+ * au câble ; le détruire les rend indépendants.
+ */
+class LinkCable {
+public:
+    virtual ~LinkCable() = default;
+    [[nodiscard]] virtual std::size_t players() const noexcept = 0;
+    /** Une image de chaque cœur : `framebuffers[i]` reçoit celle du joueur i. */
+    virtual void run_frame(std::span<const std::span<std::int32_t>> framebuffers, bool render_video) = 0;
+};
+
 class Core {
 public:
     virtual ~Core() = default;
@@ -171,6 +187,8 @@ public:
     virtual std::size_t read_achievement_memory(std::uint32_t, std::span<std::uint8_t>) const { return 0; }
     virtual std::size_t read_audio(std::span<std::int16_t> destination) = 0;
     [[nodiscard]] virtual bool connect_link_endpoint(LinkEndpoint*) noexcept { return false; }
+    /** Câble de `players`, ce cœur en tête : voir connect_link_cable(). */
+    [[nodiscard]] virtual std::unique_ptr<LinkCable> create_link_cable(std::span<Core* const> players);
     [[nodiscard]] virtual bool connect_infrared_endpoint(InfraredEndpoint*) noexcept { return false; }
     [[nodiscard]] virtual bool rumble_active() const noexcept { return false; }
     /** Inclinaison cartouche en unités brutes autour du repos (0, 0). */
@@ -211,6 +229,13 @@ public:
      */
     virtual void set_gba_forced_rtc(std::optional<bool>) noexcept {}
 };
+
+/**
+ * Relie deux cœurs Game Boy ou Game Boy Color (mélangés si besoin), ou deux à
+ * quatre cœurs GBA dont le premier est le parent. Lève std::invalid_argument
+ * pour une combinaison impossible.
+ */
+[[nodiscard]] std::unique_ptr<LinkCable> connect_link_cable(std::span<Core* const> players);
 
 [[nodiscard]] std::unique_ptr<Core> make_game_boy_core();
 [[nodiscard]] std::unique_ptr<Core> make_gba_core(std::optional<GbaSaveType> forced_save_type);

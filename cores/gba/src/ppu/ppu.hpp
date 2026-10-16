@@ -89,6 +89,7 @@ public:
         return {vcount,     line_cycles_, in_vblank ? 1 : 0, in_hblank ? 1 : 0, vcount_match ? 1 : 0,
                 bg2_ref_x_, bg2_ref_y_,   bg3_ref_x_,        bg3_ref_y_};
     }
+    [[nodiscard]] static constexpr int cycles_per_frame() noexcept { return total_lines * line_cycles_total; }
     /** Cycles restants avant le retour à VCOUNT 0, position de ligne 0. */
     [[nodiscard]] int cycles_until_next_frame() const noexcept {
         return total_lines * line_cycles_total - (vcount * line_cycles_total + line_cycles_);

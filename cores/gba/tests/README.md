@@ -6,7 +6,7 @@ Les tests synthétiques (`gba_*_test.cpp`) n'ont besoin d'aucune ROM :
 - `gba_hardware_test.cpp` vérifie le matériel décrit par GBATEK : appels du BIOS, HALTCNT, port série sans câble, capture vidéo par DMA3, temps de rendu des sprites, bus ouvert, durée des multiplications et reprise exacte d'un état instantané ;
 - `gba_timing_test.cpp` vérifie la cadence : coûts du tampon de préchargement de la cartouche, bug du préchargement désactivé, démarrage des timers, registres d'E/S non répétés, DMA et frontière de trame ;
 - `gba_rtc_test.cpp` dialogue avec l'horloge de la cartouche par le GPIO, comme la bibliothèque Seiko des jeux, et vérifie que ses réglages suivent la sauvegarde (bloc de 16 octets de mGBA) ;
-- `gba_core_test.cpp` passe par l'interface publique `ravenemu::Core` : détection des sauvegardes, vibration du GPIO, compatibilité des anciens états, reprise d'un état en plein préchargement, sauvegarde et horloge gardées par le reset.
+- `gba_core_test.cpp` passe par l'interface publique `ravenemu::Core` : détection des sauvegardes, vibration du GPIO, compatibilité des anciens états, reprise d'un état en plein préchargement, sauvegarde et horloge gardées par le reset, et câble link : deux consoles reliées s'échangent leurs données en multijoueur et en mode normal 32 bits (programmes ARM assemblés avec llvm-mc).
 
 ## ROMs de test publiques
 

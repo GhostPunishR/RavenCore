@@ -291,6 +291,8 @@ void Bus::handle_io_write(int offset, int value) {
         dma_control_write(dma, channel, value);
     } else if (offset == 0x128) {
         serial_control_write(serial, value);
+    } else if (offset == 0x134) {
+        serial_rcnt_write(serial);
     } else if (apu && offset >= 0x060 && offset <= 0x09f) {
         apu->write_register(offset, value);
     }
