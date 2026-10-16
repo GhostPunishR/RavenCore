@@ -73,7 +73,7 @@ Après `cmake --install`, utilisez le paquet CMake :
 
 ```cmake
 find_package(RavenCore 0.3 REQUIRED)
-target_link_libraries(mon_app PRIVATE RavenEmu::ravenemu_c_api)  # ou RavenEmu::ravenemu_cores en C++
+target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 
 L'API C couvre :

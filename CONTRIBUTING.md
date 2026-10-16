@@ -1,6 +1,6 @@
 # Contribuer à RavenCore
 
-Merci de contribuer aux cœurs maison GB, GBC et GBA de RavenEmu. Les petites corrections documentées et les tests de régression sont aussi utiles que les nouvelles fonctions.
+Merci de contribuer aux cœurs maison GB, GBC et GBA de RavenCore. Les petites corrections documentées et les tests de régression sont aussi utiles que les nouvelles fonctions.
 
 Avant de contribuer, consultez le [code de conduite](CODE_OF_CONDUCT.md), la [licence AGPL-3.0](LICENSE) et les [attributions](NOTICE.md).
 

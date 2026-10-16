@@ -1,12 +1,12 @@
 add_library(ravenemu_c_api STATIC src/bridge.cpp)
 target_compile_features(ravenemu_c_api PUBLIC cxx_std_20)
 target_include_directories(ravenemu_c_api PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-target_link_libraries(ravenemu_c_api PUBLIC ravenemu_cores)
+target_link_libraries(ravenemu_c_api PUBLIC ravencore)
 target_compile_options(ravenemu_c_api PRIVATE ${RAVENEMU_WARNING_OPTIONS})
 target_compile_definitions(ravenemu_c_api PRIVATE RAVENEMU_VERSION="${PROJECT_VERSION}")
 set_target_properties(ravenemu_c_api PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-if(RAVENEMU_BUILD_TESTS)
+if(BUILD_TESTING)
     add_executable(ravenemu_c_api_tests tests/bridge_test.cpp)
     target_link_libraries(ravenemu_c_api_tests PRIVATE ravenemu_c_api)
     target_include_directories(ravenemu_c_api_tests PRIVATE

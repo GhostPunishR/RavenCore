@@ -1,4 +1,4 @@
-# Three independent shared Libretro adapters over the original RavenEmu engines.
+# Three independent shared Libretro adapters over the RavenCore engines.
 
 # Only the Libretro interface is exported. The statically linked engines keep
 # their C++ symbols internal, so they cannot clash with another core loaded
@@ -27,7 +27,7 @@ foreach(system IN ITEMS gb gbc gba)
         set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${RAVENEMU_LIBRETRO_EXPORTS}")
     endif()
     target_compile_options(${target} PRIVATE ${RAVENEMU_WARNING_OPTIONS})
-    if(RAVENEMU_BUILD_TESTS)
+    if(BUILD_TESTING)
         add_executable(libretro_smoke_${system} tests/smoke.cpp)
         target_include_directories(libretro_smoke_${system} PRIVATE
             include ${PROJECT_SOURCE_DIR}/cores/common/tests/support)

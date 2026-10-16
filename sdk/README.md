@@ -1,4 +1,4 @@
-# RavenEmu C ABI
+# API C de RavenCore
 
 `ravenemu_c_api` est une interface C opaque par-dessus les vrais moteurs GB, GBC et GBA. L'API est accessible dans `include/ravenemu/bridge.h`. Les écrans et les entrées restent la responsabilité de l'application hôte.
 
@@ -29,14 +29,12 @@ Aucune ROM commerciale ni BIOS n'est nécessaire pour les tests synthétiques.
 Installer les moteurs, l'API C et leurs en-têtes, puis les consommer depuis un autre projet :
 
 ```sh
-cmake --install build --prefix /chemin/ravenemu
+cmake --install build --prefix /chemin/ravencore
 ```
 
 ```cmake
 find_package(RavenCore 0.3 REQUIRED)
-target_link_libraries(mon_app PRIVATE RavenEmu::ravenemu_c_api)  # ou RavenEmu::ravenemu_cores en C++
+target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 
-Passer `-DCMAKE_PREFIX_PATH=/chemin/ravenemu` à la configuration du projet consommateur. Avant la version 1.0, seules les versions de même mineure sont déclarées compatibles. Les adaptateurs Libretro ne sont pas installés : ils se copient dans les dossiers du frontend.
-
-L'ancien nom du paquet, `find_package(RavenEmuCores)`, fonctionne jusqu'à la version 1.0 : il charge `RavenCore` et affiche un avertissement de dépréciation. Les cibles `RavenEmu::` sont les mêmes.
+Passer `-DCMAKE_PREFIX_PATH=/chemin/ravencore` à la configuration du projet consommateur. Avant la version 1.0, seules les versions de même mineure sont déclarées compatibles. Les adaptateurs Libretro ne sont pas installés : ils se copient dans les dossiers du frontend.
