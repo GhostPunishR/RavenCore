@@ -479,10 +479,4 @@ int Cpu::execute_thumb(int instruction) {
     return thumb_undefined(instruction);
 }
 
-Bus::Bus(Cartridge& value) : cartridge(value) {
-    // Sans puce de sauvegarde, le bus de la cartouche se lit 0xFF.
-    fallback_sram.fill(0xffU);
-    reset_affine_matrices();
-}
-
 } // namespace ravenemu::gba

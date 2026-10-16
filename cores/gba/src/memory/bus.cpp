@@ -9,6 +9,15 @@
 
 namespace ravenemu::gba {
 
+Bus::Bus(Cartridge& value) : cartridge(value) {
+    auto* save = cartridge.save();
+    eeprom_ = dynamic_cast<Eeprom*>(save);
+    if (dynamic_cast<Sram*>(save) != nullptr || dynamic_cast<Flash*>(save) != nullptr) byte_save_ = save;
+    // Sans puce de sauvegarde, le bus de la cartouche se lit 0xFF.
+    fallback_sram.fill(0xffU);
+    reset_affine_matrices();
+}
+
 std::uint8_t* Bus::direct_write(std::uint32_t address) noexcept {
     switch (address >> 24U) {
     case 0x02: return ewram.data() + (address & 0x3ffffU);
@@ -21,7 +30,7 @@ std::uint8_t* Bus::direct_write(std::uint32_t address) noexcept {
 }
 
 bool Bus::eeprom_window(std::int32_t address) const noexcept {
-    return dynamic_cast<const Eeprom*>(cartridge.save()) != nullptr && (u32(address) >> 24U) == 0x0dU;
+    return eeprom_ != nullptr && (u32(address) >> 24U) == 0x0dU;
 }
 
 bool Bus::gpio_register(std::int32_t address) const noexcept {
@@ -80,12 +89,11 @@ int Bus::read8_raw(std::int32_t address) {
     case 0x0e: case 0x0f: {
         if (auto* tilt = cartridge.tilt(); tilt && TiltSensor::reads(static_cast<int>(raw & 0xffffU)))
             return tilt->read(static_cast<int>(raw & 0xffffU));
-        auto* save = cartridge.save();
-        if (dynamic_cast<Sram*>(save) || dynamic_cast<Flash*>(save)) return save->read(static_cast<int>(raw));
+        if (byte_save_) return byte_save_->read(static_cast<int>(raw));
         // Une cartouche à EEPROM n'a rien sur ce bus : il se lit 0xFF. Les jeux
         // Classic NES Series le vérifient et refusent une cartouche où l'écriture
         // y reste (« GAME PAK ERROR »).
-        if (eeprom()) return 0xff;
+        if (eeprom_) return 0xff;
         return fallback_sram[raw & 0xffffU];
     }
     default:
@@ -105,7 +113,7 @@ int Bus::read16(std::int32_t address) {
     const auto aligned = i32(u32(address) & ~1U);
     account(aligned, 2);
     sync_io(aligned, false);
-    if (auto* memory = eeprom(); memory && eeprom_window(aligned)) return memory->read(0);
+    if (eeprom_window(aligned)) return eeprom_->read(0);
     if (const auto* data = direct_read(u32(aligned), 2)) return static_cast<int>(load_le(data, 2));
     if (auto* port = cartridge.gpio(); port && port->readable() && gpio_register(aligned)) {
         return port->read16(rom_offset(aligned));
@@ -170,8 +178,8 @@ void Bus::write8_raw(std::int32_t address, int value) {
     case 0x0e: case 0x0f:
         if (auto* tilt = cartridge.tilt(); tilt && TiltSensor::writes(static_cast<int>(raw & 0xffffU)))
             tilt->write(static_cast<int>(raw & 0xffffU), value);
-        else if (auto* save = cartridge.save(); dynamic_cast<Sram*>(save) || dynamic_cast<Flash*>(save)) save->write(static_cast<int>(raw), value);
-        else if (!eeprom()) fallback_sram[raw & 0xffffU] = byte;
+        else if (byte_save_) byte_save_->write(static_cast<int>(raw), value);
+        else if (!eeprom_) fallback_sram[raw & 0xffffU] = byte;
         break;
     default: diagnostics.unsupported_access(address); break;
     }
@@ -193,7 +201,7 @@ void Bus::write8(std::int32_t address, int value) {
 }
 
 void Bus::write16_raw(std::int32_t address, int value) {
-    if (auto* memory = eeprom(); memory && eeprom_window(address)) { memory->write(0, value); return; }
+    if (eeprom_window(address)) { eeprom_->write(0, value); return; }
     if (auto* port = cartridge.gpio(); port && gpio_register(address)) {
         port->write16(rom_offset(address), value & 0xffff); return;
     }

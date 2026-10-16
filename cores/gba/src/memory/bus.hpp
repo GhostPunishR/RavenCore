@@ -52,7 +52,7 @@ public:
     void restore_sequential_address(std::int32_t address) noexcept { next_sequential_address = address; }
     void reset_affine_matrices();
     void sync_timing_from_io();
-    [[nodiscard]] Eeprom* eeprom() noexcept { return dynamic_cast<Eeprom*>(cartridge.save()); }
+    [[nodiscard]] Eeprom* eeprom() noexcept { return eeprom_; }
     [[nodiscard]] SaveMemory* save_memory() noexcept { return cartridge.save(); }
 
     Cartridge& cartridge;
@@ -91,6 +91,10 @@ public:
     void (*io_halt)(void* context){};
 
 private:
+    // La puce de sauvegarde naît avec la cartouche et ne change plus : le bus
+    // la classe une fois, au lieu d'un dynamic_cast à chaque accès mémoire.
+    Eeprom* eeprom_{};
+    SaveMemory* byte_save_{};  // SRAM ou Flash : la puce du bus 8 bits
     static constexpr int io_mask = 0x3ff;
     void account(std::int32_t address, int width, bool fetch = false) noexcept {
         const auto sequential = address == next_sequential_address;
