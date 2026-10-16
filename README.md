@@ -72,8 +72,8 @@ La sauvegarde et l'horloge d'un jeu GBA sont détectées automatiquement. Si la 
 Après `cmake --install`, utilisez le paquet CMake :
 
 ```cmake
-find_package(RavenCore 0.3 REQUIRED)
-target_link_libraries(mon_app PRIVATE RavenEmu::ravenemu_c_api)  # ou RavenEmu::ravenemu_cores en C++
+find_package(RavenCore 0.4 REQUIRED)
+target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 
 L'API C couvre :
@@ -118,7 +118,7 @@ ctest --test-dir build --output-on-failure
 
 ## Versions
 
-Version actuelle : **0.3.1**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro Linux. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
+Version actuelle : **0.4.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro Linux. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
 
 Avant la 1.0, une version peut changer l'API ou le format des états ; le journal le signale à chaque fois.
 

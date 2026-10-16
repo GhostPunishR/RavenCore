@@ -7,7 +7,7 @@
 
 namespace ravenemu::sdk {
 
-/** Header-only convenience API over RavenEmu's native C++20 core factories. */
+/** Header-only convenience API over RavenCore's native C++20 core factories. */
 enum class System { game_boy, game_boy_color, game_boy_advance };
 
 [[nodiscard]] inline std::unique_ptr<Core> make_core(System system) {

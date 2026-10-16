@@ -22,7 +22,7 @@ target_include_directories(gbc_raven_core PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRE
 target_link_libraries(gbc_raven_core PUBLIC gb_raven_core gbc_hardware)
 set_target_properties(gbc_raven_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-if(RAVENEMU_BUILD_TESTS)
+if(BUILD_TESTING)
     add_executable(gbc_raven_core_tests tests/gbc_hardware_test.cpp)
     target_include_directories(gbc_raven_core_tests PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/../gb/src

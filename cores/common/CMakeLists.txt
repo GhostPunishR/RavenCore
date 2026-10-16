@@ -6,7 +6,7 @@ target_include_directories(ravenemu_common PUBLIC $<BUILD_INTERFACE:${CMAKE_CURR
 target_link_libraries(ravenemu_common PUBLIC ravenemu_options)
 set_target_properties(ravenemu_common PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-if(RAVENEMU_BUILD_TESTS)
+if(BUILD_TESTING)
     add_executable(ravenemu_common_tests tests/sha256_test.cpp)
     target_include_directories(ravenemu_common_tests PRIVATE tests/support)
     target_link_libraries(ravenemu_common_tests PRIVATE ravenemu_common)

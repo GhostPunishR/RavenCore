@@ -10,7 +10,7 @@ target_include_directories(gba_raven_core
 target_link_libraries(gba_raven_core PUBLIC ravenemu_common)
 set_target_properties(gba_raven_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-if(RAVENEMU_BUILD_TESTS)
+if(BUILD_TESTING)
     add_executable(gba_save_state_tests tests/gba_save_state_test.cpp)
     target_include_directories(gba_save_state_tests PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/src
