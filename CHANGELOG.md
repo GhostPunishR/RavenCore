@@ -2,7 +2,9 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
-## Non publié
+## 0.5.1 - 2026-10-17
+
+Cette version donne au drapeau C des multiplications GBA la valeur du matériel et ajoute une batterie de cycles CPU tirée de GBATEK ([#23](https://github.com/GhostPunishR/RavenCore/pull/23)). L'API et le format des états ne changent pas.
 
 ### Corrigé
 
