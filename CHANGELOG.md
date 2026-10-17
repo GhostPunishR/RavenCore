@@ -2,6 +2,19 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.5.1 - 2026-10-17
+
+Cette version donne au drapeau C des multiplications GBA la valeur du matériel et ajoute une batterie de cycles CPU tirée de GBATEK ([#23](https://github.com/GhostPunishR/RavenCore/pull/23)). L'API et le format des états ne changent pas.
+
+### Corrigé
+
+- GBA : après MULS, MLAS, UMULLS, UMLALS, SMULLS, SMLALS et le MUL Thumb, le drapeau C n'est plus laissé inchangé. Il prend la valeur que produit l'ARM7TDMI : un bit de la rangée des retenues de son multiplieur de Booth, simulé rangée par rangée (`cpu/booth_multiplier.hpp`). Le modèle matériel vient de l'analyse publiée par zayd en 2024 et des brevets ARM qu'elle cite ; le code est écrit pour RavenCore. Il ne tourne que pour les multiplications qui modifient les drapeaux, et ne change ni les résultats ni les cycles.
+
+### Tests
+
+- `gba_raven_cycles` mesure les cycles CPU de 41 instructions ou courts blocs ARM et Thumb (ALU, multiplications, accès à l'IWRAM, à l'EWRAM et à la ROM, sauts, bug du préchargement désactivé, frontière des 128 Kio de la cartouche), plus l'écart lu sur le timer 0 entre deux lectures. Chaque valeur attendue est une somme tirée des tables de GBATEK. Le test s'exécute dans la CI, sans ROM externe.
+- `gba_raven_cpu` vérifie que les rangées du multiplieur de Booth somment au produit exact, accumulateur compris, sur 60 000 opérandes des six formes. Il vérifie aussi que la boucle compte le m de GBATEK, et que MUL sur quatre cycles lève C exactement quand les deux bits hauts de Rs valent 10. Enfin, il contrôle le drapeau C laissé par chaque forme exécutée sur le CPU.
+
 ## 0.5.0 - 2026-10-17
 
 Cette version émule le câble link GBA et le tampon de préchargement de la cartouche ([#22](https://github.com/GhostPunishR/RavenCore/pull/22)), et compte le temps du processeur GBA au cycle près. Le format des états GBA change ; l'API C gagne le câble link sans rien retirer.

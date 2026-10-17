@@ -33,6 +33,15 @@ if(BUILD_TESTING)
     target_link_libraries(gba_raven_timing_tests PRIVATE gba_raven_core)
     add_test(NAME gba_raven_timing COMMAND gba_raven_timing_tests)
 
+    # Cycles CPU d'instructions isolées, comparés aux tables de GBATEK.
+    add_executable(gba_raven_cycle_tests tests/gba_cycle_test.cpp)
+    target_include_directories(gba_raven_cycle_tests PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/src
+        ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support
+    )
+    target_link_libraries(gba_raven_cycle_tests PRIVATE gba_raven_core)
+    add_test(NAME gba_raven_cycles COMMAND gba_raven_cycle_tests)
+
     # Le RTC se pilote broche à broche derrière le bus : l'éprouver demande les
     # en-têtes internes du cœur, que `gba_raven_core` garde en PRIVATE.
     add_executable(gba_raven_rtc_tests tests/gba_rtc_test.cpp)

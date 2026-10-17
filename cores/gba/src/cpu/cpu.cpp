@@ -1,5 +1,7 @@
 #include "cpu/cpu.hpp"
 
+#include "cpu/booth_multiplier.hpp"
+
 namespace ravenemu::gba {
 
 int Cpu::execute_arm(std::int32_t instruction) {
@@ -243,12 +245,16 @@ int Cpu::arm_single_transfer(std::int32_t instruction) {
 int Cpu::arm_multiply(std::int32_t instruction) {
     const auto raw = u32(instruction);
     const auto rd = static_cast<int>((raw >> 16U) & 15U);
+    const auto multiplicand = u32(read_reg(static_cast<int>(raw & 15U)));
     const auto multiplier = u32(read_reg(static_cast<int>((raw >> 8U) & 15U)));
     const auto accumulate = ((raw >> 21U) & 1U) != 0;
-    auto result = i32(u32(read_reg(static_cast<int>(raw & 15U))) * multiplier);
-    if (accumulate) result = add32(result, read_reg(static_cast<int>((raw >> 12U) & 15U)));
+    const auto addend = accumulate ? u32(read_reg(static_cast<int>((raw >> 12U) & 15U))) : 0U;
+    const auto result = i32(multiplicand * multiplier + addend);
     write_reg(rd, result);
-    if (((raw >> 20U) & 1U) != 0) set_nz(result);
+    if (((raw >> 20U) & 1U) != 0) {
+        set_nz(result);
+        state.carry = BoothMultiplier(multiplicand, multiplier, addend, true, false).carry_flag();
+    }
     // 1S + mI, plus 1I pour MLA.
     return multiply_cycles(multiplier, true) + (accumulate ? 1 : 0);
 }
@@ -260,21 +266,24 @@ int Cpu::arm_multiply_long(std::int32_t instruction) {
     const auto rs = static_cast<int>((raw >> 8U) & 15U);
     const auto rm = static_cast<int>(raw & 15U);
     const auto signed_multiply = ((raw >> 22U) & 1U) != 0;
+    const auto accumulate = ((raw >> 21U) & 1U) != 0;
+    const auto multiplicand = u32(read_reg(rm));
     const auto multiplier = u32(read_reg(rs));
     std::uint64_t product{};
     if (signed_multiply)
-        product = static_cast<std::uint64_t>(static_cast<std::int64_t>(read_reg(rm)) * read_reg(rs));
+        product = static_cast<std::uint64_t>(static_cast<std::int64_t>(i32(multiplicand)) * i32(multiplier));
     else
-        product = static_cast<std::uint64_t>(u32(read_reg(rm))) * u32(read_reg(rs));
-    if (((raw >> 21U) & 1U) != 0) product += (static_cast<std::uint64_t>(u32(read_reg(hi))) << 32U) | u32(read_reg(lo));
+        product = static_cast<std::uint64_t>(multiplicand) * multiplier;
+    const auto addend = accumulate ? (static_cast<std::uint64_t>(u32(read_reg(hi))) << 32U) | u32(read_reg(lo)) : 0U;
+    product += addend;
     write_reg(lo, i32(static_cast<std::uint32_t>(product)));
     write_reg(hi, i32(static_cast<std::uint32_t>(product >> 32U)));
     if (((raw >> 20U) & 1U) != 0) {
         state.negative = (product >> 63U) != 0;
         state.zero = product == 0;
+        state.carry = BoothMultiplier(multiplicand, multiplier, addend, signed_multiply, true).carry_flag();
     }
     // 1S + (m + 1)I, plus 1I pour UMLAL/SMLAL ; m ne s'arrête sur des 1 qu'en signé.
-    const auto accumulate = ((raw >> 21U) & 1U) != 0;
     return 1 + multiply_cycles(multiplier, signed_multiply) + (accumulate ? 1 : 0);
 }
 
@@ -525,7 +534,11 @@ int Cpu::execute_thumb(int instruction) {
             } else if (shift)
                 state.carry = shifter_carry;
             // MUL : 1S + mI (m selon Rd d'origine) ; décalage par registre : 1S + 1I.
-            if (opcode == 13) return multiply_cycles(u32(a), true);
+            // Rd est le multiplicateur que lit le multiplieur, comme Rs en ARM.
+            if (opcode == 13) {
+                state.carry = BoothMultiplier(u32(b), u32(a), 0, true, false).carry_flag();
+                return multiply_cycles(u32(a), true);
+            }
             return shift ? 1 : 0;
         }
         if ((instr & 0xfc00U) == 0x4400U) {
