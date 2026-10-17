@@ -3,7 +3,7 @@
 Les tests synthétiques (`gba_*_test.cpp`) n'ont besoin d'aucune ROM :
 
 - `gba_cpu_test.cpp` vérifie les comportements de l'ARM7TDMI et du bus : de petits programmes ARM et Thumb sont placés en IWRAM, puis exécutés instruction par instruction  ; il éprouve aussi le multiplieur de Booth qui fixe le drapeau C des multiplications : ses rangées doivent sommer au produit exact ;
-- `gba_hardware_test.cpp` vérifie le matériel décrit par GBATEK : appels du BIOS, HALTCNT, port série sans câble, capture vidéo par DMA3, temps de rendu des sprites, bus ouvert, durée des multiplications et reprise exacte d'un état instantané ;
+- `gba_hardware_test.cpp` vérifie le matériel décrit par GBATEK : appels du BIOS (dont ArcTan, ArcTan2 et Div, valeurs de la console comprises), HALTCNT, port série sans câble, capture vidéo par DMA3, temps de rendu des sprites, bus ouvert, durée des multiplications et reprise exacte d'un état instantané ;
 - `gba_cycle_test.cpp` mesure les cycles CPU d'instructions isolées (ALU, multiplications, accès mémoire, sauts, en ARM et en Thumb, en IWRAM et en ROM) et les compare aux sommes tirées des tables de GBATEK : chaque cas indique sa formule ;
 - `gba_timing_test.cpp` vérifie la cadence : coûts du tampon de préchargement de la cartouche, bug du préchargement désactivé, démarrage des timers, registres d'E/S non répétés, DMA et frontière de trame ;
 - `gba_rtc_test.cpp` dialogue avec l'horloge de la cartouche par le GPIO, comme la bibliothèque Seiko des jeux, et vérifie que ses réglages suivent la sauvegarde (bloc de 16 octets de mGBA) ;

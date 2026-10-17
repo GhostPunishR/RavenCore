@@ -2,9 +2,11 @@
 
 #include "check.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <initializer_list>
 #include <memory>
+#include <numbers>
 #include <vector>
 
 /**
@@ -347,11 +349,133 @@ void save_state_resumes_cycle_exact() {
     check(core->save_state() == continued, "état restauré : reprise décalée de quelques cycles");
 }
 
+// Appel `swi number` exécuté par le CPU, avec r0 et r1 donnés ; r2 porte une
+// marque que le BIOS doit laisser.
+struct BiosRegisters {
+    std::uint32_t r0, r1, r2, r3;
+};
+BiosRegisters call_bios(int number, std::uint32_t r0, std::uint32_t r1) {
+    Fixture fixture;
+    fixture.arm({0xef00'0000U | static_cast<std::uint32_t>(number) << 16U, 0xeaff'fffeU});  // swi number ; b .
+    auto& registers = fixture.machine().cpu.state.regs;
+    registers[0] = i32(r0);
+    registers[1] = i32(r1);
+    registers[2] = i32(0x1234'5678U);
+    registers[3] = 0;
+    fixture.run_code();
+    return {fixture.reg(0), fixture.reg(1), fixture.reg(2), fixture.reg(3)};
+}
+
+// Angle exact, en unités du BIOS (un tour vaut 0x10000).
+double exact_angle(double radians) { return radians * 32768.0 / std::numbers::pi; }
+
+// ArcTan (SWI 0x09) évalue le polynôme du BIOS par la méthode de Horner sur
+// a = −t² / 2^14, laissé en r1 ; le polynôme reste en r3.
+// - t = 0 : a = 0, le polynôme se réduit à son dernier coefficient, 0xA2F9.
+// - t = ±1 (±0x4000) : a = −0x4000 = −1, si bien que chaque pas change le
+//   signe de la somme : 0xA9, 0x390 − 0xA9 = 0x2E7, 0x91C − 0x2E7 = 0x635,
+//   0x981, 0xD29, 0x1358, 0x22F9, puis 0xA2F9 − 0x22F9 = 0x8000. L'angle
+//   vaut (±0x4000 × 0x8000) >> 16 = ±0x2000, soit ±π/4 exactement.
+void bios_arc_tan_follows_its_polynomial() {
+    const auto zero = call_bios(0x09, 0, 0);
+    check(zero.r0 == 0 && zero.r1 == 0 && zero.r3 == 0xa2f9, "ArcTan(0) : polynôme réduit à 0xA2F9 attendu");
+    const auto one = call_bios(0x09, 0x4000, 0);
+    check(one.r0 == 0x2000 && one.r1 == 0xffff'c000U && one.r3 == 0x8000, "ArcTan(1) : π/4 et a = -1 attendus");
+    check(one.r2 == 0x1234'5678U, "ArcTan : r2 modifié");
+    const auto minus_one = call_bios(0x09, 0xffff'c000U, 0);
+    check(minus_one.r0 == 0xffff'e000U && minus_one.r1 == 0xffff'c000U && minus_one.r3 == 0x8000,
+          "ArcTan(-1) : -π/4 attendu");
+
+    // Sur [−1, 1], l'approximation du BIOS reste à moins de 1,4 unité de
+    // l'arc tangente exacte.
+    Fixture fixture;
+    auto& registers = fixture.machine().cpu.state.regs;
+    for (int tangent = -0x4000; tangent <= 0x4000; tangent += 3) {
+        registers[0] = tangent;
+        fixture.machine().bios.handle_swi(0x09);
+        const auto expected = exact_angle(std::atan(tangent / 16384.0));
+        check(std::abs(registers[0] - expected) < 1.4, "ArcTan : trop loin de l'arc tangente sur [-1, 1]");
+    }
+}
+
+// ArcTan2 (SWI 0x0A) : angle de (x, y) sur un tour. Sur un axe, l'angle est
+// direct et r1 garde y ; ailleurs, ArcTan reçoit la tangente du plus petit
+// côté sur le plus grand, et son a reste en r1. r3 vaut toujours 0x170.
+void bios_arc_tan2_places_the_angle_in_its_quadrant() {
+    struct Case {
+        std::uint32_t x, y, angle, r1;
+    };
+    // Diagonales : tangente ±1, donc ArcTan rend ±0x2000 et a = −0x4000.
+    for (const auto& [x, y, angle, r1] : {
+             Case{0x4000, 0, 0, 0},
+             Case{0xffff'c000U, 0, 0x8000, 0},
+             Case{0, 0x4000, 0x4000, 0x4000},
+             Case{0, 0xffff'c000U, 0xc000, 0xffff'c000U},
+             Case{0x4000, 0x4000, 0x2000, 0xffff'c000U},
+             Case{0xffff'c000U, 0x4000, 0x6000, 0xffff'c000U},
+             Case{0xffff'c000U, 0xffff'c000U, 0xa000, 0xffff'c000U},
+             Case{0x4000, 0xffff'c000U, 0xe000, 0xffff'c000U},
+         }) {
+        const auto result = call_bios(0x0a, x, y);
+        check(result.r0 == angle && result.r1 == r1 && result.r3 == 0x170 && result.r2 == 0x1234'5678U,
+              "ArcTan2 : angle d'un axe ou d'une diagonale faux");
+    }
+
+    // Partout ailleurs, l'angle reste à moins de 3 unités de l'angle exact.
+    Fixture fixture;
+    auto& registers = fixture.machine().cpu.state.regs;
+    auto state = 0x2545'f491U;
+    const auto next = [&state] {
+        state ^= state << 13U;
+        state ^= state >> 17U;
+        state ^= state << 5U;
+        return static_cast<int>(state % 0x1'fffeU) - 0xffff;  // de -0xFFFF à 0xFFFE
+    };
+    for (int index = 0; index < 20000; ++index) {
+        const auto x = next();
+        const auto y = next();
+        if (x == 0 && y == 0) continue;
+        registers[0] = x;
+        registers[1] = y;
+        fixture.machine().bios.handle_swi(0x0a);
+        check(registers[0] >= 0 && registers[0] <= 0xffff, "ArcTan2 : angle hors de 0..0xFFFF");
+        auto error = std::fmod(registers[0] - exact_angle(std::atan2(y, x)) + 0x18000, 0x10000) - 0x8000;
+        check(std::abs(error) < 3.0, "ArcTan2 : trop loin de l'angle exact");
+    }
+}
+
+// Div (SWI 0x06) : quotient tronqué vers zéro, reste, valeur absolue du
+// quotient (GBATEK : -1234 / 10 rend -123, -4 et 123). DivArm (0x07) prend
+// ses opérandes dans l'ordre inverse. Par zéro, la console rend le signe du
+// numérateur, le numérateur et 1 ; -0x80000000 / -1 déborde sur lui-même.
+void bios_divide_by_zero_and_overflow() {
+    struct Case {
+        int swi;
+        std::uint32_t r0, r1, quotient, remainder, magnitude;
+    };
+    for (const auto& [swi, r0, r1, quotient, remainder, magnitude] : {
+             Case{0x06, u32(-1234), 10, u32(-123), u32(-4), 123},
+             Case{0x07, 10, u32(-1234), u32(-123), u32(-4), 123},
+             Case{0x06, 5, 0, 1, 5, 1},
+             Case{0x06, u32(-7), 0, 0xffff'ffffU, u32(-7), 1},
+             Case{0x06, 0, 0, 1, 0, 1},
+             Case{0x06, 0x8000'0000U, 0xffff'ffffU, 0x8000'0000U, 0, 0x8000'0000U},
+         }) {
+        const auto result = call_bios(swi, r0, r1);
+        check(result.r0 == quotient && result.r1 == remainder && result.r3 == magnitude &&
+                  result.r2 == 0x1234'5678U,
+              "Div : quotient, reste ou valeur absolue faux");
+    }
+}
+
 } // namespace ravenemu::gba::testing
 
 int main() {
     using namespace ravenemu::gba::testing;
     bios_checksum_and_midi_key();
+    bios_arc_tan_follows_its_polynomial();
+    bios_arc_tan2_places_the_angle_in_its_quadrant();
+    bios_divide_by_zero_and_overflow();
     sound_bias_keeps_resolution();
     soft_reset_follows_return_flag();
     haltcnt_write_halts();

@@ -39,8 +39,14 @@ public:
         case 0x06: divide(registers[0], registers[1]); break;
         case 0x07: divide(registers[1], registers[0]); break;
         case 0x08: registers[0] = integer_sqrt(u32(registers[0])); break;
-        case 0x09: registers[0] = arc_tan(registers[0]); break;
-        case 0x0a: registers[0] = arc_tan2(registers[0], registers[1]); break;
+        case 0x09: {
+            const auto result = arc_tan(registers[0]);
+            registers[0] = result.angle;
+            registers[1] = result.square;
+            registers[3] = result.sum;
+            break;
+        }
+        case 0x0a: arc_tan2(registers[0], registers[1]); break;
         case 0x0b: cpu_set(registers[0], registers[1], registers[2]); break;
         case 0x0c: cpu_fast_set(registers[0], registers[1], registers[2]); break;
         case 0x0d: registers[0] = i32(0xbaae'187fU); break;  // GetBiosChecksum
@@ -165,14 +171,25 @@ private:
             bus_.reset_affine_matrices();
         }
     }
+    // Div : quotient, reste et valeur absolue du quotient. Par zéro, la
+    // console rend le signe du numérateur (1 pour 0), le numérateur en reste
+    // et 1 en r3 ; -0x80000000 / -1 déborde en -0x80000000.
     void divide(std::int32_t numerator, std::int32_t denominator) noexcept {
-        if (denominator == 0) return;
-        const auto quotient64 = static_cast<std::int64_t>(numerator) / denominator;
-        const auto remainder64 = static_cast<std::int64_t>(numerator) % denominator;
-        const auto quotient = i32(static_cast<std::uint32_t>(quotient64));
-        cpu_.state.regs[0] = quotient;
-        cpu_.state.regs[1] = i32(static_cast<std::uint32_t>(remainder64));
-        cpu_.state.regs[3] = quotient < 0 ? i32(0U - u32(quotient)) : quotient;
+        auto& registers = cpu_.state.regs;
+        if (denominator == 0) {
+            registers[0] = numerator < 0 ? -1 : 1;
+            registers[1] = numerator;
+            registers[3] = 1;
+            return;
+        }
+        const auto quotient = bios_quotient(numerator, denominator);
+        registers[0] = quotient;
+        registers[1] = i32(static_cast<std::uint32_t>(static_cast<std::int64_t>(numerator) % denominator));
+        registers[3] = quotient < 0 ? i32(0U - u32(quotient)) : quotient;
+    }
+    // Division entière du BIOS, tronquée vers zéro, sur 32 bits.
+    static std::int32_t bios_quotient(std::int32_t numerator, std::int32_t denominator) noexcept {
+        return i32(static_cast<std::uint32_t>(static_cast<std::int64_t>(numerator) / denominator));
     }
     static int integer_sqrt(std::uint32_t value) noexcept {
         auto root = static_cast<std::uint32_t>(std::sqrt(static_cast<double>(value)));
@@ -180,17 +197,67 @@ private:
         while (static_cast<std::uint64_t>(root + 1U) * (root + 1U) <= value) ++root;
         return static_cast<int>(root);
     }
-    static int arc_tan(int value) noexcept {
-        const auto fixed = static_cast<double>(static_cast<std::int16_t>(value)) / 16384.0;
-        return static_cast<int>(std::atan(fixed) * 32768.0 / std::numbers::pi) & 0xffff;
+    /**
+     * ArcTan du BIOS : tangente t en virgule fixe 1.14, angle sur 16 bits (un
+     * tour vaut 0x10000). Le BIOS n'évalue pas l'arc tangente exacte, mais la
+     * série t·(1 − t²/3 + t⁴/5 − …), coupée au degré 15 et aux coefficients
+     * retouchés, par la méthode de Horner sur a = −t² / 2^14. Le dernier
+     * coefficient, 0xA2F9, vaut à peu près 2^17 / π. Tout se calcule sur
+     * 32 bits signés : les produits débordent comme ceux de l'ARM et les
+     * décalages sont arithmétiques. Le BIOS lit r0 en entier, si bien qu'au-delà
+     * de [−1, 1] il rend un angle sans signification, celui de la console.
+     * Coefficients du BIOS d'origine, vérifiés sur les registres mesurés sur
+     * console, où restent a (r1) et la valeur du polynôme (r3).
+     */
+    struct ArcTan {
+        std::int32_t angle;   // r0
+        std::int32_t square;  // r1 : a
+        std::int32_t sum;     // r3 : polynôme, multiplié ensuite par t
+    };
+    static ArcTan arc_tan(std::int32_t tangent) noexcept {
+        static constexpr std::array<std::int32_t, 7> coefficients{0x390, 0x91c, 0xfb6, 0x16aa, 0x2081, 0x3651, 0xa2f9};
+        const auto product = [](std::int32_t left, std::int32_t right) { return i32(u32(left) * u32(right)); };
+        const auto square = -(product(tangent, tangent) >> 14);
+        auto sum = std::int32_t{0xa9};
+        for (const auto coefficient : coefficients) sum = (product(sum, square) >> 14) + coefficient;
+        return {product(tangent, sum) >> 16, square, sum};
     }
-    static int arc_tan2(int x, int y) noexcept {
-        const auto fx = static_cast<double>(static_cast<std::int16_t>(x));
-        const auto fy = static_cast<double>(static_cast<std::int16_t>(y));
-        if (fx == 0.0 && fy == 0.0) return 0;
-        auto angle = std::atan2(fy, fx);
-        if (angle < 0.0) angle += 2.0 * std::numbers::pi;
-        return static_cast<int>(angle * 32768.0 / std::numbers::pi) & 0xffff;
+    /**
+     * ArcTan2 du BIOS : angle de (x, y) sur un tour, de 0 à 0xFFFF. Le BIOS
+     * divise la plus petite coordonnée par la plus grande, en valeur absolue,
+     * puis passe la tangente obtenue, entre −1 et 1, à ArcTan et replace
+     * l'angle dans son quadrant. Les coordonnées sont décalées de 14 bits sur
+     * 32 bits avant la division, sans garde contre le débordement. Il laisse
+     * en r1 le a d'ArcTan, et en r3 l'adresse 0x170 de sa propre routine.
+     */
+    void arc_tan2(std::int32_t x, std::int32_t y) noexcept {
+        auto& registers = cpu_.state.regs;
+        registers[3] = 0x170;
+        if (y == 0) {
+            registers[0] = x < 0 ? 0x8000 : 0;
+            return;
+        }
+        if (x == 0) {
+            registers[0] = y < 0 ? 0xc000 : 0x4000;
+            return;
+        }
+        // Comparaisons du BIOS, avec la négation sur 32 bits : à égalité, la
+        // division se fait par x, sauf quand x et y sont tous deux négatifs.
+        const auto minus_x = i32(0U - u32(x));
+        const auto minus_y = i32(0U - u32(y));
+        const auto divide_by_x = y > 0 ? (x > 0 ? x >= y : minus_x >= y) : (x < 0 ? minus_x > minus_y : x >= minus_y);
+        const auto shifted = [](std::int32_t value) { return i32(u32(value) << 14U); };
+        std::int32_t angle{};
+        ArcTan result{};
+        if (divide_by_x) {
+            result = arc_tan(bios_quotient(shifted(y), x));
+            angle = result.angle + (x < 0 ? 0x8000 : 0);
+        } else {
+            result = arc_tan(bios_quotient(shifted(x), y));
+            angle = (y < 0 ? 0xc000 : 0x4000) - result.angle;
+        }
+        registers[0] = angle & 0xffff;  // un angle négatif revient sur le tour
+        registers[1] = result.square;
     }
     void cpu_set(std::int32_t source, std::int32_t destination, std::int32_t control) {
         const auto count = static_cast<int>(u32(control) & 0x1fffffU);
