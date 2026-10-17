@@ -4,9 +4,14 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 ## Non publié
 
+### Corrigé
+
+- GBA : après MULS, MLAS, UMULLS, UMLALS, SMULLS, SMLALS et le MUL Thumb, le drapeau C n'est plus laissé inchangé. Il prend la valeur que produit l'ARM7TDMI : un bit de la rangée des retenues de son multiplieur de Booth, simulé rangée par rangée (`cpu/booth_multiplier.hpp`). Le modèle matériel vient de l'analyse publiée par zayd en 2024 et des brevets ARM qu'elle cite ; le code est écrit pour RavenCore. Il ne tourne que pour les multiplications qui modifient les drapeaux, et ne change ni les résultats ni les cycles.
+
 ### Tests
 
 - `gba_raven_cycles` mesure les cycles CPU de 41 instructions ou courts blocs ARM et Thumb (ALU, multiplications, accès à l'IWRAM, à l'EWRAM et à la ROM, sauts, bug du préchargement désactivé, frontière des 128 Kio de la cartouche), plus l'écart lu sur le timer 0 entre deux lectures. Chaque valeur attendue est une somme tirée des tables de GBATEK. Le test s'exécute dans la CI, sans ROM externe.
+- `gba_raven_cpu` vérifie que les rangées du multiplieur de Booth somment au produit exact, accumulateur compris, sur 60 000 opérandes des six formes. Il vérifie aussi que la boucle compte le m de GBATEK, et que MUL sur quatre cycles lève C exactement quand les deux bits hauts de Rs valent 10. Enfin, il contrôle le drapeau C laissé par chaque forme exécutée sur le CPU.
 
 ## 0.5.0 - 2026-10-17
 

@@ -1,3 +1,4 @@
+#include "cpu/booth_multiplier.hpp"
 #include "machine/machine.hpp"
 
 #include "check.hpp"
@@ -358,6 +359,129 @@ void fetch_window_follows_rom_halves() {
     }
 }
 
+// Multiplieur de Booth : les deux rangées que l'ALU additionne donnent bien le
+// produit, accumulateur compris, et la boucle compte le m de GBATEK (1 à 4
+// selon les octets hauts de Rs, tous à 0, ou tous à 1 en signé).
+void booth_rows_add_up_to_the_product() {
+    auto state = std::uint64_t{0x9e37'79b9'7f4a'7c15U};
+    const auto next = [&state] {
+        state ^= state << 13U;
+        state ^= state >> 7U;
+        state ^= state << 17U;
+        return state;
+    };
+    // Valeurs courtes, longues, négatives et bornes, pour varier m et les signes.
+    const auto operand = [&next] {
+        const auto value = static_cast<std::uint32_t>(next());
+        switch (next() % 8U) {
+        case 0: return value & 0xffU;
+        case 1: return value & 0xffffU;
+        case 2: return value & 0xff'ffffU;
+        case 3: return ~(value & 0xffU);
+        case 4: return ~(value & 0xff'ffffU);
+        case 5: return std::uint32_t{0x8000'0000U};
+        case 6: return std::uint32_t{0};
+        default: return value;
+        }
+    };
+    const auto expected_cycles = [](std::uint32_t multiplier, bool signed_operands) {
+        auto cycles = 1;
+        for (auto shift = 8U; shift < 32U; shift += 8U, ++cycles) {
+            const auto top = multiplier >> shift;
+            if (top == 0 || (signed_operands && top == 0xffff'ffffU >> shift)) break;
+        }
+        return cycles;
+    };
+    for (int index = 0; index < 60000; ++index) {
+        const auto signed_operands = index % 3 != 1;  // MUL et MLA comptent en signé
+        const auto long_result = index % 3 != 0;
+        const auto multiplicand = operand();
+        const auto multiplier = operand();
+        auto accumulate = index % 2 == 0 ? 0U : next();
+        if (!long_result) accumulate &= 0xffff'ffffU;
+        const auto product = signed_operands
+            ? static_cast<std::uint64_t>(std::int64_t{static_cast<std::int32_t>(multiplicand)} *
+                                         static_cast<std::int32_t>(multiplier))
+            : std::uint64_t{multiplicand} * multiplier;
+        const auto mask = long_result ? ~std::uint64_t{0} : std::uint64_t{0xffff'ffffU};
+        const BoothMultiplier booth(multiplicand, multiplier, accumulate, signed_operands, long_result);
+        check(((booth.result() ^ (product + accumulate)) & mask) == 0,
+              "multiplieur de Booth : les rangées ne somment pas au produit");
+        check(booth.cycles() == expected_cycles(multiplier, signed_operands || !long_result),
+              "multiplieur de Booth : nombre de cycles différent du m de GBATEK");
+    }
+}
+
+// MUL et MLA menés sur quatre cycles : le bit 31 de la rangée des retenues est
+// le 1 de négation du dernier chiffre, lu sur les bits 30 à 32 de Rs étendu.
+// Il vaut 1 quand les deux bits hauts de Rs valent 10, quels que soient Rm et Rn.
+void four_cycle_multiply_carry_reads_the_top_of_rs() {
+    for (const auto multiplier : {0x8000'0000U, 0xbfff'ffffU, 0x4000'0000U, 0x7fff'ffffU, 0xc012'3456U,
+                                  0x8800'0001U, 0x0100'0000U, 0xfeff'ffffU}) {
+        for (const auto multiplicand : {0U, 1U, 0xffff'ffffU, 0x1234'5678U, 0x8000'0000U}) {
+            for (const auto addend : {0U, 0xffff'ffffU, 0x0bad'f00dU}) {
+                const BoothMultiplier booth(multiplicand, multiplier, addend, true, false);
+                check(booth.cycles() == 4, "MUL : Rs choisi pour quatre cycles");
+                check(booth.carry_flag() == (multiplier >> 30U == 2U), "MUL sur quatre cycles : drapeau C faux");
+            }
+        }
+    }
+}
+
+// Le drapeau C vient du multiplieur pour MULS, MLAS, UMULLS, UMLALS, SMULLS,
+// SMLALS et le MUL Thumb, quel qu'il fût avant. Les valeurs attendues sont
+// celles du modèle : elles gardent ses choix (bit 31, ou 63 sur quatre cycles
+// longs) contre une régression.
+void multiply_sets_carry_from_booth_rows() {
+    struct Case {
+        const char* name;
+        std::uint32_t opcode;
+        std::uint32_t rm, rs;
+        std::uint64_t accumulate;  // r1:r0 pour les formes longues, r0 pour MLA
+        bool carry;
+    };
+    // Opérandes : Rm = r2, Rs = r3 ; résultat dans r0 (MUL) ou r1:r0.
+    const Case cases[] = {
+        {"muls r0, r2, r3", 0xe010'0392U, 0x1234'5678U, 0x0000'00c3U, 0, true},
+        {"muls r0, r2, r3", 0xe010'0392U, 0x9abc'def0U, 0xffff'8001U, 0, false},
+        {"mlas r0, r2, r3, r0", 0xe030'0392U, 0x0000'ffffU, 0x0001'2345U, 0x8765'4321U, false},
+        {"umulls r0, r1, r2, r3", 0xe091'0392U, 0xffff'ffffU, 0xffff'ffffU, 0, true},
+        {"umulls r0, r1, r2, r3", 0xe091'0392U, 0x1234'5678U, 0x9abc'def0U, 0, false},
+        {"umulls r0, r1, r2, r3", 0xe091'0392U, 0x8000'0000U, 0x0000'0081U, 0, false},
+        {"umlals r0, r1, r2, r3", 0xe0b1'0392U, 0x1357'9bdfU, 0x0002'468aU, 0xfedc'ba98'7654'3210U, true},
+        {"umlals r0, r1, r2, r3", 0xe0b1'0392U, 0xffff'ffffU, 0x8000'0001U, 0x0000'0001'0000'0000U, true},
+        {"smulls r0, r1, r2, r3", 0xe0d1'0392U, 0x8000'0000U, 0x8000'0000U, 0, false},
+        {"smulls r0, r1, r2, r3", 0xe0d1'0392U, 0x4000'0000U, 0xc000'0001U, 0, false},
+        {"smlals r0, r1, r2, r3", 0xe0f1'0392U, 0x1234'5678U, 0xff87'6543U, 0x8000'0000'0000'0000U, true},
+        {"smlals r0, r1, r2, r3", 0xe0f1'0392U, 0xcafe'babeU, 0x0bad'f00dU, 0x0000'0000'ffff'ffffU, false},
+    };
+    for (const auto& test : cases) {
+        for (const auto carry_before : {false, true}) {
+            Fixture fixture;
+            fixture.arm({test.opcode, 0xeaff'fffeU});  // ... ; b .
+            auto& state = fixture.cpu().state;
+            state.regs[0] = static_cast<std::int32_t>(test.accumulate);
+            state.regs[1] = static_cast<std::int32_t>(test.accumulate >> 32U);
+            state.regs[2] = static_cast<std::int32_t>(test.rm);
+            state.regs[3] = static_cast<std::int32_t>(test.rs);
+            state.carry = carry_before;
+            fixture.run();
+            check(state.carry == test.carry, test.name);
+        }
+    }
+    // MUL Thumb : Rd est le multiplicateur. muls r0, r1, r0 : r0 = r1 * r0.
+    for (const auto carry_before : {false, true}) {
+        Fixture fixture;
+        fixture.thumb({0x4348U, 0xe7feU});
+        auto& state = fixture.cpu().state;
+        state.regs[0] = static_cast<std::int32_t>(0x8000'0000U);  // quatre cycles, bits hauts 10
+        state.regs[1] = 0x1234;
+        state.carry = carry_before;
+        fixture.run();
+        check(state.carry, "MUL Thumb : drapeau C non tiré du multiplieur");
+    }
+}
+
 } // namespace ravenemu::gba::testing
 
 int main() {
@@ -375,5 +499,8 @@ int main() {
     sram_eight_bit_bus();
     rom_reads_past_end_return_address();
     fetch_window_follows_rom_halves();
+    booth_rows_add_up_to_the_product();
+    four_cycle_multiply_carry_reads_the_top_of_rs();
+    multiply_sets_carry_from_booth_rows();
     return 0;
 }
