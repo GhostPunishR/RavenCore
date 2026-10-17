@@ -204,6 +204,44 @@ std::uint32_t iwram(const ravenemu::Core& core, std::uint32_t address, std::size
     return value;
 }
 
+void irq_state_continuation_test() {
+    // IRQ de VCount à la ligne 0 : elle se lève à la fin de chaque trame, et
+    // l'état est pris avant qu'elle ne soit synchronisée. Le jeu compte dans
+    // r5 entre deux IRQ ; reprise d'état décalée d'un cycle, compte décalé.
+    // Assemblé avec llvm-mc.
+    std::vector<std::uint32_t> code{
+        0xe3a00301, 0xe59f1088, 0xe59f2088, 0xe5821000,  // r0 = E/S ; [0x03007FFC] = gestionnaire
+        0xe3a01020, 0xe1c010b4,                          // DISPSTAT : IRQ de VCount à la ligne 0
+        0xe2803c02, 0xe3a01004, 0xe1c310b0,              // IE = VCount
+        0xe3a01001, 0xe1c310b8, 0xe321f01f};             // IME = 1, IRQ autorisées
+    code.insert(code.end(), 24, 0xe2855001);             // boucle : 24 fois ++r5,
+    code.insert(code.end(), {0xeaffffe6, 0x080000c0, 0x03007ffc});  // puis b boucle
+    // Gestionnaire en 0x080000C0, après l'en-tête : acquitte IF, puis bx lr.
+    const std::array<std::uint32_t, 5> handler{0xe3a00301, 0xe2800c02, 0xe3a01004, 0xe1c010b2, 0xe12fff1e};
+    auto rom = rom_with(code);
+    for (std::size_t i = 0; i < handler.size(); ++i)
+        for (unsigned b = 0; b < 4; ++b) rom[0xc0 + i * 4 + b] = static_cast<std::uint8_t>(handler[i] >> (8U * b));
+    auto core = ravenemu::make_gba_core(std::nullopt);
+    core->load_rom(rom, {});
+    std::vector<std::int32_t> frame(240 * 160);
+    core->run_frame(frame, false);
+    auto settling = 0;
+    for (int index = 0; index < 4; ++index) {
+        const auto state = core->save_state();
+        // Le format 15 finit par l'âge de la ligne d'IRQ (gros-boutiste,
+        // -1 au repos) ; elle n'est synchronisée qu'à 4 cycles.
+        std::uint32_t age = 0;
+        for (auto byte = state.end() - 4; byte != state.end(); ++byte) age = age << 8U | *byte;
+        if (age < 4) ++settling;
+        core->run_frame(frame, false);
+        const auto continued = core->save_state();
+        core->load_state(state);
+        core->run_frame(frame, false);
+        check(core->save_state() == continued, "IRQ GBA : reprise d'état décalée");
+    }
+    check(settling > 0, "aucun état pris pendant la synchronisation d'une IRQ");
+}
+
 void multiplayer_link_test() {
     // Assemblé avec llvm-mc. Chaque console passe en multijoueur à 115200
     // bauds, lit SI pour savoir si elle est parente, range 0xAA00 (parent) ou
@@ -554,6 +592,7 @@ int main() {
     odd_audio_capacity_keeps_stereo_frames_test();
     audio_state_continuation_test();
     prefetch_state_continuation_test();
+    irq_state_continuation_test();
     multiplayer_link_test();
     normal_link_test();
     link_cable_validation_test();

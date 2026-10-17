@@ -273,9 +273,9 @@ void Bus::handle_io_write(int offset, int value) {
     if (offset >= 0x020 && offset <= 0x027) diagnostics.bg2_matrix_write();
     else if (offset >= 0x028 && offset <= 0x02f) { diagnostics.bg2_reference_write(); ppu_affine_reference_write(ppu, offset); }
     else if (offset >= 0x038 && offset <= 0x03f) ppu_affine_reference_write(ppu, offset);
-    else if (offset == 0x200 && interrupts) interrupts->enable = value;
+    else if (offset == 0x200 && interrupts) interrupts->set_enable(value);
     else if (offset == 0x202 && interrupts) interrupts->acknowledge(value);
-    else if (offset == 0x208 && interrupts) interrupts->master_enable = (value & 1) != 0;
+    else if (offset == 0x208 && interrupts) interrupts->set_master_enable((value & 1) != 0);
     else if (offset == 0x204) {
         timing.set_wait_control(value);
         close_fetch_window();

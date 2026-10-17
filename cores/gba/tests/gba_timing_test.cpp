@@ -452,6 +452,122 @@ void restored_transfer_stays_out_of_the_next_one() {
     hub.detach_all();
 }
 
+// Une IRQ levée entre deux NOP d'un cycle (IWRAM) : le CPU en exécute encore
+// quatre, le temps que la ligne se synchronise, puis entre dans l'exception.
+// L'entrée coûte 2 cycles de plus que le `b 0x128` du vecteur 0x18 : pipeline
+// rechargé (2 cycles), plus la lecture du mot suivant (1).
+void irq_waits_four_cycles_then_enters() {
+    using ravenemu::gba::i32;
+    using ravenemu::gba::InterruptController;
+    ravenemu::gba::Machine machine(
+        thumb_cartridge(), ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; }
+    );
+    constexpr std::uint32_t code = 0x03000100U;
+    for (std::uint32_t index = 0; index < 16; ++index)
+        machine.bus.write32(i32(code + 4U * index), i32(0xe1a0'0000U));  // mov r0, r0
+    machine.cpu.reset(i32(code));
+    machine.cpu.state.irq_disabled = false;
+    machine.interrupts.set_enable(1 << InterruptController::vblank);
+    machine.interrupts.set_master_enable(true);
+    machine.run_for(1);
+    machine.run_for(1);
+    machine.interrupts.request(InterruptController::vblank);
+    for (int nop = 0; nop < 4; ++nop) {
+        const auto pc = machine.cpu.state.regs[15];
+        check(machine.run_for(1) == 1 && machine.cpu.state.regs[15] == pc + 4,
+              "IRQ prise avant que sa ligne soit synchronisée");
+    }
+    check(machine.run_for(1) == 2 + 3 && machine.cpu.state.regs[15] == i32(0x128U),
+          "IRQ : entrée, puis saut du vecteur 0x18 vers le gestionnaire en 0x128 attendus");
+}
+
+// Le CPU arrêté (Halt) que réveille une IRQ ne reprend le code du jeu
+// qu'après le gestionnaire : il attend dans le BIOS que la ligne soit
+// synchronisée. L'IRQ vient du timer 0, dont le débordement survient pendant
+// le Halt ; le gestionnaire copie r1, que le jeu met à 1 après le Halt.
+void halt_lets_the_handler_run_first() {
+    using ravenemu::gba::i32;
+    using ravenemu::gba::InterruptController;
+    ravenemu::gba::Machine machine(
+        thumb_cartridge(), ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; }
+    );
+    const std::array<std::pair<std::uint32_t, std::uint32_t>, 6> program{{
+        {0x0300'0100U, 0xef02'0000U},  // swi Halt
+        {0x0300'0104U, 0xe3a0'1001U},  // mov r1, #1
+        {0x0300'0108U, 0xeaff'fffeU},  // b .
+        {0x0300'0200U, 0xe1a0'2001U},  // gestionnaire : mov r2, r1
+        {0x0300'0204U, 0xeaff'fffeU},  // b .
+        {0x0300'7ffcU, 0x0300'0200U},  // adresse du gestionnaire
+    }};
+    for (const auto& [address, word] : program) machine.bus.write32(i32(address), i32(word));
+    machine.bus.write16(i32(0x0400'0100U), 0xff00);  // TM0 : 256 cycles,
+    machine.bus.write16(i32(0x0400'0102U), 0xc0);    // IRQ au débordement
+    machine.bus.take_wait_cycles();
+    machine.cpu.reset(i32(0x0300'0100U));
+    machine.cpu.state.irq_disabled = false;
+    machine.cpu.state.regs[2] = 0xff;
+    machine.interrupts.set_enable(1 << InterruptController::timer0);
+    machine.interrupts.set_master_enable(true);
+    machine.run_for(16);
+    check(machine.cpu.state.halted, "Halt n'a pas arrêté le CPU");
+    machine.run_for(400);
+    check(machine.cpu.state.regs[2] == 0 && machine.cpu.state.regs[15] == i32(0x0300'0204U),
+          "après un Halt, le code du jeu a repris avant le gestionnaire d'IRQ");
+}
+
+// Une recharge écrite ne sert qu'au cycle suivant : le débordement du cycle
+// même de l'écriture recharge encore l'ancienne valeur.
+void timer_reload_applies_one_cycle_after_write() {
+    ravenemu::gba::InterruptController interrupts;
+    ravenemu::gba::Timers timers(interrupts);
+    timers.reload_write(0, 0xffff);
+    timers.control_write(0, 0x80);  // même accès 32 bits : le timer part de la recharge écrite
+    check(timers.counter(0) == 0xffff, "timer GBA : recharge écrite dans le même accès ignorée");
+    timers.tick(2);  // latence de démarrage
+    timers.reload_write(0, 0x1234);
+    timers.tick(1);
+    check(timers.counter(0) == 0xffff, "timer GBA : recharge servie dans le cycle même de son écriture");
+    timers.tick(1);
+    check(timers.counter(0) == 0x1234, "timer GBA : recharge non servie au cycle suivant");
+}
+
+// Un état pris juste après l'écriture d'une recharge (un DMA peut finir là)
+// la garde en attente : reprise, elle ne sert qu'au cycle suivant.
+void pending_timer_reload_survives_a_state() {
+    ravenemu::gba::InterruptController interrupts;
+    ravenemu::gba::Timers timers(interrupts);
+    timers.reload_write(0, 0xffff);
+    timers.control_write(0, 0x80);
+    timers.tick(2);
+    timers.reload_write(0, 0x1234);
+    const auto pending = timers.export_pending_reloads();
+    check(pending == std::array<std::int32_t, 4>{0x1234, -1, -1, -1}, "timer GBA : recharge en attente non exportée");
+    ravenemu::gba::Timers restored(interrupts);
+    restored.reload_write(0, 0xffff);
+    restored.control_write(0, 0x80);
+    restored.tick(3);  // la recharge 0xFFFF est en service
+    restored.import_pending_reloads(pending);
+    restored.tick(1);
+    check(restored.counter(0) == 0xffff, "timer GBA : recharge importée servie trop tôt");
+    restored.tick(1);
+    check(restored.counter(0) == 0x1234, "timer GBA : recharge importée perdue");
+    const std::array<std::int32_t, 4> invalid{0x10000, -1, -1, -1};
+    expect_failure<ravenemu::SaveStateError>([&] { restored.import_pending_reloads(invalid); },
+                                             "timer GBA : recharge hors bornes acceptée");
+}
+
+// RavenCore note une IRQ dans le mot du BIOS (0x03007FF8) à la place du
+// gestionnaire du jeu : ce n'est pas un accès du CPU, il ne coûte aucun cycle.
+void bios_interrupt_flags_cost_no_cycles() {
+    ravenemu::gba::Machine machine(
+        thumb_cartridge(), ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; }
+    );
+    machine.bus.take_wait_cycles();
+    machine.interrupts.request(ravenemu::gba::InterruptController::timer0);
+    check(machine.bus.take_wait_cycles() == 0, "IRQ notée par le BIOS : cycles comptés au CPU");
+    check((machine.bus.iwram[0x7ff8] & 0x08U) != 0, "IRQ de timer non notée en 0x03007FF8");
+}
+
 } // namespace
 
 int main() {
@@ -459,6 +575,11 @@ int main() {
     cartridge_prefetch_timing();
     prefetch_disable_bug();
     prefetch_state_is_validated();
+    irq_waits_four_cycles_then_enters();
+    halt_lets_the_handler_run_first();
+    timer_reload_applies_one_cycle_after_write();
+    pending_timer_reload_survives_a_state();
+    bios_interrupt_flags_cost_no_cycles();
     timer_counts_two_cycles_after_enable();
     io_registers_are_not_mirrored();
     restored_transfer_stays_out_of_the_next_one();

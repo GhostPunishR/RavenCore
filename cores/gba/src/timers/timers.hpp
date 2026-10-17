@@ -7,9 +7,13 @@ namespace ravenemu::gba {
 class Timers {
 public:
     explicit Timers(InterruptController& interrupts) : interrupts_(interrupts) {}
+    // La recharge écrite ne sert qu'à partir du cycle suivant : un débordement
+    // dans le cycle même de l'écriture recharge encore l'ancienne valeur.
+    // Mesuré sur console : FFFF puis 0 écrits coup sur coup, le compteur
+    // déborde deux fois, et passe à 0 au même cycle qu'avec FFFE.
     void reload_write(int timer, int value) {
         flush();
-        reload_[static_cast<std::size_t>(timer)] = value & 0xffff;
+        next_reload_[static_cast<std::size_t>(timer)] = value & 0xffff;
     }
     void control_write(int timer, int value) {
         flush();
@@ -17,7 +21,9 @@ public:
         const auto was_enabled = (control_[index] & 0x80) != 0;
         control_[index] = value & 0xffff;
         if (!was_enabled && (value & 0x80) != 0) {
-            counter_[index] = reload_[index];
+            // Une écriture 32 bits donne recharge et contrôle d'un coup : le
+            // timer part de la recharge qu'elle vient d'écrire.
+            counter_[index] = next_reload_[index] != no_reload ? next_reload_[index] : reload_[index];
             prescaler_counter_[index] = 0;
             // Le compteur part 2 cycles après l'écriture qui active le timer.
             start_delay_[index] = start_latency;
@@ -42,7 +48,11 @@ public:
         return std::max(1, cycles_until_overflow_ - pending_cycles_);
     }
     void tick(int cycles) {
-        if (cycles_until_overflow_ == no_overflow) return;
+        if (cycles_until_overflow_ == no_overflow) {
+            // Aucun timer ne compte : rien ne peut déborder avec l'ancienne recharge.
+            if (cycles > 0) commit_reloads();
+            return;
+        }
         pending_cycles_ += cycles;
         if (pending_cycles_ >= cycles_until_overflow_) flush();
     }
@@ -76,6 +86,18 @@ public:
         pending_cycles_ = 0;
         cycles_until_overflow_ = compute_budget();
     }
+    // Format 15 : recharges écrites qui ne servent pas encore (-1 : aucune).
+    std::array<std::int32_t, 4> export_pending_reloads() {
+        flush();
+        return next_reload_;
+    }
+    void import_pending_reloads(std::span<const std::int32_t> state) {
+        if (state.size() != 4) throw SaveStateError("État timers GBA invalide");
+        for (const auto value : state) {
+            if (value < no_reload || value > 0xffff) throw SaveStateError("État timers GBA invalide");
+        }
+        std::copy_n(state.begin(), 4, next_reload_.begin());
+    }
     // Format 14 : cycles restant avant que chaque timer activé ne compte.
     std::array<std::int32_t, 4> export_start_delay() {
         flush();
@@ -93,6 +115,7 @@ public:
     }
     void reset() noexcept {
         counter_.fill(0); reload_.fill(0); control_.fill(0); prescaler_counter_.fill(0); start_delay_.fill(0);
+        next_reload_.fill(no_reload);
         pending_cycles_ = 0; cycles_until_overflow_ = no_overflow;
     }
     std::function<void(int)> on_overflow;
@@ -101,10 +124,24 @@ private:
     static constexpr int no_overflow = std::numeric_limits<int>::max();
     static constexpr std::array prescale_{1, 64, 256, 1024};
     static constexpr int start_latency = 2;
+    static constexpr int no_reload = -1;
     void flush() {
-        const auto cycles = std::exchange(pending_cycles_, 0);
+        auto cycles = std::exchange(pending_cycles_, 0);
+        // Le premier cycle après une écriture de recharge garde l'ancienne.
+        const auto reload_pending = std::any_of(next_reload_.begin(), next_reload_.end(),
+                                                [](int value) { return value != no_reload; });
+        if (cycles > 0 && reload_pending) {
+            apply_cycles(1);
+            --cycles;
+            commit_reloads();
+        }
         if (cycles > 0) apply_cycles(cycles);
         cycles_until_overflow_ = compute_budget();
+    }
+    void commit_reloads() noexcept {
+        for (std::size_t i = 0; i < 4; ++i) {
+            if (next_reload_[i] != no_reload) reload_[i] = std::exchange(next_reload_[i], no_reload);
+        }
     }
     [[nodiscard]] int compute_budget() const noexcept {
         auto budget = no_overflow;
@@ -160,6 +197,7 @@ private:
     std::array<int, 4> control_{};
     std::array<int, 4> prescaler_counter_{};
     std::array<int, 4> start_delay_{};
+    std::array<std::int32_t, 4> next_reload_{no_reload, no_reload, no_reload, no_reload};
     int pending_cycles_{};
     int cycles_until_overflow_{no_overflow};
 };
