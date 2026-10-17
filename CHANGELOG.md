@@ -2,7 +2,7 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
-## 0.5.0 - 2026-10-16
+## 0.5.0 - 2026-10-17
 
 Cette version émule le câble link GBA et le tampon de préchargement de la cartouche ([#22](https://github.com/GhostPunishR/RavenCore/pull/22)), et compte le temps du processeur GBA au cycle près. Le format des états GBA change ; l'API C gagne le câble link sans rien retirer.
 
