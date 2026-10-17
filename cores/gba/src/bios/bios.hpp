@@ -94,7 +94,10 @@ public:
 
 private:
     static constexpr std::int32_t interrupt_flags_address = i32(0x03007ff8U);
+    static constexpr std::uint32_t hang_address = 0x3b4;
     void install_irq_handler() noexcept {
+        for (unsigned byte = 0; byte < 4; ++byte)
+            bus_.bios[hang_address + byte] = static_cast<std::uint8_t>(0xeaff'fffeU >> (byte * 8U));  // b .
         // Même séquence que le gestionnaire du BIOS d'origine. Le mot qui le
         // suit n'est jamais exécuté, mais il est préchargé au retour : c'est
         // la valeur que GBATEK documente pour une lecture du BIOS après une IRQ.
@@ -171,12 +174,22 @@ private:
             bus_.reset_affine_matrices();
         }
     }
-    // Div : quotient, reste et valeur absolue du quotient. Par zéro, la
-    // console rend le signe du numérateur (1 pour 0), le numérateur en reste
-    // et 1 en r3 ; -0x80000000 / -1 déborde en -0x80000000.
+    /**
+     * Div : quotient, reste et valeur absolue du quotient ; -0x80000000 / -1
+     * déborde en -0x80000000. Le BIOS ne teste pas la division par zéro : il
+     * double le diviseur tant qu'il reste sous la moitié du numérateur, ce qui
+     * ne finit jamais dès que |numérateur| >= 2, et la console reste bloquée
+     * dans le BIOS. 0/0, 1/0 et -1/0 en sortent avec le signe du numérateur
+     * (1 pour 0), le numérateur en reste et 1 en r3 (GBA BIOS Reference,
+     * « SWI 0x06 Div », valeurs vérifiées sur console).
+     */
     void divide(std::int32_t numerator, std::int32_t denominator) noexcept {
         auto& registers = cpu_.state.regs;
         if (denominator == 0) {
+            if (numerator < -1 || numerator > 1) {
+                hang();
+                return;
+            }
             registers[0] = numerator < 0 ? -1 : 1;
             registers[1] = numerator;
             registers[3] = 1;
@@ -186,6 +199,12 @@ private:
         registers[0] = quotient;
         registers[1] = i32(static_cast<std::uint32_t>(static_cast<std::int64_t>(numerator) % denominator));
         registers[3] = quotient < 0 ? i32(0U - u32(quotient)) : quotient;
+    }
+    // Boucle sans fin d'un appel du BIOS : comme le vrai SWI, le CPU passe en
+    // mode superviseur, IRQ masquées, et tourne sur `b .` à l'entrée de Div.
+    void hang() noexcept {
+        const auto return_address = add32(cpu_.state.regs[15], cpu_.state.thumb ? 2 : 4);
+        cpu_.raise_exception(CpuState::mode_supervisor, i32(hang_address), return_address);
     }
     // Division entière du BIOS, tronquée vers zéro, sur 32 bits.
     static std::int32_t bios_quotient(std::int32_t numerator, std::int32_t denominator) noexcept {

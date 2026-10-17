@@ -9,11 +9,11 @@ Cette version donne aux fonctions ArcTan, ArcTan2 et Div du BIOS GBA les valeurs
 ### Corrigé
 
 - GBA : ArcTan et ArcTan2 du BIOS (SWI 0x09 et 0x0A) rendent les angles de la console. Le BIOS n'évalue pas l'arc tangente exacte, mais un polynôme en virgule fixe 1.14 par la méthode de Horner, sur 32 bits signés ; RavenCore calculait l'angle exact en virgule flottante et rendait donc souvent une ou deux unités de trop ou de moins. ArcTan lit désormais r0 en entier, comme le BIOS, et laisse en r1 et r3 les valeurs intermédiaires de la console ; ArcTan2 laisse le r1 d'ArcTan et 0x170 en r3.
-- GBA : Div et DivArm (SWI 0x06 et 0x07) par zéro ne laissent plus les registres inchangés : ils rendent le signe du numérateur (1 pour 0), le numérateur en reste et 1 en r3, comme la console.
+- GBA : Div et DivArm (SWI 0x06 et 0x07) par zéro se comportent comme le BIOS d'origine, qui ne teste pas ce cas. 0/0, 1/0 et -1/0 rendent le signe du numérateur (1 pour 0), le numérateur en reste et 1 en r3. Au-delà, sa boucle d'alignement ne finit jamais : la console reste bloquée dans le BIOS, IRQ masquées, et RavenCore aussi désormais (d'après la [GBA BIOS Reference](https://retrointernals.github.io/gba-bios-reference/swi_06_div/), documentation comportementale vérifiée sur console).
 
 ### Tests
 
-- `gba_raven_hardware` vérifie ArcTan, ArcTan2 et Div appelés par `swi`. Il contrôle des valeurs calculées à la main : ArcTan(1) vaut exactement π/4, avec le polynôme à 0x8000. Il vérifie aussi que l'approximation reste à moins de 1,4 unité de l'arc tangente exacte sur [−1, 1], et ArcTan2 à moins de 3 unités de l'angle exact sur 20 000 points. Enfin, il contrôle les quadrants, la division par zéro et le débordement de -0x80000000 / -1.
+- `gba_raven_hardware` vérifie ArcTan, ArcTan2 et Div appelés par `swi`. Il contrôle des valeurs calculées à la main : ArcTan(1) vaut exactement π/4, avec le polynôme à 0x8000. Il vérifie aussi que l'approximation reste à moins de 1,4 unité de l'arc tangente exacte sur [−1, 1], et ArcTan2 à moins de 3 unités de l'angle exact sur 20 000 points. Enfin, il contrôle les quadrants, la division par zéro (résultats de 0/0, 1/0 et -1/0, blocage au-delà) et le débordement de -0x80000000 / -1.
 
 ## 0.5.1 - 2026-10-17
 

@@ -7,6 +7,7 @@
 #include <initializer_list>
 #include <memory>
 #include <numbers>
+#include <utility>
 #include <vector>
 
 /**
@@ -446,7 +447,7 @@ void bios_arc_tan2_places_the_angle_in_its_quadrant() {
 
 // Div (SWI 0x06) : quotient tronqué vers zéro, reste, valeur absolue du
 // quotient (GBATEK : -1234 / 10 rend -123, -4 et 123). DivArm (0x07) prend
-// ses opérandes dans l'ordre inverse. Par zéro, la console rend le signe du
+// ses opérandes dans l'ordre inverse. 0/0, 1/0 et -1/0 rendent le signe du
 // numérateur, le numérateur et 1 ; -0x80000000 / -1 déborde sur lui-même.
 void bios_divide_by_zero_and_overflow() {
     struct Case {
@@ -456,8 +457,8 @@ void bios_divide_by_zero_and_overflow() {
     for (const auto& [swi, r0, r1, quotient, remainder, magnitude] : {
              Case{0x06, u32(-1234), 10, u32(-123), u32(-4), 123},
              Case{0x07, 10, u32(-1234), u32(-123), u32(-4), 123},
-             Case{0x06, 5, 0, 1, 5, 1},
-             Case{0x06, u32(-7), 0, 0xffff'ffffU, u32(-7), 1},
+             Case{0x06, 1, 0, 1, 1, 1},
+             Case{0x06, 0xffff'ffffU, 0, 0xffff'ffffU, 0xffff'ffffU, 1},
              Case{0x06, 0, 0, 1, 0, 1},
              Case{0x06, 0x8000'0000U, 0xffff'ffffU, 0x8000'0000U, 0, 0x8000'0000U},
          }) {
@@ -465,6 +466,27 @@ void bios_divide_by_zero_and_overflow() {
         check(result.r0 == quotient && result.r1 == remainder && result.r3 == magnitude &&
                   result.r2 == 0x1234'5678U,
               "Div : quotient, reste ou valeur absolue faux");
+    }
+}
+
+// Au-delà, le BIOS double sans fin un diviseur nul : la console reste dans le
+// BIOS, en mode superviseur et IRQ masquées, même si une IRQ est en attente.
+void bios_divide_by_zero_hangs() {
+    for (const auto& [swi, numerator] : {std::pair{0x06, 5U}, std::pair{0x06, 0x8000'0000U}, std::pair{0x07, u32(-2)}}) {
+        Fixture fixture;
+        fixture.arm({0xef00'0000U | static_cast<std::uint32_t>(swi) << 16U, 0xeaff'fffeU});  // swi ; b .
+        auto& machine = fixture.machine();
+        auto& registers = machine.cpu.state.regs;
+        registers[0] = i32(swi == 0x06 ? numerator : 0U);
+        registers[1] = i32(swi == 0x06 ? 0U : numerator);
+        machine.run_frame(100);
+        machine.interrupts.enable = 1 << InterruptController::vblank;
+        machine.interrupts.master_enable = true;
+        machine.interrupts.request(InterruptController::vblank);
+        machine.run_frame(2000);
+        check(fixture.reg(15) == 0x3b4 && machine.cpu.state.irq_disabled &&
+                  (machine.cpu.state.cpsr() & 0x1f) == CpuState::mode_supervisor,
+              "Div par zéro : la console doit rester bloquée dans le BIOS");
     }
 }
 
@@ -476,6 +498,7 @@ int main() {
     bios_arc_tan_follows_its_polynomial();
     bios_arc_tan2_places_the_angle_in_its_quadrant();
     bios_divide_by_zero_and_overflow();
+    bios_divide_by_zero_hangs();
     sound_bias_keeps_resolution();
     soft_reset_follows_return_flag();
     haltcnt_write_halts();
