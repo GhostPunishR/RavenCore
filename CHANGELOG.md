@@ -2,6 +2,39 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.5.0 - 2026-10-17
+
+Cette version émule le câble link GBA et le tampon de préchargement de la cartouche ([#22](https://github.com/GhostPunishR/RavenCore/pull/22)), et compte le temps du processeur GBA au cycle près. Le format des états GBA change ; l'API C gagne le câble link sans rien retirer.
+
+### Ajouté
+
+- **Câble link entre consoles d'une même application.** `connect_link_cable()` en C++, `ravenemu_link_create()` et `ravenemu_link_run_frame()` dans l'API C relient deux Game Boy ou Game Boy Color (mélangées si besoin), ou deux à quatre GBA. Les consoles reliées avancent ensemble, une image chacune par appel, à tour de rôle par tranches : une ligne (456 cycles, moins qu'un bit à 8 kHz) sur Game Boy, de sorte que l'autre console est prête avant l'arrivée des bits et répond à temps. Usage visé : deux jeux côte à côte sur un même appareil, pour échanger ou se battre.
+- **GBA : câble link, modes multijoueur et normal** (GBATEK, « SIO Multi-Player Mode » et « SIO Normal Mode »).
+  - **Multijoueur** : la console parente (la première) lance le transfert ; chaque console reçoit les quatre valeurs dans SIOMULTI0 à 3, 0xFFFF pour une place vide, puis son interruption. SIOCNT indique la console parente (SI), les consoles prêtes (SD) et le numéro de chaque console. La durée d'un transfert suit les mesures sur console publiées par mGBA, selon le débit et le nombre de consoles : à 115200 bauds, 3140 cycles seule, 5755 à deux.
+  - **Normal 8 et 32 bits** : la console à horloge interne cadence celle qui attend avec une horloge externe, et toutes deux échangent leurs données. SI suit la ligne SO de l'autre console, basse quand elle attend.
+  - **Cadence** : les consoles avancent par tranches de 1024 cycles, à tour de rôle, celle qui a lancé le dernier transfert en premier. Un transfert multijoueur dure plus qu'une tranche : chaque console lit les autres et reçoit le résultat au cycle exact de sa propre horloge. Un transfert en mode normal plus court qu'une tranche lit l'autre console là où elle en est. Chaque transfert porte un numéro : une console ne reçoit que le résultat de celui qu'elle attend, même quand plusieurs se suivent de près. Débranché, le câble rend à chaque console les bits d'état de SIOCNT d'une console seule.
+  - **Sans câble**, une console en multijoueur se lit désormais enfant, SI tiré à 1 comme sur la console ; elle termine toujours seule un transfert qu'elle lance.
+- **GBA : tampon de préchargement de la cartouche** (WAITCNT bit 14, GBATEK « GamePak Prefetch »). Pendant que le CPU n'utilise pas le bus de la cartouche (cycles internes, accès à la RAM ou aux registres), une unité lit d'avance jusqu'à huit demi-mots de code à la suite de la dernière instruction lue en ROM. Une instruction déjà lue coûte alors 1 cycle, celle en cours de lecture le reste de sa lecture. Un saut vide le tampon ; un accès de données à la cartouche arrête l'unité, et attend d'un cycle s'il tombe sur le dernier cycle d'un demi-mot en cours. Le tampon remplace l'approximation précédente, qui rendait gratuite toute lecture séquentielle en ROM dès que le préchargement était activé, comme le font presque tous les jeux du commerce : leur code tourne désormais à la cadence de la console.
+
+### Corrigé
+
+- **GBA : durée des instructions.** Chaque accès au bus coûte désormais 1 cycle plus ses attentes, et une instruction n'y ajoute que ses cycles internes. Les chargements simples (LDR, LDRH, LDRB, LDRSB, LDRSH, sauf LDR relatif à PC en Thumb), POP et LDMIA en Thumb retrouvent le cycle interne qui leur manquait ; STM en ARM perd le cycle de trop qu'il comptait. Le premier accès de chaque bloc de 128 Kio de la cartouche est non séquentiel.
+- **GBA : préchargement désactivé.** Sans tampon, l'instruction qui suit un cycle interne en ROM est relue hors séquence (GBATEK, « Prefetch Disable Bug »).
+- **GBA : timers et registres d'E/S au cycle près.** Un timer compte à partir de 2 cycles après l'écriture qui l'active. Les périphériques sont avancés jusqu'au cycle exact d'un accès aux registres, au milieu de l'instruction, et non plus à sa fin.
+- **GBA : registres d'E/S répétés dans toute leur région.** Seuls 0x04000000 à 0x040003FF répondent ; 0x04xx0800 rend la valeur du contrôle mémoire (0x0D000020). Ailleurs, une lecture rend le bus ouvert et une écriture se perd. Une trace de débogage écrite à 0x04FFF600, comme celle de mGBA, écrasait sinon le registre IE et bloquait le programme en attente d'interruption.
+
+Mesures avec la suite de test de mGBA (licence MIT, exécutée en local) : les échecs de la suite « Timing » passent de 785 à 340, ceux de « Timers » de 591 à 561 et ceux de « Timer IRQ » de 90 à 54. Tous les échecs restants de la suite Timing concernent la durée des appels du BIOS et des DMA, qui ne sont pas encore comptées au cycle près.
+
+### Modifié
+
+- **GBA : environ 5 % plus lent** sur Pokémon Émeraude (3,30 ms → 3,50 ms par image sur un PC), le prix du tampon de préchargement. Grand Theft Auto et Zelda gardent la même vitesse. La fenêtre de lecture d'instructions reste désormais ouverte après un saut ou un accès de données dans la même zone, ce qui compense une bonne partie du surcoût.
+
+### Compatibilité des états instantanés
+
+- **GBA : format 14.** L'état garde le tampon de préchargement, le démarrage des timers et un transfert en cours sur le câble link. Les états au format 13 (versions 0.4.x) se rechargent, tampon vide. Un état au format 14 ne se recharge pas dans une version 0.4.x. L'état d'une console reliée ne contient qu'elle : un transfert en cours avec une autre console, rechargé alors que le câble est passé à un autre transfert, se termine comme sans câble, sans se mêler au transfert suivant.
+- **GB/GBC : format 11**, inchangé.
+- **API C : version 0**, inchangée : les fonctions du câble link s'ajoutent sans rien changer aux autres. **API C++** : `Core` gagne la méthode virtuelle `create_link_cable()`, ce qui change sa table virtuelle ; recompiler le code qui dérive de `Core`. Le paquet CMake se demande désormais avec `find_package(RavenCore 0.5)`.
+
 ## 0.4.1 - 2026-10-16
 
 Cette version corrige le redémarrage des DMA GBA ([#21](https://github.com/GhostPunishR/RavenCore/pull/21)), qui laissait GTA Advance sur un écran noir au début d'une nouvelle partie, garde l'heure réglée par un jeu GBA dans sa sauvegarde et accélère le cœur GBA. L'API et le format des états ne changent pas ; la sauvegarde d'un jeu GBA à horloge gagne 16 octets.

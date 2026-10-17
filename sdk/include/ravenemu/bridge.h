@@ -140,6 +140,22 @@ int ravenemu_set_rotation(ravenemu_bridge* handle, int speed);
  * the console goes down, y > 0 when its top edge moves away from the player. */
 int ravenemu_set_tilt(ravenemu_bridge* handle, int x, int y);
 
+/* Link cable between handles of this process, for example two games side by
+ * side on one device. Link 2 GB/GBC handles (a GB and a GBC can be mixed) or
+ * 2 to 4 GBA handles; the first GBA is the parent of multiplayer games. Each
+ * handle keeps its ROM, saves, states and audio: load them as usual.
+ * While linked, advance the handles with ravenemu_link_run_frame only:
+ * ravenemu_run_frame fails on them. Destroying one of the handles unplugs
+ * the cable for all of them; ravenemu_link_destroy must still be called.
+ * Returns NULL on error (see ravenemu_last_error). */
+typedef struct ravenemu_link ravenemu_link;
+ravenemu_link* ravenemu_link_create(ravenemu_bridge* const* handles, size_t count);
+void ravenemu_link_destroy(ravenemu_link* link);
+/* One frame of every linked handle, run together. argb[i] receives the frame
+ * of handles[i], in the format of ravenemu_run_frame; each buffer holds at
+ * least pixel_capacity pixels. Returns 1 on success. */
+int ravenemu_link_run_frame(ravenemu_link* link, uint32_t* const* argb, size_t pixel_capacity);
+
 #ifdef __cplusplus
 }
 #endif

@@ -84,6 +84,13 @@ public:
         link_endpoint_ = endpoint;
         return true;
     }
+    [[nodiscard]] std::unique_ptr<LinkCable> create_link_cable(std::span<Core* const> players) override;
+    // Pour le câble link : la machine, après les vérifications de run_frame.
+    [[nodiscard]] Machine& machine_for_frame(std::span<const std::int32_t> framebuffer) {
+        require_loaded();
+        if (framebuffer.size() < Ppu::frame_pixels) throw std::invalid_argument("Framebuffer trop petit");
+        return *machine_;
+    }
     [[nodiscard]] bool connect_infrared_endpoint(InfraredEndpoint* endpoint) noexcept override {
         if (machine_ != nullptr && !machine_->infrared_router.connect(endpoint)) return false;
         infrared_endpoint_ = endpoint;
@@ -234,6 +241,70 @@ private:
     int host_acceleration_x_{};
     int host_acceleration_y_{};
 };
+
+/**
+ * Câble link Game Boy. Les deux ports série s'échangent leurs bits par un
+ * LocalLinkEndpoint, à l'instant où la console qui fournit l'horloge en
+ * cadence un. Les machines avancent à tour de rôle par tranches d'une ligne
+ * (456 cycles, moins qu'un bit à 8 kHz) : l'autre console a donc préparé son
+ * transfert avant que ses bits arrivent, et répond à temps au suivant.
+ */
+class GameBoyLinkCable final : public LinkCable {
+public:
+    static constexpr int slice = 456;
+    GameBoyLinkCable(GameBoyCore& first, GameBoyCore& second) : players_{&first, &second} {
+        if (!first.connect_link_endpoint(&endpoint_) || !second.connect_link_endpoint(&endpoint_)) {
+            disconnect();
+            throw std::invalid_argument("Ces consoles ne se relient pas par un câble link Game Boy");
+        }
+    }
+    GameBoyLinkCable(const GameBoyLinkCable&) = delete;
+    GameBoyLinkCable& operator=(const GameBoyLinkCable&) = delete;
+    ~GameBoyLinkCable() override { disconnect(); }
+
+    [[nodiscard]] std::size_t players() const noexcept override { return players_.size(); }
+    void run_frame(std::span<const std::span<std::int32_t>> framebuffers, bool) override {
+        if (framebuffers.size() != players_.size()) throw std::invalid_argument("Une image par console reliée");
+        constexpr int frame_cycles = 70'224;
+        std::array<Machine*, 2> machines{};
+        for (std::size_t index = 0; index < players_.size(); ++index)
+            machines[index] = &players_[index]->machine_for_frame(framebuffers[index]);
+        // Chaque machine avance d'une image, comme GameBoyCore::run_frame,
+        // mais par tranches entrelacées.
+        std::array<int, 2> elapsed{};
+        std::array<bool, 2> stopped{};
+        for (auto end = slice;; end += slice) {
+            const auto target = std::min(end, frame_cycles);
+            for (std::size_t index = 0; index < machines.size(); ++index) {
+                while (!stopped[index] && elapsed[index] < target) {
+                    const int advanced = machines[index]->step();
+                    if (advanced <= 0) stopped[index] = true;
+                    else elapsed[index] += advanced;
+                }
+            }
+            if (target == frame_cycles) break;
+        }
+        for (std::size_t index = 0; index < machines.size(); ++index)
+            std::copy(machines[index]->ppu.completed_frame.begin(), machines[index]->ppu.completed_frame.end(),
+                      framebuffers[index].begin());
+    }
+
+private:
+    void disconnect() noexcept {
+        for (auto* player : players_) static_cast<void>(player->connect_link_endpoint(nullptr));
+    }
+    LocalLinkEndpoint endpoint_;
+    std::array<GameBoyCore*, 2> players_;
+};
+
+std::unique_ptr<LinkCable> GameBoyCore::create_link_cable(std::span<Core* const> players) {
+    if (players.size() != 2) throw std::invalid_argument("Le câble link Game Boy relie deux consoles");
+    auto* first = dynamic_cast<GameBoyCore*>(players[0]);
+    auto* second = dynamic_cast<GameBoyCore*>(players[1]);
+    if (first == nullptr || second == nullptr)
+        throw std::invalid_argument("Un câble link Game Boy ne relie que des Game Boy et Game Boy Color");
+    return std::make_unique<GameBoyLinkCable>(*first, *second);
+}
 
 } // namespace cgb
 

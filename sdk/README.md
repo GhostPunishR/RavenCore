@@ -10,6 +10,8 @@ Pour un jeu GBA dont la détection échoue, `ravenemu_set_gba_save_type()` impos
 
 `ravenemu_sensors()` indique les capteurs de la cartouche chargée : solaire (Boktai 1 à 3), rotation (WarioWare: Twisted!) et inclinaison (Yoshi Topsy-Turvy, Koro Koro Puzzle et cartouches GB MBC7). Le frontend les alimente avec les capteurs de l'appareil ou avec ses commandes : `ravenemu_set_solar_light()` (0, obscurité, à 255, plein soleil), `ravenemu_set_rotation()` (-32768 à 32767, positif dans le sens horaire) et `ravenemu_set_tilt()` (-32768 à 32767 par axe pour -1 g à 1 g). Ces valeurs survivent au chargement, au reset et aux états instantanés ; elles sont ignorées sans le capteur correspondant.
 
+`ravenemu_link_create()` relie des handles de la même application par un câble link, par exemple deux jeux côte à côte sur un même appareil : deux Game Boy ou Game Boy Color (mélangées si besoin), ou deux à quatre GBA dont la première est la console parente des jeux multijoueurs. Chaque handle garde sa ROM, sa sauvegarde, ses états et son audio. Une fois reliés, les handles avancent ensemble par `ravenemu_link_run_frame()`, qui remplit une image par handle ; `ravenemu_run_frame()` échoue sur eux. Les consoles avancent à tour de rôle par tranches : une ligne (456 cycles) sur Game Boy, 1024 cycles sur GBA. Côté GBA, un transfert multijoueur voit chaque console au cycle exact, un transfert en mode normal plus court qu'une tranche lit l'autre console là où elle en est. Détruire un handle relié débranche le câble pour tous ; `ravenemu_link_destroy()` reste à appeler.
+
 `ravenemu_read_achievement_memory()` lit l'espace d'adresses de RetroAchievements sans faire avancer l'émulation. Une zone non exposée donne une lecture plus courte que demandé : le frontend doit utiliser le nombre d'octets renvoyé.
 
 La bibliothèque est liée statiquement aux moteurs C++20. Les structures C++ ne traversent jamais cette interface. La version 0 de l'API est une préversion : ne pas supposer une ABI stabilisée. Pour connaître les erreurs, utiliser `ravenemu_last_error()` sur le même thread que l'appel ayant échoué.
@@ -33,7 +35,7 @@ cmake --install build --prefix /chemin/ravencore
 ```
 
 ```cmake
-find_package(RavenCore 0.4 REQUIRED)
+find_package(RavenCore 0.5 REQUIRED)
 target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 

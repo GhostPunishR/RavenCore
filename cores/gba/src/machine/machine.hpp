@@ -24,11 +24,19 @@ public:
         apu.on_fifo_request = [this](int channel) { dma.trigger_sound_fifo(channel); };
         // Un SWI HLE touche directement registres et mémoire : les
         // périphériques doivent d'abord rattraper les instructions passées.
-        cpu.swi_handler = [this](int number) { sync_peripherals(); bios.handle_swi(number); next_event_ = 0; };
+        cpu.swi_handler = [this](int number) {
+            sync_within_instruction(bus.wait_cycles);
+            sync_peripherals();
+            bios.handle_swi(number);
+            next_event_ = 0;
+        };
         bus.io_sync_context = this;
         bus.io_halt = [](void* context) { static_cast<Machine*>(context)->bios.halt(); };
         bus.io_sync = [](void* context, bool write) {
             auto& machine = *static_cast<Machine*>(context);
+            // Le registre est lu ou écrit au premier cycle de son accès, après
+            // ceux que l'instruction a déjà passés (lecture du code, attentes).
+            machine.sync_within_instruction(machine.bus.wait_cycles - 1);
             machine.sync_peripherals();
             // Une écriture peut lancer un timer ou changer un registre vidéo :
             // le prochain événement est recalculé après l'instruction.
@@ -43,7 +51,17 @@ public:
         run_frame(ppu.cycles_until_next_frame());
     }
     void run_frame(int cycles) {
-        auto elapsed = 0; bus.diagnostics.begin_frame();
+        bus.diagnostics.begin_frame();
+        run_for(cycles);
+    }
+    /**
+     * Avance d'au moins `cycles` cycles et rend ceux réellement écoulés (une
+     * instruction peut dépasser). Le câble link avance ainsi plusieurs
+     * machines par tranches ; il a pu changer le port série entre deux tranches.
+     */
+    int run_for(int cycles) {
+        auto elapsed = 0;
+        sync_peripherals();
         while (elapsed < cycles) {
             if (dma.active()) {
                 sync_peripherals();
@@ -66,11 +84,14 @@ public:
             if (interrupts.pending() && !cpu.state.irq_disabled) {
                 cpu.raise_exception(CpuState::mode_irq, 0x18, add32(cpu.state.regs[15], 4));
             }
+            in_instruction_ = true;
             const auto consumed = cpu.step(); bus.diagnostics.instruction();
-            pending_cycles_ += consumed; elapsed += consumed;
+            in_instruction_ = false;
+            pending_cycles_ += consumed - std::exchange(synced_in_instruction_, 0); elapsed += consumed;
             if (pending_cycles_ >= next_event_) sync_peripherals();
         }
         sync_peripherals();
+        return elapsed;
     }
     /**
      * Les périphériques n'ont pas à être avancés après chaque instruction :
@@ -80,6 +101,16 @@ public:
      * événement, avant tout accès aux E/S et avant un SWI, un DMA ou un Halt.
      * L'ordre des effets est exactement celui d'une avance à chaque instruction.
      */
+    /**
+     * Avance les périphériques jusqu'au cycle `offset` de l'instruction en
+     * cours : une lecture de timer ou une écriture d'E/S voit l'heure exacte
+     * de son accès, pas celle du début de l'instruction.
+     */
+    void sync_within_instruction(int offset) noexcept {
+        if (!in_instruction_ || offset <= synced_in_instruction_) return;
+        pending_cycles_ += offset - synced_in_instruction_;
+        synced_in_instruction_ = offset;
+    }
     void sync_peripherals() {
         if (pending_cycles_ > 0) { const auto cycles = pending_cycles_; pending_cycles_ = 0; advance_peripherals(cycles); }
         next_event_ = next_event();
@@ -115,6 +146,8 @@ public:
 private:
     int pending_cycles_{};
     int next_event_{};
+    bool in_instruction_{};
+    int synced_in_instruction_{};
 };
 
 } // namespace ravenemu::gba

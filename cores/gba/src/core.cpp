@@ -53,6 +53,17 @@ public:
     void set_button(Button button, bool pressed) override {
         if (machine_) machine_->bus.keypad.set_button(button, pressed);
     }
+    [[nodiscard]] std::unique_ptr<LinkCable> create_link_cable(std::span<Core* const> players) override;
+    void unplug_link() noexcept {
+        if (machine_) machine_->serial.refresh_status();
+    }
+    // Pour le câble link : la machine, après les vérifications de run_frame.
+    [[nodiscard]] Machine& machine_for_frame(std::span<const std::int32_t> framebuffer) {
+        require_loaded();
+        if (framebuffer.size() < Ppu::screen_width * Ppu::screen_height)
+            throw std::invalid_argument("Framebuffer trop petit");
+        return *machine_;
+    }
     std::size_t read_audio(std::span<std::int16_t> destination) override {
         return machine_ ? machine_->apu.read_samples(destination) : 0;
     }
@@ -237,10 +248,19 @@ public:
         out.boolean(pipeline.valid);
         out.boolean(pipeline.thumb);
         out.u32(m.bus.last_fetch);
-        out.i32(m.serial.export_state());
+        out.i32(m.serial.export_remaining());
         out.i32(m.bus.sequential_address());
         // Format 13 : capteurs de cartouche.
         for (const auto value : m.cartridge.export_sensor_state()) out.i32(value);
+        // Format 14 : tampon de préchargement et démarrage des timers.
+        const auto& prefetch = m.bus.prefetch();
+        out.u32(prefetch.head);
+        out.i32(prefetch.count);
+        out.i32(prefetch.progress);
+        out.boolean(prefetch.active);
+        for (const auto value : m.timers.export_start_delay()) out.i32(value);
+        // Format 14 aussi : transfert en cours sur le câble link.
+        for (const auto value : m.serial.export_link_state()) out.i32(value);
         return std::move(out).take();
     }
     void load_state(std::span<const std::uint8_t> bytes) override {
@@ -320,7 +340,7 @@ public:
             pipeline.thumb = in.boolean();
             m.cpu.restore_pipeline(pipeline);
             m.bus.last_fetch = in.u32();
-            m.serial.import_state(in.i32());
+            m.serial.import_remaining(in.i32());
             m.bus.restore_sequential_address(in.i32());
         }
         // Avant le format 13, les capteurs repartent de leur état initial.
@@ -329,6 +349,23 @@ public:
             for (auto& value : sensors) value = in.i32();
             m.cartridge.import_sensor_state(sensors);
         }
+        // Avant le format 14, le tampon de préchargement repart vide.
+        if (version >= 14) {
+            Bus::Prefetch prefetch;
+            prefetch.head = in.u32();
+            prefetch.count = in.i32();
+            prefetch.progress = in.i32();
+            prefetch.active = in.boolean();
+            m.bus.restore_prefetch(prefetch);
+            std::array<std::int32_t, 4> delays{};
+            for (auto& value : delays) value = in.i32();
+            m.timers.import_start_delay(delays);
+        }
+        // Avant le format 14, aucun transfert ne passe par le câble.
+        std::array<std::int32_t, Serial::link_state_words> link{Serial::idle};
+        if (version >= 14)
+            for (auto& value : link) value = in.i32();
+        m.serial.import_link_state(link);
         if (!in.exhausted()) throw SaveStateError("État GBA corrompu (données excédentaires)");
         if (auto* save = m.cartridge.save()) {
             const auto* previous = machine_->cartridge.save();
@@ -339,7 +376,7 @@ public:
     }
 
 private:
-    static constexpr std::uint16_t state_version = 13;
+    static constexpr std::uint16_t state_version = 14;
 
     template <std::size_t N>
     static void read_array(BinaryReader& in, std::array<std::uint8_t, N>& output) {
@@ -389,6 +426,90 @@ private:
     std::optional<std::int64_t> clock_override_;
     bool measuring_time_{};
 };
+
+/**
+ * Câble link GBA. Les machines avancent par tranches de `slice` cycles, à
+ * tour de rôle, la console qui a lancé le dernier transfert en premier : les
+ * autres apprennent ainsi un départ avant de l'atteindre. Un transfert
+ * multijoueur dure plus qu'une tranche, si bien que chaque console lit les
+ * autres et reçoit le résultat au cycle exact de son horloge. En mode normal,
+ * un transfert plus court qu'une tranche lit le partenaire là où il en est.
+ */
+class GbaLinkCable final : public LinkCable {
+public:
+    static constexpr int slice = 1024;
+    explicit GbaLinkCable(std::vector<GbaCore*> players) : players_(std::move(players)) {}
+    GbaLinkCable(const GbaLinkCable&) = delete;
+    GbaLinkCable& operator=(const GbaLinkCable&) = delete;
+    // Débranché pour de bon : chaque console relit SIOCNT comme sans câble.
+    ~GbaLinkCable() override {
+        for (auto* player : players_) player->unplug_link();
+    }
+
+    [[nodiscard]] std::size_t players() const noexcept override { return players_.size(); }
+    void run_frame(std::span<const std::span<std::int32_t>> framebuffers, bool render_video) override {
+        if (framebuffers.size() != players_.size()) throw std::invalid_argument("Une image par console reliée");
+        constexpr auto frame_cycles = Ppu::cycles_per_frame();
+        const auto count = players_.size();
+        std::array<Machine*, LinkHub::max_players> machines{};
+        std::array<int, LinkHub::max_players> position{};
+        for (std::size_t index = 0; index < count; ++index)
+            machines[index] = &players_[index]->machine_for_frame(framebuffers[index]);
+        // Chaque machine reprend là où sa trame en est ; l'instant 0 du câble
+        // est le début de cette trame, pour toutes.
+        for (std::size_t index = 0; index < count; ++index) {
+            auto& machine = *machines[index];
+            position[index] = frame_cycles - machine.ppu.cycles_until_next_frame();
+            hub_.attach(static_cast<int>(index), machine.serial, machine.serial.clock() - position[index]);
+            machine.ppu.render_enabled = render_video;
+            machine.bus.diagnostics.begin_frame();
+        }
+        hub_.refresh();
+        try {
+            for (auto end = slice;; end += slice) {
+                const auto target = std::min(end, frame_cycles);
+                // Ordre fixé pour la tranche : un transfert lancé pendant
+                // celle-ci ne réordonne que la suivante.
+                const auto first = static_cast<std::size_t>(hub_.first());
+                for (std::size_t turn = 0; turn < count; ++turn) {
+                    const auto index = (first + turn) % count;
+                    if (position[index] < target) position[index] += machines[index]->run_for(target - position[index]);
+                }
+                if (target == frame_cycles) break;
+            }
+        } catch (...) {
+            release(machines);
+            throw;
+        }
+        release(machines);
+        if (!render_video) return;
+        for (std::size_t index = 0; index < count; ++index)
+            std::copy(machines[index]->ppu.frame.begin(), machines[index]->ppu.frame.end(), framebuffers[index].begin());
+    }
+
+private:
+    // Entre deux images, les machines ne sont plus reliées : un cœur peut
+    // changer de ROM ou d'état, sa nouvelle machine est reprise à l'image suivante.
+    void release(const std::array<Machine*, LinkHub::max_players>& machines) noexcept {
+        for (auto* machine : machines)
+            if (machine) machine->ppu.render_enabled = true;
+        hub_.detach_all();
+    }
+    std::vector<GbaCore*> players_;
+    LinkHub hub_;
+};
+
+std::unique_ptr<LinkCable> GbaCore::create_link_cable(std::span<Core* const> players) {
+    if (players.size() < 2 || players.size() > LinkHub::max_players)
+        throw std::invalid_argument("Un câble link GBA relie deux à quatre consoles");
+    std::vector<GbaCore*> cores;
+    for (auto* player : players) {
+        auto* core = dynamic_cast<GbaCore*>(player);
+        if (core == nullptr) throw std::invalid_argument("Un câble link GBA ne relie que des GBA");
+        cores.push_back(core);
+    }
+    return std::make_unique<GbaLinkCable>(std::move(cores));
+}
 
 }  // namespace gba
 

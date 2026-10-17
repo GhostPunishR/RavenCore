@@ -72,7 +72,7 @@ La sauvegarde et l'horloge d'un jeu GBA sont détectées automatiquement. Si la 
 Après `cmake --install`, utilisez le paquet CMake :
 
 ```cmake
-find_package(RavenCore 0.4 REQUIRED)
+find_package(RavenCore 0.5 REQUIRED)
 target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 
@@ -82,6 +82,7 @@ L'API C couvre :
 - les sauvegardes batterie et les états instantanés ;
 - la vibration, et le type de sauvegarde et l'horloge d'un jeu GBA ;
 - les capteurs des cartouches : lumière, rotation et inclinaison ;
+- le câble link entre consoles d'une même application (deux jeux sur un même appareil) ;
 - la lecture de la mémoire surveillée par RetroAchievements.
 
 Détails dans le [README du SDK](sdk/README.md).
@@ -109,8 +110,7 @@ ctest --test-dir build --output-on-failure
 
 - **GB / GBC** : les 198 tests publics retenus passent. Des suites plus exigeantes (Mealybug Tearoom, SameSuite, gbmicrotest) échouent encore en partie.
 - **GBA** : expérimental. Les suites gba-tests et FuzzARM passent, mais le cœur n'a pas encore été essayé sur un large panel de jeux. Non émulés pour l'instant :
-  - le câble link et le mode UART ;
-  - le tampon de préchargement de la cartouche ;
+  - le câble link avec une autre application ou une autre machine, le mode UART et l'adaptateur sans fil ;
   - l'exception d'instruction indéfinie.
 - **Capteurs** : ceux des cartouches GBA suivent les mesures publiées par GBATEK, mais n'ont pas encore été essayés en jeu. Le sens des axes d'inclinaison (GBA et MBC7) et l'échelle du gyroscope restent à confirmer.
 - **RetroAchievements** : pas encore activé dans les cœurs Libretro, et le mode Hardcore n'est pas pris en charge. L'API C expose déjà la mémoire nécessaire. L'intégration de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte.
@@ -118,7 +118,7 @@ ctest --test-dir build --output-on-failure
 
 ## Versions
 
-Version actuelle : **0.4.1**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro Linux. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
+Version actuelle : **0.5.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro Linux. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
 
 Avant la 1.0, une version peut changer l'API ou le format des états ; le journal le signale à chaque fois.
 

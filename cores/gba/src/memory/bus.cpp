@@ -73,7 +73,13 @@ int Bus::read8_raw(std::int32_t address) {
         return bios[raw];
     case 0x02: return ewram[raw & 0x3ffffU];
     case 0x03: return iwram[raw & 0x7fffU];
-    case 0x04: return read_io(static_cast<int>(raw & 0x3ffU));
+    case 0x04:
+        if (io_mapped(raw)) return read_io(static_cast<int>(raw & 0x3ffU));
+        // Contrôle de la mémoire interne, répété tous les 64 Kio : sa valeur
+        // au démarrage, non modifiable ici. Le reste de la région n'est pas câblé.
+        if ((raw & 0xfffcU) == 0x0800U) return static_cast<int>((memory_control_reset >> ((raw & 3U) * 8U)) & 0xffU);
+        diagnostics.unsupported_access(address);
+        return open_bus(raw);
     case 0x05: return palette[raw & 0x3ffU];
     case 0x06: return vram[static_cast<std::size_t>(vram_offset(address))];
     case 0x07: return oam[raw & 0x3ffU];
@@ -166,7 +172,7 @@ void Bus::write8_raw(std::int32_t address, int value) {
     case 0x00: case 0x01: break;
     case 0x02: ewram[raw & 0x3ffffU] = byte; break;
     case 0x03: iwram[raw & 0x7fffU] = byte; break;
-    case 0x04: io[raw & 0x3ffU] = byte; break;
+    case 0x04: if (io_mapped(raw)) io[raw & 0x3ffU] = byte; break;
     case 0x05: palette[raw & 0x3ffU] = byte; break;
     case 0x06: vram[static_cast<std::size_t>(vram_offset(address))] = byte; break;
     case 0x07: oam[raw & 0x3ffU] = byte; break;
@@ -196,7 +202,7 @@ void Bus::write8(std::int32_t address, int value) {
         return;
     } else {
         write8_raw(address, value);
-        if (region == 0x04U) propagate_io_write(static_cast<int>(u32(address) & 0x3ffU), value, 1);
+        if (region == 0x04U && io_mapped(u32(address))) propagate_io_write(static_cast<int>(u32(address) & 0x3ffU), value, 1);
     }
 }
 
@@ -207,7 +213,8 @@ void Bus::write16_raw(std::int32_t address, int value) {
     }
     if (auto* data = direct_write(u32(address))) { store_le(data, u32(value), 2); return; }
     write8_raw(address, value); write8_raw(add32(address, 1), value >> 8);
-    if ((u32(address) >> 24U) == 0x04U) propagate_io_write(static_cast<int>(u32(address) & 0x3ffU), value, 2);
+    if ((u32(address) >> 24U) == 0x04U && io_mapped(u32(address)))
+        propagate_io_write(static_cast<int>(u32(address) & 0x3ffU), value, 2);
 }
 
 void Bus::write16(std::int32_t address, int value) {
@@ -228,6 +235,7 @@ void Bus::write32(std::int32_t address, std::int32_t value) {
     account(aligned, 4);
     sync_io(aligned, true);
     if ((u32(aligned) >> 24U) == 0x04U) {
+        if (!io_mapped(u32(aligned))) return;
         const auto offset = static_cast<int>(u32(aligned) & 0x3ffU);
         for (unsigned index = 0; index < 4; ++index) {
             io[static_cast<std::size_t>(offset) + index] = static_cast<std::uint8_t>(u32(value) >> (index * 8U));
@@ -268,7 +276,12 @@ void Bus::handle_io_write(int offset, int value) {
     else if (offset == 0x200 && interrupts) interrupts->enable = value;
     else if (offset == 0x202 && interrupts) interrupts->acknowledge(value);
     else if (offset == 0x208 && interrupts) interrupts->master_enable = (value & 1) != 0;
-    else if (offset == 0x204) { timing.set_wait_control(value); close_fetch_window(); }
+    else if (offset == 0x204) {
+        timing.set_wait_control(value);
+        close_fetch_window();
+        if (!timing.prefetch_enabled()) prefetch_stop();
+        else prefetch_.halfword_cycles = timing.sequential_halfword_cycles(prefetch_.head);
+    }
     else if (timers && (offset == 0x100 || offset == 0x104 || offset == 0x108 || offset == 0x10c)) {
         timers->reload_write((offset - 0x100) / 4, value);
     } else if (timers && (offset == 0x102 || offset == 0x106 || offset == 0x10a || offset == 0x10e)) {
@@ -278,6 +291,8 @@ void Bus::handle_io_write(int offset, int value) {
         dma_control_write(dma, channel, value);
     } else if (offset == 0x128) {
         serial_control_write(serial, value);
+    } else if (offset == 0x134) {
+        serial_rcnt_write(serial);
     } else if (apu && offset >= 0x060 && offset <= 0x09f) {
         apu->write_register(offset, value);
     }
