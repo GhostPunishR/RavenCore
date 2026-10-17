@@ -91,7 +91,10 @@ public:
             track_irq_line();
             if (irq_raised_at_ && !cpu.state.irq_disabled && irq_settling_cycles() == 0) {
                 cpu.raise_exception(CpuState::mode_irq, 0x18, add32(cpu.state.regs[15], 4));
-                pending_cycles_ += irq_entry_cycles; elapsed += irq_entry_cycles;
+                // Cycles internes du CPU : l'unité de préchargement de la cartouche lit pendant ce temps.
+                bus.idle(irq_entry_cycles);
+                const auto entry = bus.take_wait_cycles();
+                pending_cycles_ += entry; elapsed += entry;
             }
             in_instruction_ = true;
             const auto consumed = cpu.step(); bus.diagnostics.instruction();

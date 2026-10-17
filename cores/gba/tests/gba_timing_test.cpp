@@ -481,6 +481,38 @@ void irq_waits_four_cycles_then_enters() {
           "IRQ : entrée, puis saut du vecteur 0x18 vers le gestionnaire en 0x128 attendus");
 }
 
+// Les 2 cycles d'entrée dans l'IRQ sont internes : comme les lectures du
+// vecteur dans le BIOS, ils laissent l'unité de préchargement lire la ROM du
+// jeu interrompu, qui retrouvera ces demi-mots au retour.
+void irq_entry_lets_the_cartridge_prefetch_run() {
+    using ravenemu::gba::i32;
+    using ravenemu::gba::InterruptController;
+    ravenemu::gba::Machine machine(
+        thumb_cartridge({0x46c0, 0x46c0, 0x46c0, 0x46c0, 0x46c0, 0x46c0, 0x46c0, 0x46c0, 0x46c0, 0x46c0}),
+        ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; }
+    );
+    machine.bus.write16(i32(0x0400'0204U), 0x4000);  // tampon actif, 3 cycles par demi-mot
+    machine.cpu.reset(i32(0x0800'0100U));
+    machine.cpu.state.thumb = true;
+    machine.cpu.state.irq_disabled = false;
+    machine.interrupts.set_enable(1 << InterruptController::vblank);
+    machine.interrupts.set_master_enable(true);
+    for (int nop = 0; nop < 2; ++nop) machine.run_for(1);
+    machine.interrupts.request(InterruptController::vblank);
+    const auto read_ahead = [&] {
+        const auto& unit = machine.bus.prefetch();
+        return unit.count * unit.halfword_cycles + unit.progress;
+    };
+    for (int step = 0; step < 8 && machine.cpu.state.regs[15] != i32(0x128U); ++step) {
+        const auto before = read_ahead();
+        const auto cycles = machine.run_for(1);
+        if (machine.cpu.state.regs[15] != i32(0x128U)) continue;
+        check(machine.bus.prefetch().active && cycles == 2 + 3 && read_ahead() == before + cycles,
+              "IRQ : l'unité de préchargement n'a pas lu pendant l'entrée");
+    }
+    check(machine.cpu.state.regs[15] == i32(0x128U), "IRQ non prise pendant du code en ROM");
+}
+
 // Le CPU arrêté (Halt) que réveille une IRQ ne reprend le code du jeu
 // qu'après le gestionnaire : il attend dans le BIOS que la ligne soit
 // synchronisée. L'IRQ vient du timer 0, dont le débordement survient pendant
@@ -576,6 +608,7 @@ int main() {
     prefetch_disable_bug();
     prefetch_state_is_validated();
     irq_waits_four_cycles_then_enters();
+    irq_entry_lets_the_cartridge_prefetch_run();
     halt_lets_the_handler_run_first();
     timer_reload_applies_one_cycle_after_write();
     pending_timer_reload_survives_a_state();

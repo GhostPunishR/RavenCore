@@ -8,7 +8,7 @@ Ces changements donnent aux IRQ et aux timers GBA les instants de la console. Le
 
 ### Corrigé
 
-- **GBA : instant où le CPU prend une IRQ.** Le CPU ne prend plus une IRQ dès la fin de l'instruction pendant laquelle elle se lève. Il attend que la ligne d'IRQ (IME, et une source à la fois dans IE et IF) soit levée depuis 4 cycles, puis entre dans l'exception, ce qui coûte 2 cycles de plus qu'un saut. Les deux durées sont calées sur des valeurs mesurées sur console : la suite de tests de mGBA les publie, et RavenCore la lance en local, hors du dépôt et de la CI. Une IRQ de timer laisse ainsi encore passer trois NOP, comme sur la console, et son gestionnaire arrête le timer au même cycle.
+- **GBA : instant où le CPU prend une IRQ.** Le CPU ne prend plus une IRQ dès la fin de l'instruction pendant laquelle elle se lève. Il attend que la ligne d'IRQ (IME, et une source à la fois dans IE et IF) soit levée depuis 4 cycles, puis entre dans l'exception, ce qui coûte 2 cycles internes de plus qu'un saut ; l'unité de préchargement de la cartouche lit pendant ces cycles. Les deux durées sont calées sur des valeurs mesurées sur console : la suite de tests de mGBA les publie, et RavenCore la lance en local, hors du dépôt et de la CI. Une IRQ de timer laisse ainsi encore passer trois NOP, comme sur la console, et son gestionnaire arrête le timer au même cycle.
 - GBA : un jeu arrêté par Halt, IntrWait ou VBlankIntrWait ne reprend qu'après son gestionnaire d'IRQ. Le CPU arrêté attend que la ligne soit synchronisée avant de repartir, au lieu d'exécuter d'abord une instruction du jeu.
 - GBA : le vecteur d'IRQ du BIOS est celui de la console. Le mot en 0x18 saute en 0x128, où commence le gestionnaire (GBATEK, « BIOS Interrupt Handling »). Une IRQ coûte donc aussi ce saut.
 - GBA : une recharge de timer écrite dans TMxCNT_L ne sert qu'à partir du cycle suivant. Un débordement dans le cycle même de l'écriture recharge encore l'ancienne valeur. Une écriture 32 bits qui donne la recharge et démarre le timer le fait partir de la nouvelle recharge.
@@ -23,7 +23,7 @@ Sur la suite de mGBA lancée en local, timer-irq passe de 54 échecs à 0, et ti
 
 ### Tests
 
-- `gba_raven_timing` vérifie qu'une IRQ levée pendant des NOP en IWRAM en laisse passer quatre, puis que l'entrée et le saut vers 0x128 prennent 5 cycles. Il vérifie aussi qu'un Halt réveillé par un timer laisse passer le gestionnaire avant le jeu, et qu'une recharge de timer ne sert qu'un cycle après son écriture, même reprise d'un état. Enfin, il contrôle que le BIOS note une IRQ sans prendre de cycles.
+- `gba_raven_timing` vérifie qu'une IRQ levée pendant des NOP en IWRAM en laisse passer quatre, puis que l'entrée et le saut vers 0x128 prennent 5 cycles. Pendant ces cycles, l'unité de préchargement de la cartouche lit la ROM du jeu interrompu. Il vérifie aussi qu'un Halt réveillé par un timer laisse passer le gestionnaire avant le jeu, et qu'une recharge de timer ne sert qu'un cycle après son écriture, même reprise d'un état. Enfin, il contrôle que le BIOS note une IRQ sans prendre de cycles.
 - `gba_raven_core` lève une IRQ de VCount à chaque fin de trame. Un état pris avant qu'elle ne soit synchronisée doit reprendre au même cycle.
 - `gba_raven_sensor` vérifie le format 15 et recharge un état au format 14.
 
