@@ -328,11 +328,49 @@ void achievement_memory_map_test() {
     }
 }
 
+// Deux Game Boy reliées préparent leur transfert dans la même image : le
+// maître (horloge interne) envoie 0x42, l'esclave (horloge externe) 0x99, et
+// chacun range l'octet reçu en 0xC000. Si le maître avançait toute son image
+// avant l'esclave, ses huit bits partiraient vers un port pas encore prêt.
+std::vector<std::uint8_t> serial_rom(std::uint8_t sent, std::uint8_t control) {
+    auto rom = minimal_game_boy_rom();
+    const std::array<std::uint8_t, 3> entry{0xc3, 0x50, 0x01};  // jp 0150
+    std::copy(entry.begin(), entry.end(), rom.begin() + 0x100);
+    const std::array<std::uint8_t, 20> program{
+        0x3e, sent, 0xe0, 0x01,      // ld a, octet ; ldh (SB), a
+        0x3e, control, 0xe0, 0x02,   // ld a, contrôle ; ldh (SC), a
+        0xf0, 0x02, 0xcb, 0x7f,      // attente : ldh a, (SC) ; bit 7, a
+        0x20, 0xfa,                  // jr nz, attente
+        0xf0, 0x01, 0xea, 0x00,      // ldh a, (SB) ; ld (C000), a
+        0xc0, 0x18};                 // … ; jr .
+    std::copy(program.begin(), program.end(), rom.begin() + 0x150);
+    rom[0x150 + program.size()] = 0xfe;
+    return rom;
+}
+
+void link_cable_test() {
+    auto master = ravenemu::make_game_boy_core();
+    auto slave = ravenemu::make_game_boy_core();
+    master->load_rom(serial_rom(0x42, 0x81), {});
+    slave->load_rom(serial_rom(0x99, 0x80), {});
+    const std::array<ravenemu::Core*, 2> players{master.get(), slave.get()};
+    auto cable = ravenemu::connect_link_cable(players);
+    std::vector<std::int32_t> first(160 * 144), second(160 * 144);
+    const std::array<std::span<std::int32_t>, 2> frames{first, second};
+    for (int frame = 0; frame < 2; ++frame) cable->run_frame(frames, true);
+    std::array<std::uint8_t, 1> received{};
+    check(master->read_achievement_memory(0xc000, received) == 1 && received[0] == 0x99,
+          "câble GB : le maître n'a pas reçu l'octet de l'esclave");
+    check(slave->read_achievement_memory(0xc000, received) == 1 && received[0] == 0x42,
+          "câble GB : l'esclave n'a pas reçu l'octet du maître");
+}
+
 int main() {
     achievement_memory_map_test();
     cpu_interrupt_timer_state_validation_test();
     invalid_rom_test();
     game_boy_smoke_test();
+    link_cable_test();
     game_boy_color_and_battery_test();
     mbc6_large_state_test();
     mbc7_core_contract_test();

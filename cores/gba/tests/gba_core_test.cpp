@@ -209,13 +209,14 @@ void multiplayer_link_test() {
     // bauds, lit SI pour savoir si elle est parente, range 0xAA00 (parent) ou
     // 0xBB00 (enfant) dans SIOMLT_SEND. Le parent attend SD puis lance le
     // transfert ; l'enfant attend qu'il commence puis finisse. Chacune range
-    // ensuite SIOMULTI0, SIOMULTI1, SIOCNT et SIOMULTI2 en IWRAM.
-    const std::array<std::uint32_t, 38> code{
-        0xe59f208c, 0xe3a01000, 0xe1c211b4, 0xe3a01a02, 0xe3811003, 0xe1c210b8, 0xe1d230b8, 0xe3130004,
+    // ensuite SIOMULTI0, SIOMULTI1, SIOCNT et SIOMULTI2 en IWRAM, puis recopie
+    // sans cesse SIOCNT en IWRAM + 8.
+    const std::array<std::uint32_t, 40> code{
+        0xe59f2094, 0xe3a01000, 0xe1c211b4, 0xe3a01a02, 0xe3811003, 0xe1c210b8, 0xe1d230b8, 0xe3130004,
         0x03a04caa, 0x13a04cbb, 0xe1c240ba, 0x1a000008, 0xe1d230b8, 0xe3130008, 0x0afffffc, 0xe3833080,
         0xe1c230b8, 0xe1d230b8, 0xe3130080, 0x1afffffc, 0xea000005, 0xe1d230b8, 0xe3130080, 0x0afffffc,
         0xe1d230b8, 0xe3130080, 0x1afffffc, 0xe3a05403, 0xe1d260b0, 0xe1c560b0, 0xe1d260b2, 0xe1c560b2,
-        0xe1d260b8, 0xe1c560b4, 0xe1d260b4, 0xe1c560b6, 0xeafffffe, 0x04000120};
+        0xe1d260b8, 0xe1c560b4, 0xe1d260b4, 0xe1c560b6, 0xe1d260b8, 0xe1c560b8, 0xeafffffc, 0x04000120};
     const auto rom = rom_with(code);
     auto parent = ravenemu::make_gba_core(std::nullopt);
     auto child = ravenemu::make_gba_core(std::nullopt);
@@ -236,6 +237,12 @@ void multiplayer_link_test() {
     check((parent_control & 0x3c) == 0x08, "câble GBA : parent mal signalé (SI 0, SD 1, numéro 0)");
     check((child_control & 0x3c) == 0x1c, "câble GBA : enfant mal signalé (SI 1, SD 1, numéro 1)");
     check((parent_control & 0x80) == 0 && (child_control & 0x80) == 0, "câble GBA : transfert jamais terminé");
+
+    // Débranchée, la console parente relit SIOCNT comme sans câble : SI tiré
+    // à 1, toujours prête, numéro 0.
+    cable.reset();
+    parent->run_frame(first, false);
+    check((iwram(*parent, 8, 2) & 0x3c) == 0x0c, "câble GBA débranché : SIOCNT garde l'état relié");
 
     // Seule, la même ROM se croit enfant (SI tiré à 1) et attend un parent.
     auto alone = ravenemu::make_gba_core(std::nullopt);

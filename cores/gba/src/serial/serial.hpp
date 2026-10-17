@@ -83,14 +83,19 @@ public:
     [[nodiscard]] bool ready_for(Mode mode) const noexcept;
     [[nodiscard]] bool so_low() const noexcept;
     [[nodiscard]] bool transferring() const noexcept { return remaining_ != idle; }
-    void join(std::int64_t start_in, int duration);
-    void leave() noexcept;
+    // Numéro, sur le câble, du transfert en cours et de celui dont le départ
+    // est attendu (0 : aucun). Un résultat ne va qu'au transfert qui l'attend.
+    [[nodiscard]] std::uint32_t transfer_id() const noexcept { return transfer_id_; }
+    [[nodiscard]] std::uint32_t join_id() const noexcept { return join_id_; }
+    void join(std::int64_t start_in, int duration, std::uint32_t id);
+    void leave(std::uint32_t id) noexcept;
     void mark_busy() noexcept;
-    void receive(const Received& value) noexcept { received_ = value; }
+    void receive(std::uint32_t id, const Received& value) noexcept;
 
-    // État instantané du câble. Ordre : départ attendu, sa durée, transfert
-    // relié, résultat présent, puis les quatre demi-mots reçus.
-    static constexpr std::size_t link_state_words = 8;
+    // État instantané du câble. Ordre : départ attendu, sa durée, son numéro,
+    // numéro du transfert en cours, puis son résultat (présent, quatre
+    // demi-mots) et celui du transfert attendu (présent, quatre demi-mots).
+    static constexpr std::size_t link_state_words = 14;
     [[nodiscard]] std::array<std::int32_t, link_state_words> export_link_state() const noexcept;
     void import_link_state(std::span<const std::int32_t> state);
     [[nodiscard]] int export_remaining() const noexcept { return remaining_; }
@@ -104,7 +109,7 @@ private:
     void start_multiplayer();
     void start_normal();
     void join_now(int late);
-    void begin_joined(std::int64_t remaining);
+    void begin_joined(std::int64_t remaining, std::uint32_t id);
     void complete();
     [[nodiscard]] int io_half(int offset) const noexcept {
         return bus_.io[static_cast<std::size_t>(offset)] | bus_.io[static_cast<std::size_t>(offset + 1)] << 8;
@@ -121,11 +126,13 @@ private:
     int player_{};
     std::int64_t clock_{};
     int remaining_{idle};             // cycles avant la fin du transfert en cours
+    std::uint32_t transfer_id_{};     // transfert en cours sur le câble (0 : seul)
+    std::optional<Received> received_;
     int join_in_{idle};               // cycles avant le départ d'un transfert lancé ailleurs
     int join_duration_{};             // durée de ce transfert
+    std::uint32_t join_id_{};         // son numéro
+    std::optional<Received> next_received_;  // son résultat, connu avant son départ
     bool busy_{};                     // bit Start/Busy de SIOCNT
-    bool linked_transfer_{};          // le transfert en cours passe par le câble
-    std::optional<Received> received_;
 };
 
 inline void serial_control_write(Serial* serial, int value) {
@@ -155,8 +162,9 @@ public:
     [[nodiscard]] int first() const noexcept { return first_; }
     void refresh() noexcept;
 
-    // Rend false si le câble est déjà pris : la console transfère alors seule.
-    [[nodiscard]] bool start(Serial& master, Serial::Mode mode, int duration);
+    // Rend le numéro du transfert, ou 0 si le câble est déjà pris : la
+    // console transfère alors seule.
+    [[nodiscard]] std::uint32_t start(Serial& master, Serial::Mode mode, int duration);
     void capture(Serial& participant);
     // Fin du transfert, à l'instant où `caller` l'atteint le premier.
     void finish(const Serial& caller);
@@ -169,6 +177,7 @@ private:
     };
     struct Transfer {
         bool active{};
+        std::uint32_t id{};
         Serial::Mode mode{};
         int master{};
         std::array<std::uint32_t, max_players> sent{};
@@ -177,6 +186,7 @@ private:
     };
     std::array<Slot, max_players> slots_{};
     Transfer transfer_{};
+    std::uint32_t last_id_{};
     int first_{};
 };
 

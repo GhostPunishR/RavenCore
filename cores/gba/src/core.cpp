@@ -54,6 +54,9 @@ public:
         if (machine_) machine_->bus.keypad.set_button(button, pressed);
     }
     [[nodiscard]] std::unique_ptr<LinkCable> create_link_cable(std::span<Core* const> players) override;
+    void unplug_link() noexcept {
+        if (machine_) machine_->serial.refresh_status();
+    }
     // Pour le câble link : la machine, après les vérifications de run_frame.
     [[nodiscard]] Machine& machine_for_frame(std::span<const std::int32_t> framebuffer) {
         require_loaded();
@@ -436,6 +439,12 @@ class GbaLinkCable final : public LinkCable {
 public:
     static constexpr int slice = 1024;
     explicit GbaLinkCable(std::vector<GbaCore*> players) : players_(std::move(players)) {}
+    GbaLinkCable(const GbaLinkCable&) = delete;
+    GbaLinkCable& operator=(const GbaLinkCable&) = delete;
+    // Débranché pour de bon : chaque console relit SIOCNT comme sans câble.
+    ~GbaLinkCable() override {
+        for (auto* player : players_) player->unplug_link();
+    }
 
     [[nodiscard]] std::size_t players() const noexcept override { return players_.size(); }
     void run_frame(std::span<const std::span<std::int32_t>> framebuffers, bool render_video) override {
@@ -459,8 +468,11 @@ public:
         try {
             for (auto end = slice;; end += slice) {
                 const auto target = std::min(end, frame_cycles);
+                // Ordre fixé pour la tranche : un transfert lancé pendant
+                // celle-ci ne réordonne que la suivante.
+                const auto first = static_cast<std::size_t>(hub_.first());
                 for (std::size_t turn = 0; turn < count; ++turn) {
-                    const auto index = (static_cast<std::size_t>(hub_.first()) + turn) % count;
+                    const auto index = (first + turn) % count;
                     if (position[index] < target) position[index] += machines[index]->run_for(target - position[index]);
                 }
                 if (target == frame_cycles) break;

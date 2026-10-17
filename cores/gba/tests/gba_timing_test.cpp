@@ -399,6 +399,59 @@ void io_registers_are_not_mirrored() {
           "registre de contrôle mémoire 0x04000800 mal lu");
 }
 
+// Un état restauré au milieu d'un transfert que le câble a déjà terminé se
+// termine comme sans câble, sans clore à sa place le transfert suivant.
+void restored_transfer_stays_out_of_the_next_one() {
+    using ravenemu::gba::i32;
+    std::vector<std::uint8_t> rom(0x2000);
+    rom[0xb2] = 0x96;
+    for (unsigned byte = 0; byte < 4; ++byte) rom[byte] = static_cast<std::uint8_t>(0xeafffffeU >> (8U * byte));  // b .
+    const auto image = std::make_shared<const std::vector<std::uint8_t>>(rom);
+    const auto clock = [] { return std::int64_t{0}; };
+    ravenemu::gba::Machine parent(image, ravenemu::GbaSaveType::none, false, clock);
+    ravenemu::gba::Machine child(image, ravenemu::GbaSaveType::none, false, clock);
+    ravenemu::gba::LinkHub hub;
+    hub.attach(0, parent.serial, parent.serial.clock());
+    hub.attach(1, child.serial, child.serial.clock());
+    const auto io16 = [](ravenemu::gba::Machine& machine, std::uint32_t offset) {
+        return machine.bus.io[offset] | machine.bus.io[offset + 1] << 8;
+    };
+    for (auto* machine : {&parent, &child}) {
+        machine->bus.write16(i32(0x04000134U), 0);       // RCNT
+        machine->bus.write16(i32(0x04000128U), 0x2003);  // multijoueur, 115200 bauds
+    }
+    parent.bus.write16(i32(0x0400012aU), 0xaaaa);
+    child.bus.write16(i32(0x0400012aU), 0xbbbb);
+    parent.bus.write16(i32(0x04000128U), 0x2083);  // départ : 5755 cycles à deux
+    parent.run_for(5000);
+    child.run_for(5000);
+    const auto remaining = child.serial.export_remaining();
+    const auto saved = child.serial.export_link_state();
+    parent.run_for(1000);
+    child.run_for(1000);
+    check(io16(child, 0x120) == 0xaaaa && io16(child, 0x122) == 0xbbbb, "câble GBA : premier transfert non reçu");
+
+    // L'enfant revient au milieu du premier transfert ; le parent, en avance,
+    // lance le second, dont l'enfant n'atteint le départ qu'après sa fin restaurée.
+    child.serial.import_remaining(remaining);
+    child.serial.import_link_state(saved);
+    parent.run_for(2000);
+    parent.bus.write16(i32(0x0400012aU), 0xcccc);
+    parent.bus.write16(i32(0x04000128U), 0x2083);
+    child.run_for(1000);
+    check(io16(child, 0x120) == 0xbbbb && io16(child, 0x122) == 0xffff,
+          "câble GBA : transfert restauré non terminé comme sans câble");
+    // L'enfant change sa donnée avant le départ du second transfert, qui part
+    // à 8000 cycles sur son horloge et dure 5755 : le second doit la lire.
+    child.bus.write16(i32(0x0400012aU), 0xdddd);
+    parent.run_for(6000);
+    child.run_for(7000);
+    check(io16(parent, 0x120) == 0xcccc && io16(parent, 0x122) == 0xdddd &&
+              io16(child, 0x120) == 0xcccc && io16(child, 0x122) == 0xdddd,
+          "câble GBA : le transfert restauré a clos le suivant");
+    hub.detach_all();
+}
+
 } // namespace
 
 int main() {
@@ -408,6 +461,7 @@ int main() {
     prefetch_state_is_validated();
     timer_counts_two_cycles_after_enable();
     io_registers_are_not_mirrored();
+    restored_transfer_stays_out_of_the_next_one();
     frame_overshoot_does_not_accumulate();
     long_dma_stops_at_frame_boundary();
     dma_effects_follow_elapsed_cycles();
