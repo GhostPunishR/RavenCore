@@ -2,6 +2,12 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## Non publié
+
+### Tests
+
+- `gba_raven_cycles` mesure les cycles CPU de 41 instructions ou courts blocs ARM et Thumb (ALU, multiplications, accès à l'IWRAM, à l'EWRAM et à la ROM, sauts, bug du préchargement désactivé, frontière des 128 Kio de la cartouche), plus l'écart lu sur le timer 0 entre deux lectures. Chaque valeur attendue est une somme tirée des tables de GBATEK. Le test s'exécute dans la CI, sans ROM externe.
+
 ## 0.5.0 - 2026-10-17
 
 Cette version émule le câble link GBA et le tampon de préchargement de la cartouche ([#22](https://github.com/GhostPunishR/RavenCore/pull/22)), et compte le temps du processeur GBA au cycle près. Le format des états GBA change ; l'API C gagne le câble link sans rien retirer.
