@@ -552,6 +552,8 @@ void io_registers_read_back_console_values() {
     check(bus.read16(i32(0x0400'0084U)) == 0x0082, "SOUNDCNT_X : canal 2 en cours non signalé");
     bus.write16(i32(0x0400'0084U), 0x0000);
     check(bus.read16(i32(0x0400'0084U)) == 0x0000, "SOUNDCNT_X : son éteint relu allumé");
+    bus.write16(i32(0x0400'006cU), 0x8000);  // départ du canal 2, son éteint
+    check(bus.read16(i32(0x0400'0084U)) == 0x0000, "SOUNDCNT_X : canal signalé alors que le son est éteint");
 }
 
 // Port série relu selon son mode (GBATEK), valeurs relevées sur console sans
