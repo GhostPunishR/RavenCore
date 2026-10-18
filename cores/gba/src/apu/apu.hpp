@@ -72,7 +72,13 @@ public:
             break;
         case 0x84:
             master_enable = (value & 0x80) != 0;
-            if (!master_enable) { square1.reset(); square2.reset(); wave.reset(); noise.reset(); control_l = 0; }
+            if (!master_enable) {
+                // Son éteint, les registres du PSG valent zéro (GBATEK) : le
+                // réglage des canaux repart de zéro avec eux, pas seulement
+                // leur état en cours.
+                for (int reg = 0x60; reg <= 0x80; reg += 2) write_register(reg, 0);
+                square1.reset(); square2.reset(); wave.reset(); noise.reset();
+            }
             break;
         default:
             if (offset >= 0x90 && offset <= 0x9f) {
