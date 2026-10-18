@@ -338,14 +338,14 @@ void fault_test(Processor processor) {
     Memory memory;
     Cpu cpu{processor};
     const std::array<std::uint32_t, 11> unsupported{
-        0xef000000, // SWI
+        0xe1200070, // BKPT : débogueur matériel absent
         0xee070f15, // CP15
-        0xe8fd8000, // LDM avec restauration SPSR
-        0xe10f0000, // MRS
+        0xe8fd8000, // LDM avec restauration SPSR en mode System sans SPSR
+        0xe10ff000, // MRS pc : encodage imprévisible
         0xe12fff3f, // BLX pc : variante imprévisible
         0xf0000000, // espace inconditionnel hors BLX
         0xe10f1090, // SWP : échange atomique encore absent
-        0xe1b0f000, // MOVS pc : restauration SPSR non implémentée
+        0xe1b0f000, // MOVS pc en mode System sans SPSR
         0xe7901012, // LDR offset décalé par registre : encodage invalide
         0xe5d0f000, // LDRB pc : variante imprévisible
         0xe5a00004, // STR r0,[r0,#4]! : variante à writeback ambiguë
@@ -366,7 +366,7 @@ void fault_test(Processor processor) {
         }
         check(cpu.state() == before, "instruction refusée a modifié le CPU");
     }
-    for (const auto raw : std::array<std::uint16_t, 6>{0xdf00, 0xb400, 0xbc00, 0xe801, 0x47f8, 0xde00}) {
+    for (const auto raw : std::array<std::uint16_t, 6>{0xbe00, 0xb400, 0xbc00, 0xe801, 0x47f8, 0xb600}) {
         cpu.reset(base, true);
         memory.write16(processor, base, raw);
         const auto before = cpu.state();
@@ -447,7 +447,7 @@ void machine_test() {
     machine.run_steps(arm7, 0);
     check(machine.cpu_state(arm7) == arm7_before, "budget nul a avancé le CPU");
     machine.memory().write32(arm9, base + 12, 0xe3a00009); // une instruction valide
-    machine.memory().write32(arm9, base + 16, 0xef000000); // puis SWI non implémenté
+    machine.memory().write32(arm9, base + 16, 0xee070f15); // puis accès CP15 non implémenté
     expect_failure<CpuExecutionError>([&] { machine.run_steps(arm9, 2); }, "budget ignore une erreur");
     check(machine.cpu_state(arm9).registers[0] == 9 && machine.cpu_state(arm9).registers[15] == base + 16 &&
           machine.cpu_state(arm9).instructions == 104, "erreur doit conserver le progrès avant la faute");

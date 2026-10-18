@@ -2,6 +2,7 @@
 #include <ravenemu/core.hpp>
 
 #include <array>
+#include <algorithm>
 
 namespace ravenemu::nds {
 namespace {
@@ -11,6 +12,11 @@ constexpr std::size_t private_size = 0x10000;
 } // namespace
 
 Memory::Memory() : ram_(main_size + shared_size + private_size) {}
+
+void Memory::clear_ram() noexcept {
+    std::fill(ram_.begin(), ram_.end(), 0);
+    wram_control_ = 0;
+}
 
 std::size_t Memory::index(Processor cpu, std::uint32_t address) const {
     // GBATEK : DS Memory Maps / WRAMCNT. Les miroirs désignent les mêmes octets.
@@ -34,8 +40,11 @@ std::size_t Memory::index(Processor cpu, std::uint32_t address) const {
 std::uint32_t Memory::read(Processor cpu, std::uint32_t address, unsigned width) const {
     if ((address & (width - 1U)) != 0) throw Error("NDS : accès RAM non aligné");
     std::uint32_t value{};
-    for (unsigned i = 0; i < width; ++i)
-        value |= static_cast<std::uint32_t>(ram_[index(cpu, address + i)]) << (8U * i);
+    for (unsigned i = 0; i < width; ++i) {
+        const auto bios = bios_byte(cpu, address + i);
+        const auto byte = bios ? *bios : ram_[index(cpu, address + i)];
+        value |= static_cast<std::uint32_t>(byte) << (8U * i);
+    }
     return value;
 }
 

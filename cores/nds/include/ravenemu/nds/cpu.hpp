@@ -2,25 +2,12 @@
 
 #include <ravenemu/core.hpp>
 #include <ravenemu/nds/memory.hpp>
+#include <ravenemu/nds/cpu_state.hpp>
 
-#include <array>
 #include <optional>
 #include <string>
 
 namespace ravenemu::nds {
-
-struct CpuState {
-    // r15 est l'adresse de la prochaine instruction à lire. Les lectures
-    // architecturales du PC ajoutent 8 en ARM, 4 en Thumb.
-    std::array<std::uint32_t, 16> registers{};
-    bool negative{};
-    bool zero{};
-    bool carry{};
-    bool overflow{};
-    bool thumb{};
-    std::uint64_t instructions{}; // instructions terminées, y compris condition fausse
-    bool operator==(const CpuState&) const = default;
-};
 
 class CpuExecutionError final : public Error {
 public:
@@ -40,7 +27,7 @@ private:
 };
 
 /** Interpréteur expérimental ARM/Thumb, avec quelques extensions ARMv5 sur ARM9.
- * Ni cycles, pipeline préchargé, modes privilégiés, exceptions, ni CP15.
+ * Pas encore de cycles, pipeline préchargé ou CP15.
  * Une instruction non implémentée ou un accès mémoire refusé lève
  * CpuExecutionError, sans avancer le CPU ni modifier ses registres.
  */
@@ -50,11 +37,14 @@ public:
     void reset(std::uint32_t address, bool thumb);
     void set_register(std::size_t index, std::uint32_t value);
     [[nodiscard]] const CpuState& state() const noexcept { return state_; }
+    void set_interrupt_lines(bool irq, bool fiq = false) noexcept { irq_line_ = irq; fiq_line_ = fiq; }
     void step(Memory& memory);
 
 private:
     Processor processor_;
     CpuState state_;
+    bool irq_line_{};
+    bool fiq_line_{};
 };
 
 } // namespace ravenemu::nds

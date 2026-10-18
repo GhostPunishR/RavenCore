@@ -43,7 +43,8 @@ void Machine::load_cartridge(const Cartridge& cartridge) {
         header.arm7.load_address < header.arm9.load_address + header.arm9.size)
         throw RomLoadError("NDS : les exécutables se chevauchent en RAM");
 
-    Memory prepared;
+    Memory prepared = memory_;
+    prepared.clear_ram();
     prepared.set_wram_control(3); // toute la WRAM partagée à l'ARM7
     for (std::uint32_t i = 0; i < header.arm9.size; ++i)
         prepared.write8(Processor::arm9, header.arm9.load_address + i, arm9[i]);
@@ -62,6 +63,10 @@ void Machine::load_cartridge(const Cartridge& cartridge) {
 
 const CpuState& Machine::cpu_state(Processor cpu) const noexcept {
     return cpu == Processor::arm9 ? arm9_.state() : arm7_.state();
+}
+
+void Machine::set_interrupt_lines(Processor cpu, bool irq, bool fiq) noexcept {
+    (cpu == Processor::arm9 ? arm9_ : arm7_).set_interrupt_lines(irq, fiq);
 }
 
 void Machine::step(Processor cpu) {

@@ -1,8 +1,27 @@
-# RavenNDS — première base
+# RavenNDS — cœur expérimental
 
 La cible C++20 `nds_raven_core` prépare le futur moteur Nintendo DS.
-Elle expose `ravenemu::nds::Cartridge`, `Memory`, `Cpu` et `Machine`, dans
+Elle expose `ravenemu::nds::Cartridge`, `Memory`, `Cpu`, `CpuState` et `Machine`, dans
 `<ravenemu/nds/{cartridge,memory,cpu,machine}.hpp>` ; elle est aussi liée par `RavenCore::ravencore`.
+L'état et les modes CPU sont déclarés dans `<ravenemu/nds/cpu_state.hpp>`.
+
+## Organisation
+
+```text
+nds/
+├── include/ravenemu/nds/  # contrats publics
+├── src/
+│   ├── bios/             # images et fenêtres BIOS
+│   ├── cartridge/        # cartouches .nds
+│   ├── cpu/              # ARM, Thumb, état, PSR et exceptions
+│   ├── machine/          # assemblage des deux CPU et chargement
+│   └── memory/           # bus RAM, miroirs et WRAM
+└── tests/                # programmes et BIOS synthétiques
+```
+
+Voir les [frontières des composants](src/README.md) et la [description des tests](tests/README.md).
+
+## Cartouches et tests
 
 Le chargeur lit le titre, le code du jeu et les descripteurs ARM9/ARM7 en
 little-endian, possède les octets de la ROM et fournit les deux exécutables.
@@ -18,7 +37,7 @@ sans ROM ni BIOS tiers.
 
 ```sh
 cmake -S . -B build -DBUILD_TESTING=ON
-cmake --build build --target nds_cartridge_tests nds_memory_tests nds_boot_tests nds_cpu_tests nds_calls_tests nds_data_tests --parallel 4
+cmake --build build --parallel 4
 ctest --test-dir build -R '^nds_' --output-on-failure
 ```
 
@@ -56,7 +75,8 @@ les miroirs comme destinations, les franchissements de région, les programmes
 qui se chevauchent et les entrées mal alignées ou dont la première instruction
 est tronquée. Un échec préserve mémoire, répartition WRAM, entrées et états CPU précédents.
 Un nouveau chargement réussi efface le contenu antérieur de toutes les RAM et
-réinitialise registres, drapeaux et compteurs CPU.
+réinitialise registres, banques, drapeaux, compteurs et lignes IRQ/FIQ. Les deux
+CPU démarrent en System avec I/F masqués. Les images BIOS déjà fournies sont conservées.
 
 Ce chargement est une préparation expérimentale, pas une séquence de démarrage
 BIOS : pas de firmware, de déchiffrement, de paramètres de démarrage, de copie
@@ -65,7 +85,7 @@ MMIO (y compris le registre WRAMCNT), VRAM et comportements open-bus ne sont pas
 implémentés ; les accès non mappés lèvent `ravenemu::Error`. Les lectures ARM
 non alignées et leurs rotations ne sont pas encore prises en charge par le CPU.
 
-## Premier interpréteur ARM/Thumb
+## Interpréteur ARM/Thumb
 
 Chaque CPU possède ses 16 registres et drapeaux NZCV. `CpuState::registers[15]`
 désigne la prochaine instruction à lire ; les instructions qui lisent le PC
@@ -80,9 +100,11 @@ const auto& arm7 = machine.cpu_state(ravenemu::nds::Processor::arm7);
 // arm7.registers, arm7.thumb, arm7.instructions, arm7.zero, etc.
 ```
 
-Ces appels exécutent le nombre demandé d'instructions sur le CPU sélectionné,
+Ces appels exécutent le nombre demandé de pas sur le CPU sélectionné,
 sans faire avancer l'autre. Le budget est borné même sur une boucle infinie.
-Une condition ARM fausse compte comme une instruction terminée. Il n'y a pas
+Un pas exécute une instruction ou entre en IRQ/FIQ. Le compteur `instructions`
+compte uniquement les instructions terminées, dont SWI, UDF et les conditions
+ARM fausses. Une entrée IRQ/FIQ ne l'incrémente pas. Il n'y a pas
 encore d'ordonnanceur, de compteur de cycles ou de rapport de fréquence ARM9/ARM7.
 
 | Mode | Instructions actuellement prises en charge |
@@ -93,7 +115,8 @@ encore d'ordonnanceur, de compteur de cycles ou de rapport de fréquence ARM9/AR
 
 Les stockages de PC, les writebacks avec base dans la liste transférée (sauf
 LDMIA Thumb, qui préserve la base chargée), les listes vides, les variantes
-LDM/STM avec bit S et les autres variantes absentes sont refusés explicitement.
+LDM/STM avec transfert des banques User et les autres variantes absentes sont refusés explicitement.
+LDM avec PC et bit S est pris en charge pour le retour d'exception.
 Les décalages ALU ARM par registre ne prennent pas encore PC comme opérande,
 quantité de décalage ou destination : leurs règles de pipeline demandent une
 prise en charge distincte. LDRD/STRD et SWP restent absents. Les transferts non
@@ -108,9 +131,8 @@ retenues indéterminées du multiplieur ARM7. Ses restrictions de recouvrement
 avec Rm sont refusées sur ARM7 et permises sur ARM9, en lisant toutes les
 sources avant de modifier les destinations. PC et deux destinations longues
 identiques sont refusés. Il n'y a toujours pas de calcul des cycles CPU.
-Les registres bancarisés, CPSR/SPSR, interruptions, exceptions, SWI, CP15, TCM,
-caches et autres instructions propres à ARMv5
-restent à développer. Ce sous-ensemble commun ne constitue pas encore un
+CP15, TCM, caches et une partie des instructions propres à ARMv5 restent à développer.
+Ce sous-ensemble commun ne constitue pas encore un
 ARM946E-S ou un ARM7TDMI complet. L'interpréteur lit directement la RAM à chaque
 pas ; il ne reproduit pas le pipeline ni le comportement du code automodifiant.
 
@@ -120,9 +142,44 @@ Un arrêt entre les deux conserve ce LR intermédiaire. Les formes `BLX` ARMv5
 sont disponibles uniquement sur ARM9 ; elles lèvent une erreur sur ARM7.
 `LDR pc`, `LDM ...,{pc}` et `POP {pc}` échangent ARM/Thumb selon le bit 0 de
 l'adresse sur ARM9, tandis qu'ARM7 conserve son mode courant. Les adresses
-sont alignées selon le mode obtenu. Les calculs de PC, LR, SP et les transferts
-ne modifient pas NZCV. Référence : ARM Architecture Reference Manual, ARMv4T /
+sont alignées selon le mode obtenu. Hors retours d'exception, les calculs de
+PC, LR, SP et les transferts ne modifient pas NZCV. Référence : ARM Architecture Reference Manual, ARMv4T /
 ARMv5T, descriptions de BL, BLX, LoadWritePC, LDM/STM et PUSH/POP.
+
+## Modes privilégiés et exceptions
+
+User et System partagent leurs registres. SVC, IRQ, FIQ, Abort et Undefined
+ont leurs propres SP/LR et SPSR ; FIQ possède aussi r8-r12. `MRS/MSR` permettent
+de lire et d'écrire les champs implémentés de CPSR/SPSR. En User, MSR ne peut
+modifier que les drapeaux. Un mode réservé, un accès à SPSR en User/System ou
+un changement de T par MSR est refusé. Q est conservé sur ARM9 ; les instructions
+DSP qui le mettent à jour restent absentes.
+
+SWI et les instructions indéfinies explicites (`0xe7f000f0` en ARM et `0xdeXX`
+en Thumb) sauvegardent le CPSR, passent en ARM et branchent sur les vecteurs.
+Les autres instructions absentes restent des erreurs de diagnostic : une
+instruction légale encore manquante n'est pas assimilée à UDF. Les retours
+`MOVS pc,lr`, `SUBS pc,lr,#4` et `LDM ...,{pc}^` restaurent CPSR et banques.
+L'alignement de PC vient alors de T dans SPSR, pas du bit 0 de l'adresse chargée.
+
+```cpp
+machine.set_interrupt_lines(ravenemu::nds::Processor::arm9, true); // ligne IRQ
+machine.step(ravenemu::nds::Processor::arm9);
+```
+
+IRQ/FIQ sont des entrées externes de niveau, échantillonnées à chaque pas :
+FIQ démasquée est prioritaire sur IRQ. I/F masquent leur prise en compte, et une
+ligne restée active peut provoquer une nouvelle entrée après le retour. Le futur
+contrôleur MMIO devra piloter ces lignes ; IME/IE/IF ne sont pas encore implémentés.
+
+`Memory::load_bios(processor, bytes)` accepte exactement 16 Kio sur ARM7
+(`0x00000000`) ou 4 Kio sur ARM9 (`0xffff0000`). Ces fenêtres sont en lecture seule.
+Sans image, lire un vecteur échoue explicitement. Les tests fournissent de petits
+gestionnaires synthétiques ; aucun BIOS Nintendo ni firmware n'est inclus.
+Il n'y a pas de remplacement haut niveau des services SWI, de démarrage firmware,
+de protection de lecture BIOS selon PC, de relocation des vecteurs par CP15 ou
+d'exceptions Data/Prefetch Abort. Les accès mémoire refusés restent des diagnostics.
+Voir [BIOS](src/bios/README.md) et [CPU](src/cpu/README.md).
 
 Une instruction non implémentée ou une erreur de lecture/écriture lève
 `CpuExecutionError` avec processeur, adresse, mode et opcode (absent si la
@@ -148,10 +205,13 @@ décalages par registre, les produits 32/64 bits et l'accumulation. Deux program
 ARM et Thumb calculent chacun `-3*5 + 7*(-4) + (-2)*9 = -61` à partir de tableaux
 signés sur 16 bits, sur chacun des deux CPU. Les encodages non pris en charge et
 les erreurs d'alignement doivent préserver registres, writeback et mémoire.
+`nds_exceptions` vérifie les banques, privilèges, CPSR/SPSR, les gestionnaires
+synthétiques SWI/UND/IRQ/FIQ, la priorité des lignes, les retours ARM/Thumb et
+la conservation des images BIOS au chargement d'une cartouche.
 
-Prochains jalons : compléter le jeu d'instructions, ajouter les modes et
-exceptions, définir les timings et la synchronisation des deux CPU, puis
-interruptions, IPC, vidéo 2D à deux écrans, entrées et audio.
+Prochains jalons : compléter le jeu d'instructions, définir les timings et la
+synchronisation des deux CPU, puis contrôleur d'interruptions MMIO, IPC, vidéo
+2D à deux écrans, entrées et audio.
 
 Aucun jeu ne tourne à ce stade. Le cœur n'est pas encore exposé par `Core`,
 le SDK ou Libretro : ces interfaces viendront avec une exécution fonctionnelle.

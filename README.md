@@ -14,6 +14,7 @@ Ce sont les cœurs maison de [RavenEmu](https://github.com/GhostPunishR/RavenEmu
 | **RavenGB** | Game Boy | Avancé |
 | **RavenGBC** | Game Boy Color | Avancé |
 | **RavenGBA** | Game Boy Advance | Expérimental |
+| **RavenNDS** | Nintendo DS | Fondations expérimentales, aucun jeu exécutable |
 
 Le développement de **RavenNDS** a commencé : [chargeur de cartouches, bus RAM et premier interpréteur ARM/Thumb](cores/nds/README.md). Des programmes synthétiques s'exécutent sur ARM9/ARM7 ; aucun jeu NDS ne tourne encore.
 

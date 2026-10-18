@@ -29,8 +29,10 @@ public:
     [[nodiscard]] const Memory& memory() const noexcept { return memory_; }
     [[nodiscard]] const std::optional<BootEntries>& entries() const noexcept { return entries_; }
     [[nodiscard]] const CpuState& cpu_state(Processor cpu) const noexcept;
+    void set_interrupt_lines(Processor cpu, bool irq, bool fiq = false) noexcept;
     void step(Processor cpu);
-    // Budget d'instructions, pas de cycles. Un échec laisse les instructions
+    // Budget de pas CPU (une entrée IRQ/FIQ peut consommer un pas sans
+    // instruction), pas de cycles. Un échec laisse les instructions
     // déjà terminées en place et le CPU arrêté sur l'instruction fautive.
     void run_steps(Processor cpu, std::size_t instructions);
 
