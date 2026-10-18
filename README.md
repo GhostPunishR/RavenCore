@@ -59,6 +59,8 @@ La sauvegarde et l'horloge d'un jeu GBA sont détectées automatiquement. Si la 
 | `ravenemu_gba_rtc` | `auto`, `enabled`, `disabled` |
 | `ravenemu_gba_solar_light` | Pourcentage de plein soleil : `50` par défaut, de `0` à `100` par pas de 10 |
 
+Les cœurs déclarent à RetroArch la mémoire que surveille RetroAchievements : les succès s'activent comme avec les autres cœurs, et RetroArch applique lui-même les règles du mode Hardcore. RetroAchievements n'a pas encore testé RavenCore.
+
 > Les binaires publiés visent uniquement **Linux x86-64**. Les cœurs ne sont pas proposés par le téléchargeur intégré de RetroArch.
 
 ## Intégrer dans un projet
@@ -113,12 +115,12 @@ ctest --test-dir build --output-on-failure
   - le câble link avec une autre application ou une autre machine, le mode UART et l'adaptateur sans fil ;
   - l'exception d'instruction indéfinie.
 - **Capteurs** : ceux des cartouches GBA suivent les mesures publiées par GBATEK, mais n'ont pas encore été essayés en jeu. Le sens des axes d'inclinaison (GBA et MBC7) et l'échelle du gyroscope restent à confirmer.
-- **RetroAchievements** : pas encore activé dans les cœurs Libretro, et le mode Hardcore n'est pas pris en charge. L'API C expose déjà la mémoire nécessaire. L'intégration de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte.
+- **RetroAchievements** : les cœurs Libretro exposent une copie de la mémoire du jeu, rafraîchie à chaque image, vérifiée avec le code de rcheevos qu'utilise RetroArch mais pas encore en jeu dans RetroArch. Sur Game Boy, la banque de ROM paginée et les registres d'E/S ne sont pas exposés, et la banque 0 de la ROM l'est telle qu'au démarrage. Les codes de triche ne sont pas pris en charge. L'intégration de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte.
 - **États instantanés** : un état ne se recharge pas dans une version plus ancienne que celle qui l'a créé. Les changements de format sont listés dans le [journal des modifications](CHANGELOG.md).
 
 ## Versions
 
-Version actuelle : **0.7.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro Linux. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
+Version actuelle : **0.7.1**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro Linux. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
 
 Avant la 1.0, une version peut changer l'API ou le format des états ; le journal le signale à chaque fois.
 

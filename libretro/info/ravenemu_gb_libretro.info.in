@@ -11,4 +11,5 @@ display_version = "@PROJECT_VERSION@"
 supports_no_game = "false"
 block_extract = "false"
 savestate = "true"
+memory_descriptors = "true"
 firmware_count = 0

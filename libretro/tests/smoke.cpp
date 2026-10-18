@@ -13,7 +13,8 @@ namespace {
 unsigned video_frames = 0;
 unsigned last_width = 0, last_height = 0;
 bool pixel_format_requested = false;
-bool achievements_advertised = true;
+bool achievements_advertised = false;
+std::vector<retro_memory_descriptor> memory_map;  // dernière carte mémoire déclarée
 unsigned rumble_calls = 0;
 std::uint16_t rumble_strength = 0;
 unsigned descriptor_count = 0;
@@ -61,6 +62,11 @@ bool environment(unsigned command, void* value) {
         variable->value = found == option_values.end() ? nullptr : found->second.c_str();
         return found != option_values.end();
     }
+    if (command == RETRO_ENVIRONMENT_SET_MEMORY_MAPS) {
+        const auto* map = static_cast<const retro_memory_map*>(value);
+        memory_map.assign(map->descriptors, map->descriptors + map->num_descriptors);
+        return true;
+    }
     if (command == RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS) {
         achievements_advertised = *static_cast<bool*>(value);
         return true;
@@ -75,6 +81,22 @@ void video(const void* data, unsigned width, unsigned height, std::size_t pitch)
     }
 }
 std::size_t audio(const std::int16_t*, std::size_t count) { return count; }
+// Sans masque select, chaque descripteur a une longueur en puissance de deux
+// et un départ aligné sur elle, sinon RetroArch rejette la carte.
+bool memory_map_valid() {
+    for (const auto& descriptor : memory_map)
+        if (descriptor.select != 0 || descriptor.len == 0 || (descriptor.len & (descriptor.len - 1)) != 0 ||
+            descriptor.start % descriptor.len != 0)
+            return false;
+    return true;
+}
+// Octet `address` (adresse de la console) lu comme le frontend : par la carte mémoire.
+const std::uint8_t* mapped(std::size_t address) {
+    for (const auto& descriptor : memory_map)
+        if (descriptor.ptr && address >= descriptor.start && address - descriptor.start < descriptor.len)
+            return static_cast<const std::uint8_t*>(descriptor.ptr) + descriptor.offset + (address - descriptor.start);
+    return nullptr;
+}
 void input_poll() {}
 std::int16_t input_state(unsigned, unsigned device, unsigned, unsigned) {
     if (device == RETRO_DEVICE_ANALOG) ++analog_queries;
@@ -93,7 +115,7 @@ int main() {
     retro_system_info system{};
     retro_get_system_info(&system);
     if (retro_api_version() != RETRO_API_VERSION || !system.library_name ||
-        !system.valid_extensions || achievements_advertised ||
+        !system.valid_extensions || !achievements_advertised ||
         !system.library_version || std::string(system.library_version) != RAVENEMU_VERSION) {
         std::cerr << "Invalid Libretro API metadata or unsupported achievements flag\n";
         return 1;
@@ -159,6 +181,36 @@ int main() {
         std::cerr << "Misleading system RAM mapping exposed\n";
         return 1;
     }
+    // Carte mémoire de RetroAchievements : régions aux adresses de la console.
+    if (!memory_map_valid()) {
+        std::cerr << "Memory descriptor RetroArch would reject\n";
+        return 1;
+    }
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    const auto region_length = [](std::size_t start) {
+        for (const auto& descriptor : memory_map)
+            if (descriptor.start == start) return descriptor.len;
+        return std::size_t{0};
+    };
+    if (memory_map.size() != 3 || region_length(0x0300'0000) != 0x8000 || region_length(0x0200'0000) != 0x40000 ||
+        region_length(0x0e00'0000) != 8192 || !mapped(0x0e00'0000 + 8184) || *mapped(0x0e00'0000 + 8184) != 0x5a) {
+        std::cerr << "GBA achievement memory map missing or not mirrored\n";
+        return 1;
+    }
+#else
+    // ROM 0, VRAM, WRAM, OAM (0x80 puis 0x20 octets), HRAM, et sur GBC les
+    // banques 2 à 7 de la WRAM (0x4000 puis 0x2000 octets).
+#if defined(RAVENEMU_LIBRETRO_GBC)
+    constexpr std::size_t expected_regions = 8;
+#else
+    constexpr std::size_t expected_regions = 6;
+#endif
+    if (memory_map.size() != expected_regions || !mapped(0x0134) || *mapped(0x0134) != rom[0x134] || mapped(0x4000) ||
+        !mapped(0xc000) || mapped(0xa000) || mapped(0xff00) || !mapped(0xfe9f) || mapped(0xfea0)) {
+        std::cerr << "Game Boy achievement memory map missing or wrong\n";
+        return 1;
+    }
+#endif
 
     const auto state_size = retro_serialize_size();
     if (state_size < 16 || state_size > 4U * 1024U * 1024U) {
@@ -264,6 +316,18 @@ int main() {
         std::cerr << "Battery write not mirrored into SAVE_RAM\n";
         return 1;
     }
+    if (!mapped(0xa000) || *mapped(0xa000) != 0x77 || !mapped(0xbfff) || mapped(0x16000)) {
+        std::cerr << "Cartridge RAM not in the achievement memory map\n";
+        return 1;
+    }
+    retro_unload_game();
+    // 32 Kio de RAM : les banques 1 à 3 suivent en 0x16000, en blocs valides.
+    battery_rom[0x149] = 0x03;
+    if (!retro_load_game(&game)) return 1;
+    if (!memory_map_valid() || !mapped(0x16000) || !mapped(0x1bfff) || mapped(0x1c000)) {
+        std::cerr << "Cartridge RAM banks not in the achievement memory map\n";
+        return 1;
+    }
     retro_unload_game();
 
     // An MBC7 header announces the accelerometer and polls the left stick.
@@ -283,6 +347,49 @@ int main() {
     }
     retro_unload_game();
 #endif
+    // Un compteur en mémoire de travail : la copie suit chaque image, garde son
+    // adresse et repart de l'état rechargé ou du reset.
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    auto counter_rom = ravenemu::testing::minimal_gba_rom();
+    const std::uint32_t count_loop[]{0xe3a00403U, 0xe5d01000U, 0xe2811001U, 0xe5c01000U, 0xeafffffbU};
+    for (std::size_t index = 0; index < std::size(count_loop); ++index)
+        for (unsigned byte = 0; byte < 4; ++byte)
+            counter_rom[index * 4U + byte] = static_cast<std::uint8_t>(count_loop[index] >> (byte * 8U));
+    constexpr std::size_t counter_address = 0x0300'0000;  // IWRAM
+#else
+    // LD HL,$C000 ; loop: INC (HL) ; JR loop
+    auto counter_rom = ravenemu::testing::minimal_game_boy_rom();
+    const std::uint8_t count_loop[] = {0x21, 0x00, 0xc0, 0x34, 0x18, 0xfd};
+    std::copy(std::begin(count_loop), std::end(count_loop), counter_rom.begin() + 0x100);
+    constexpr std::size_t counter_address = 0xc000;  // WRAM
+#endif
+    game.data = counter_rom.data();
+    game.size = counter_rom.size();
+    if (!retro_load_game(&game)) return 1;
+    const auto* counter = mapped(counter_address);
+    retro_run();
+    const auto first = counter ? *counter : 0;
+    std::vector<std::uint8_t> counter_state(retro_serialize_size());
+    if (!counter || !retro_serialize(counter_state.data(), counter_state.size())) return 1;
+    retro_run();
+    const auto second = *counter;
+    if (!retro_unserialize(counter_state.data(), counter_state.size()) || *counter != first ||
+        mapped(counter_address) != counter) {
+        std::cerr << "Achievement memory not refreshed after a state load\n";
+        return 1;
+    }
+    retro_run();
+    if (first == second || *counter != second) {
+        std::cerr << "Achievement memory does not follow the frames\n";
+        return 1;
+    }
+    retro_reset();
+    if (*counter != 0) {
+        std::cerr << "Achievement memory not refreshed after a reset\n";
+        return 1;
+    }
+    retro_unload_game();
+
     retro_deinit();
     std::cout << system.library_name << " Libretro smoke test passed\n";
 }
