@@ -3,6 +3,8 @@
 #include <ravenemu/gb/core.hpp>
 #include "ravenemu/sha256.hpp"
 
+#include <algorithm>
+
 namespace ravenemu {
 namespace cgb {
 
@@ -59,23 +61,35 @@ public:
         if (!machine_) return 0;
         const auto& m = *machine_;
         const auto ram = m.cartridge->achievement_ram();
+        const std::span<const std::uint8_t> wram = m.bus.wram;
         std::size_t count = 0;
-        for (auto& value : out) {
+        // Copie par blocs (un frontend Libretro relit tout l'espace à chaque
+        // image) ; la ROM passe par le contrôleur, octet par octet.
+        const auto copy = [&](std::span<const std::uint8_t> source, std::uint64_t base, std::uint64_t a) {
+            const auto offset = static_cast<std::size_t>(a - base);
+            const auto length = std::min(out.size() - count, source.size() - offset);
+            std::copy_n(source.begin() + static_cast<std::ptrdiff_t>(offset), length,
+                        out.begin() + static_cast<std::ptrdiff_t>(count));
+            count += length;
+        };
+        while (count < out.size()) {
             const auto a = static_cast<std::uint64_t>(address) + count;
-            // Chaque branche borne `a` : l'index tient dans size_t, même sur 32 bits.
-            const auto at = [a](std::uint64_t base) { return static_cast<std::size_t>(a - base); };
-            if (a < 0x8000) value = static_cast<std::uint8_t>(m.cartridge->read_rom(static_cast<int>(a)));
-            else if (a < 0xa000) value = m.ppu.vram[at(0x8000)];
-            else if (a < 0xc000 && a - 0xa000 < ram.size()) value = ram[at(0xa000)];
-            else if (a >= 0xc000 && a < 0xe000) value = m.bus.wram[at(0xc000)];
-            else if (a >= 0xe000 && a < 0xfe00) value = m.bus.wram[at(0xe000)];
-            else if (a >= 0xfe00 && a < 0xfea0) value = m.ppu.oam[at(0xfe00)];
-            else if (a >= 0xff80 && a < 0xffff) value = m.bus.hram[at(0xff80)];
-            else if (a == 0xffff) value = static_cast<std::uint8_t>(m.interrupts.enable);
-            else if (a >= 0x10000 && a < 0x16000 && gb::is_cgb_hardware(m.hardware_mode)) value = m.bus.wram[at(0x10000) + 0x2000];
-            else if (a >= 0x16000 && a < 0x34000 && a - 0x14000 < ram.size()) value = ram[at(0x14000)];
-            else break; // Unsupported IO/mapper memory invalidates dependent achievements.
-            ++count;
+            const auto before = count;
+            if (a < 0x8000) out[count++] = static_cast<std::uint8_t>(m.cartridge->read_rom(static_cast<int>(a)));
+            else if (a < 0xa000) copy(std::span(m.ppu.vram).first(0x2000), 0x8000, a);
+            else if (a < 0xc000 && a - 0xa000 < ram.size())
+                copy(ram.first(std::min<std::size_t>(ram.size(), 0x2000)), 0xa000, a);
+            else if (a >= 0xc000 && a < 0xe000) copy(wram.first(0x2000), 0xc000, a);
+            else if (a >= 0xe000 && a < 0xfe00) copy(wram.first(0x1e00), 0xe000, a);
+            else if (a >= 0xfe00 && a < 0xfea0) copy(m.ppu.oam, 0xfe00, a);
+            else if (a >= 0xff80 && a < 0xffff) copy(m.bus.hram, 0xff80, a);
+            else if (a == 0xffff) out[count++] = static_cast<std::uint8_t>(m.interrupts.enable);
+            else if (a >= 0x10000 && a < 0x16000 && gb::is_cgb_hardware(m.hardware_mode))
+                copy(wram.subspan(0x2000, 0x6000), 0x10000, a);
+            else if (a >= 0x16000 && a < 0x34000 && a - 0x14000 < ram.size())
+                copy(ram.first(std::min<std::size_t>(ram.size(), 0x20000)).subspan(0x2000), 0x16000, a);
+            // Unsupported IO/mapper memory invalidates dependent achievements.
+            if (count == before) break;
         }
         return count;
     }

@@ -2,6 +2,39 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.7.1 - 2026-10-18
+
+Cette version active RetroAchievements dans les cœurs Libretro ([#27](https://github.com/GhostPunishR/RavenCore/pull/27)). L'API et le format des états ne changent pas.
+
+### Ajouté
+
+- **Libretro : RetroAchievements.** Les trois cœurs annoncent la prise en charge des succès et déclarent à RetroArch une carte mémoire (`RETRO_ENVIRONMENT_SET_MEMORY_MAPS`), aux adresses de la console et dans la disposition de rcheevos :
+  - **GBA :** IWRAM en 0x03000000, EWRAM en 0x02000000, et puce de sauvegarde en 0x0E000000 (64 Kio au plus).
+  - **Game Boy et Game Boy Color :** banque 0 de la ROM, VRAM, RAM de cartouche dans toutes ses banques, WRAM (son miroir y renvoie), OAM, HRAM et IE, et banques 2 à 7 de la WRAM de la Game Boy Color.
+
+  RetroArch garde des pointeurs vers cette mémoire pendant toute la partie, alors que RavenCore recrée sa machine à chaque reset et à chaque chargement d'état. RetroArch lit donc une copie de l'espace de RetroAchievements, rafraîchie après chaque image (quand les succès sont évalués), après un reset et après un chargement d'état. Une écriture du frontend dans cette copie n'atteint pas le jeu : les codes de triche restent non pris en charge.
+  - Sur Game Boy, la banque de ROM paginée et les registres d'E/S ne sont pas exposés : un succès qui les lit est signalé comme non pris en charge. La banque 0 est copiée telle qu'elle est au démarrage, au reset et au chargement d'un état. La relire à chaque image, à travers le contrôleur de la cartouche, coûterait environ 2 % du temps d'une image.
+  - Les fichiers `.info` indiquent `memory_descriptors = "true"`.
+
+  Vérifié en local avec le code de rcheevos qui relie un cœur Libretro aux succès dans RetroArch (`rc_libretro`), compilé hors du dépôt. Il retrouve les régions GBA et Game Boy Color, et chaque octet lu par ce chemin est celui que rend le cœur. Pas encore essayé en jeu dans RetroArch.
+
+### Modifié
+
+- **Lecture de l'espace de RetroAchievements environ 16 fois plus rapide** (`read_achievement_memory()`, `ravenemu_read_achievement_memory()`) : elle copie la mémoire par blocs au lieu d'octet par octet. Lire tout l'espace d'un jeu GBA prend 24 µs au lieu de 390 sur un PC. Les octets rendus ne changent pas.
+
+### Compatibilité des états instantanés
+
+- **GBA : format 16** et **GB/GBC : format 11**, inchangés.
+- **API C : version 0**, inchangée. Le paquet CMake se demande toujours avec `find_package(RavenCore 0.7)`.
+
+### Tests
+
+- `libretro_smoke_gb`, `libretro_smoke_gbc` et `libretro_smoke_gba` vérifient plusieurs points :
+  - les succès sont annoncés et la carte mémoire est déclarée aux adresses de la console ;
+  - la sauvegarde et la RAM de cartouche y apparaissent ;
+  - un compteur en mémoire de travail y suit chaque image, garde son adresse, et repart d'un état rechargé comme d'un reset.
+- `gb_raven_core` et `gba_raven_core` vérifient qu'une lecture qui franchit une frontière de région rend les mêmes octets que des lectures d'un octet.
+
 ## 0.7.0 - 2026-10-18
 
 Cette version donne aux registres d'E/S et au port série GBA les valeurs que relit la console, au drapeau de H-Blank son instant, et au Halt du BIOS sa sortie ([#26](https://github.com/GhostPunishR/RavenCore/pull/26)). Le format des états GBA change ; l'API ne change pas.

@@ -19,6 +19,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -43,6 +44,48 @@ retro_set_rumble_state_t rumble_cb = nullptr;
 bool rumble_on = false;
 // Sensors of the loaded cartridge, driven by the left analog stick.
 ravenemu::CartridgeSensors sensors{};
+
+// RetroAchievements reads emulated memory through pointers that must stay valid
+// for the whole session, but a reset or a state load replaces RavenCore's
+// machine. The frontend therefore reads a copy of the RetroAchievements address
+// space, laid out at the same offsets and refreshed after every frame, when
+// achievements are evaluated. Writes to the copy reach nothing.
+struct AchievementRegion {
+    std::uint32_t address;  // offset in the RetroAchievements address space
+    std::uint32_t size;
+    std::size_t start;      // console address, as the frontend maps it
+    std::uint64_t flags;
+    bool every_frame;
+};
+#if defined(RAVENEMU_LIBRETRO_GBA)
+constexpr std::size_t achievement_space = 0x58000;
+constexpr std::array<AchievementRegion, 3> achievement_regions{{
+    {0x00000, 0x08000, 0x0300'0000, RETRO_MEMDESC_SYSTEM_RAM, true},  // IWRAM
+    {0x08000, 0x40000, 0x0200'0000, RETRO_MEMDESC_SYSTEM_RAM, true},  // EWRAM
+    {0x48000, 0x10000, 0x0e00'0000, RETRO_MEMDESC_SAVE_RAM, true},    // save chip, 64 KiB at most
+}};
+#else
+// Console addresses, plus the extra banks RetroAchievements places above
+// 0xFFFF. Echo RAM maps onto WRAM. ROM bank 0 is copied as mapped at power-on
+// and after a reset or a state load only: reading it through the mapper every
+// frame would cost about 2% of a frame. The switchable ROM bank and the I/O
+// registers are not exposed.
+constexpr std::size_t achievement_space = 0x34000;
+constexpr std::array<AchievementRegion, 8> achievement_regions{{
+    {0x00000, 0x04000, 0x00000, 0, false},                         // ROM bank 0
+    {0x08000, 0x02000, 0x08000, RETRO_MEMDESC_VIDEO_RAM, true},    // VRAM
+    {0x0a000, 0x02000, 0x0a000, RETRO_MEMDESC_SAVE_RAM, true},     // cartridge RAM, bank 0
+    {0x0c000, 0x02000, 0x0c000, RETRO_MEMDESC_SYSTEM_RAM, true},   // WRAM, banks 0 and 1
+    {0x0fe00, 0x000a0, 0x0fe00, RETRO_MEMDESC_VIDEO_RAM, true},    // OAM
+    {0x0ff80, 0x00080, 0x0ff80, RETRO_MEMDESC_SYSTEM_RAM, true},   // HRAM, then IE
+    {0x10000, 0x06000, 0x10000, RETRO_MEMDESC_SYSTEM_RAM, true},   // GBC WRAM, banks 2 to 7
+    {0x16000, 0x1e000, 0x16000, RETRO_MEMDESC_SAVE_RAM, true},     // cartridge RAM, banks 1 to 15
+}};
+#endif
+std::vector<std::uint8_t> achievement_ram;
+// Bytes the loaded game exposes in each region: no cartridge RAM, a DMG
+// without the GBC banks, a smaller save chip...
+std::array<std::size_t, achievement_regions.size()> achievement_sizes{};
 
 #if defined(RAVENEMU_LIBRETRO_GB)
 constexpr const char* label = "RavenGB";
@@ -230,6 +273,8 @@ void clear_game() {
     output_frame.clear();
     state_capacity = 0;
     pending_save_import = false;
+    achievement_ram.clear();
+    achievement_sizes = {};
 }
 void refresh_video() {
     if (!core || !video_cb) return;
@@ -242,6 +287,35 @@ void refresh_video() {
     video_cb(output_frame.data(), static_cast<unsigned>(spec.width),
              static_cast<unsigned>(spec.height),
              static_cast<std::size_t>(spec.width) * sizeof(std::uint32_t));
+}
+void refresh_achievement_memory(bool everything) {
+    if (!core || achievement_ram.empty()) return;
+    for (std::size_t index = 0; index < achievement_regions.size(); ++index) {
+        const auto& region = achievement_regions[index];
+        if ((everything || region.every_frame) && achievement_sizes[index] > 0)
+            core->read_achievement_memory(region.address,
+                                          std::span(achievement_ram).subspan(region.address, achievement_sizes[index]));
+    }
+}
+// Once the game is loaded: the copy keeps its address until the game unloads.
+void declare_achievement_memory() {
+    achievement_ram.assign(achievement_space, 0);
+    std::vector<retro_memory_descriptor> descriptors;
+    for (std::size_t index = 0; index < achievement_regions.size(); ++index) {
+        const auto& region = achievement_regions[index];
+        achievement_sizes[index] = core->read_achievement_memory(
+            region.address, std::span(achievement_ram).subspan(region.address, region.size));
+        if (achievement_sizes[index] == 0) continue;
+        retro_memory_descriptor descriptor{};
+        descriptor.flags = region.flags;
+        descriptor.ptr = achievement_ram.data();
+        descriptor.offset = region.address;
+        descriptor.start = region.start;
+        descriptor.len = achievement_sizes[index];
+        descriptors.push_back(descriptor);
+    }
+    retro_memory_map map{descriptors.data(), static_cast<unsigned>(descriptors.size())};
+    env_cb(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &map);
 }
 void refresh_audio() {
     if (!core) return;
@@ -262,9 +336,9 @@ extern "C" {
 
 void retro_set_environment(retro_environment_t callback) {
     env_cb = callback;
-    // No direct writable system memory mappings yet: never falsely claim
-    // RetroAchievements (including Hardcore) support.
-    bool achievements = false;
+    // The memory map declared with each game exposes the RetroAchievements
+    // address space (see declare_achievement_memory).
+    bool achievements = true;
     if (!env_cb) return;
     env_cb(RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS, &achievements);
     declare_options();
@@ -328,6 +402,7 @@ bool retro_load_game(const struct retro_game_info* game) {
         core = std::move(machine);
         sensors = core->cartridge_sensors();
         set_input_descriptors();
+        declare_achievement_memory();
         retro_rumble_interface rumble{};
         if (env_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumble)) rumble_cb = rumble.set_rumble_state;
         return true;
@@ -337,7 +412,7 @@ bool retro_load_game_special(unsigned, const struct retro_game_info*, std::size_
 void retro_unload_game(void) { clear_game(); }
 void retro_reset(void) {
     if (!core) return;
-    try { import_save_ram_once(); core->reset(); update_save_ram(); update_rumble(); }
+    try { import_save_ram_once(); core->reset(); update_save_ram(); update_rumble(); refresh_achievement_memory(true); }
     catch (const std::exception&) {}
 }
 void retro_run(void) {
@@ -367,6 +442,7 @@ void retro_run(void) {
         core->run_frame(native_frame, true);
         update_save_ram();
         update_rumble();
+        refresh_achievement_memory(false);
         refresh_video();
         refresh_audio();
     } catch (const std::exception&) {
@@ -405,14 +481,16 @@ bool retro_unserialize(const void* data, std::size_t size) {
         core->load_state({bytes + 8, static_cast<std::size_t>(length)});
         update_save_ram();
         update_rumble();
+        refresh_achievement_memory(true);
         return true;
     } catch (const std::exception&) { return false; }
 }
 void retro_cheat_reset(void) {}
 void retro_cheat_set(unsigned, bool, const char*) {}
 unsigned retro_get_region(void) { return RETRO_REGION_NTSC; }
-// Battery SRAM is the only exposed mutable memory. The internal core has no
-// writable system RAM ABI yet, so do NOT provide a misleading system RAM view.
+// Battery SRAM is the only exposed mutable memory. System memory reaches the
+// frontend only through the memory map, a copy that writes cannot change: no
+// misleading writable system RAM view.
 void* retro_get_memory_data(unsigned id) {
     return id == RETRO_MEMORY_SAVE_RAM && !save_ram.empty() ? save_ram.data() : nullptr;
 }

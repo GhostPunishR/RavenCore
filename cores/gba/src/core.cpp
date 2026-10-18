@@ -2,6 +2,8 @@
 
 #include "ravenemu/sha256.hpp"
 
+#include <algorithm>
+
 namespace ravenemu {
 namespace gba {
 
@@ -69,23 +71,28 @@ public:
     }
     std::size_t read_achievement_memory(std::uint32_t address, std::span<std::uint8_t> out) const override {
         if (!machine_) return 0;
-        const auto* save = machine_->cartridge.save();
+        // Espace de RetroAchievements : IWRAM en 0, EWRAM en 0x8000, puis
+        // jusqu'à 64 Kio de la puce de sauvegarde en 0x48000. Copie par blocs :
+        // un frontend Libretro relit tout l'espace à chaque image.
+        std::span<const std::uint8_t> save;
+        if (const auto* memory = machine_->cartridge.save()) save = memory->data();
+        const std::array<std::pair<std::uint64_t, std::span<const std::uint8_t>>, 3> regions{{
+            {0x0, machine_->bus.iwram},
+            {0x8000, machine_->bus.ewram},
+            {0x48000, save.first(std::min<std::size_t>(save.size(), 0x10000))},
+        }};
         std::size_t count = 0;
-        for (auto& value : out) {
+        while (count < out.size()) {
             const auto a = static_cast<std::uint64_t>(address) + count;
-            // Chaque branche borne `a` : l'index tient dans size_t, même sur 32 bits.
-            const auto at = [a](std::uint64_t base) {
-                return static_cast<std::size_t>(a - base);
-            };
-            if (a < 0x8000)
-                value = machine_->bus.iwram[at(0)];
-            else if (a < 0x48000)
-                value = machine_->bus.ewram[at(0x8000)];
-            else if (a < 0x58000 && save && a - 0x48000 < save->data().size())
-                value = save->data()[at(0x48000)];
-            else
-                break;
-            ++count;
+            const auto region = std::find_if(regions.begin(), regions.end(), [a](const auto& entry) {
+                return a >= entry.first && a - entry.first < entry.second.size();
+            });
+            if (region == regions.end()) break;
+            const auto offset = static_cast<std::size_t>(a - region->first);
+            const auto length = std::min(out.size() - count, region->second.size() - offset);
+            std::copy_n(region->second.begin() + static_cast<std::ptrdiff_t>(offset), length,
+                        out.begin() + static_cast<std::ptrdiff_t>(count));
+            count += length;
         }
         return count;
     }

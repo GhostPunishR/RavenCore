@@ -325,6 +325,21 @@ void achievement_memory_map_test() {
         check(read(0x16000, 0x20000) == battery.size() - 0x2000 &&
               out[0] == battery[0x2000] && out[battery.size() - 0x2001] == battery.back(),
               "banques suivantes de RAM de cartouche incorrectes");
+        // Une lecture qui franchit une frontière de région rend les mêmes
+        // octets que des lectures d'un octet, et s'arrête au même endroit.
+        for (const std::uint32_t start : {0x7ff0U, 0x9ff0U, 0xbff0U, 0xdff0U, 0xfdf0U, 0xfe90U, 0xff70U, 0xfff0U,
+                                          0xfff8U, 0x15ff0U, 0x1dff0U, 0x33ff0U}) {
+            std::array<std::uint8_t, 0x40> block{};
+            std::vector<std::uint8_t> bytes;
+            for (std::uint32_t offset = 0; offset < block.size(); ++offset) {
+                std::array<std::uint8_t, 1> one{};
+                if (core->read_achievement_memory(start + offset, one) != 1) break;
+                bytes.push_back(one[0]);
+            }
+            const auto count = core->read_achievement_memory(start, block);
+            check(count == bytes.size() && std::equal(bytes.begin(), bytes.end(), block.begin()),
+                  "lecture par blocs différente des lectures d'un octet");
+        }
     }
 }
 

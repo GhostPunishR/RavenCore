@@ -621,6 +621,20 @@ void achievement_memory_map_test() {
     check(read(0x48000, 0x10000) == battery.size() && out[0] == battery[0] && out[0x7fff] == battery.back(),
           "sauvegarde mal exposée");
     check(read(0x50000, 1) == 0 && read(0x58000, 1) == 0, "lecture au-delà de la sauvegarde acceptée");
+    // Une lecture qui franchit une frontière de région rend les mêmes octets
+    // que des lectures d'un octet, et s'arrête au même endroit.
+    for (const std::uint32_t start : {0x7ff0U, 0x47ff0U, 0x4fff0U, 0x57ff0U}) {
+        std::array<std::uint8_t, 0x40> block{};
+        std::vector<std::uint8_t> bytes;
+        for (std::uint32_t offset = 0; offset < block.size(); ++offset) {
+            std::array<std::uint8_t, 1> one{};
+            if (core->read_achievement_memory(start + offset, one) != 1) break;
+            bytes.push_back(one[0]);
+        }
+        const auto count = core->read_achievement_memory(start, block);
+        check(count == bytes.size() && std::equal(bytes.begin(), bytes.end(), block.begin()),
+              "lecture par blocs différente des lectures d'un octet");
+    }
 }
 
 /**
