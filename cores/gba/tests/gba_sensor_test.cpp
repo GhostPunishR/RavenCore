@@ -275,12 +275,21 @@ void sensor_save_state_test() {
     // capteurs (tête, compte, progression, activité, quatre délais), puis
     // l'état du câble link. Format 15 : quatre recharges de timer en attente,
     // l'âge de la ligne d'IRQ et le temps restant d'une fonction du BIOS.
+    // Format 16 : retour d'un Halt du BIOS, puis SIOMULTI0-3.
     constexpr std::size_t prefetch_bytes = 4U + 4U + 4U + 1U + 4U * 4U + 4U * Serial::link_state_words;
     constexpr std::size_t irq_bytes = 4U * 4U + 4U + 2U * 4U;
-    check(state[4] == 0 && state[5] == 15, "version d'état GBA inattendue");
+    constexpr std::size_t format16_bytes = 4U + 4U * 4U;
+    check(state[4] == 0 && state[5] == 16, "version d'état GBA inattendue");
 
-    // État au format 14 : sans le bloc du format 15. Il se recharge, capteur compris.
-    std::vector<std::uint8_t> legacy(state.begin(), state.end() - static_cast<std::ptrdiff_t>(irq_bytes));
+    // État au format 15 : sans le bloc du format 16. Il se recharge, capteur compris.
+    std::vector<std::uint8_t> legacy(state.begin(), state.end() - static_cast<std::ptrdiff_t>(format16_bytes));
+    legacy[5] = 15;
+    second->load_state(legacy);
+    second->run_frame(frame, false);
+    check(copied_x(*second) == tilted_low, "état 15 : mesure du capteur perdue");
+
+    // État au format 14 : sans le bloc du format 15 non plus.
+    legacy.resize(legacy.size() - irq_bytes);
     legacy[5] = 14;
     second->load_state(legacy);
     second->run_frame(frame, false);
@@ -302,7 +311,7 @@ void sensor_save_state_test() {
     second->run_frame(frame, false);
     check(copied_x(*second) == (TiltSensor::center_x & 0xff), "état 12 : capteur non réinitialisé");
 
-    legacy[5] = 16;
+    legacy[5] = 17;
     expect_failure<SaveStateError>([&] { second->load_state(legacy); }, "version d'état future acceptée");
 }
 

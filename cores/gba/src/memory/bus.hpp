@@ -318,7 +318,8 @@ private:
     void write8_raw(std::int32_t address, int value);
     void write16_raw(std::int32_t address, int value);
     [[nodiscard]] int read_io(int offset);
-    [[nodiscard]] int read_timer_byte(int offset);
+    [[nodiscard]] int read_io_half(int offset);
+    [[nodiscard]] int read_timer_half(int offset);
     [[nodiscard]] int io_half(int offset) const noexcept;
     void write_io_half(int offset, int value) noexcept;
     void propagate_io_write(int offset, std::int32_t value, int bytes);

@@ -39,6 +39,7 @@ public:
             const auto synced = synced_in_instruction_;
             const auto return_address = add32(cpu.state.regs[15], cpu.state.thumb ? 2 : 4);
             bios.handle_swi(number);
+            if (number == 0x02 && cpu.state.halted) halt_return_ = return_address;
             // Le BIOS d'origine exécute ses fonctions avec les IRQ de
             // l'appelant : une longue copie (CpuSet, décompression…) les
             // laisse passer. Son temps s'écoule donc après le SWI, CPU arrêté
@@ -121,7 +122,15 @@ public:
                 advance_now(idle); elapsed += idle;
                 bus.diagnostics.wait_step(idle, bios.wait_state() ? bios.wait_state()->interrupt_mask : 0);
                 if (irq_settling_cycles() == 0 && bios.should_resume()) {
-                    cpu.state.halted = false; bus.diagnostics.wait_resolved(); bus.break_access_sequence();
+                    bus.diagnostics.wait_resolved(); bus.break_access_sequence();
+                    if (halt_return_ != 0) {
+                        // Le Halt du BIOS (SWI 2) rend la main après son réveil :
+                        // l'IRQ passe d'abord, puis le BIOS sort de sa fonction.
+                        bios_busy_cycles_ = halt_return_cycles;
+                        bios_busy_return_ = std::exchange(halt_return_, 0);
+                        continue;
+                    }
+                    cpu.state.halted = false;
                 } else if (bios.wait_state() && irq_raised_at_ && !cpu.state.irq_disabled &&
                            irq_settling_cycles() == 0) {
                     // IntrWait laisse passer les autres IRQ : le CPU repart sur
@@ -208,15 +217,27 @@ public:
         if (age < 0) irq_raised_at_.reset();
         else irq_raised_at_ = clock_ + pending_cycles_ - age;
     }
-    // Temps restant d'une fonction du BIOS, et l'instruction qui la suit.
-    [[nodiscard]] std::array<std::int32_t, 2> export_bios_busy() const noexcept {
-        return {bios_busy_cycles_, bios_busy_cycles_ > 0 ? bios_busy_return_ : 0};
+    /**
+     * Le Halt du BIOS d'origine (SWI 2) ne rend pas la main dès le réveil :
+     * le gestionnaire d'IRQ passe, puis le BIOS sort de sa fonction et de son
+     * SWI. La suite de tests de mGBA, lancée sur console, mesure la fin d'un
+     * transfert série attendue par Halt : le jeu reprend 27 cycles après le
+     * retour du gestionnaire. Le point de reprise en prend 3, le reste
+     * s'écoule ici.
+     */
+    static constexpr int halt_return_cycles = 24;
+    // Temps restant d'une fonction du BIOS et l'instruction qui la suit, puis
+    // celle qui suit un Halt du BIOS pas encore réveillé (0 : aucun).
+    [[nodiscard]] std::array<std::int32_t, 3> export_bios_busy() const noexcept {
+        return {bios_busy_cycles_, bios_busy_cycles_ > 0 ? bios_busy_return_ : 0, halt_return_};
     }
     void restore_bios_busy(std::span<const std::int32_t> state) {
-        if (state.size() != 2 || state[0] < 0 || state[0] > max_bios_busy_cycles || (state[0] == 0 && state[1] != 0))
+        if (state.size() != 3 || state[0] < 0 || state[0] > max_bios_busy_cycles || (state[0] == 0 && state[1] != 0) ||
+            (state[2] != 0 && state[0] != 0))
             throw SaveStateError("État du BIOS GBA invalide");
         bios_busy_cycles_ = state[0];
         bios_busy_return_ = state[1];
+        halt_return_ = state[2];
     }
 
     Cartridge cartridge;
@@ -251,6 +272,7 @@ private:
     std::optional<std::int64_t> irq_raised_at_;  // levée de la ligne d'IRQ
     int bios_busy_cycles_{};                     // temps restant d'une fonction du BIOS
     std::int32_t bios_busy_return_{};            // instruction qui suit son SWI
+    std::int32_t halt_return_{};                 // instruction qui suit un Halt du BIOS en cours
     int pending_cycles_{};
     int next_event_{};
     bool in_instruction_{};

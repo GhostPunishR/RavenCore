@@ -99,6 +99,12 @@ public:
         available_ -= count;
         return count;
     }
+    // SOUNDCNT_X lu par le CPU : canaux PSG en cours (bits 0 à 3, lecture
+    // seule) et interrupteur général (bit 7).
+    [[nodiscard]] int sound_status() const noexcept {
+        return (square1.enabled ? 1 : 0) | (square2.enabled ? 2 : 0) | (wave.enabled ? 4 : 0) |
+               (noise.enabled ? 8 : 0) | (master_enable ? 0x80 : 0);
+    }
     [[nodiscard]] int fifo_size(int channel) const noexcept { return channel == 0 ? fifo_a_.size : fifo_b_.size; }
     [[nodiscard]] int fifo_empty_reads(int channel) const noexcept { return fifo_empty_reads_[static_cast<std::size_t>(channel)]; }
     void set_measuring(bool value) noexcept { measuring_time_ = value; }

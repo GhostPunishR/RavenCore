@@ -20,6 +20,10 @@ using ravenemu::testing::minimal_game_boy_rom;
 using ravenemu::testing::minimal_gba_rom;
 
 namespace {
+// Le format 16 finit par l'instruction qui suit un Halt du BIOS en cours,
+// puis SIOMULTI0-3 : un mot chacun.
+constexpr std::ptrdiff_t format16_bytes = 4 + 4 * 4;
+
 void gba_smoke_test() {
     auto core = ravenemu::make_gba_core(ravenemu::GbaSaveType::sram);
     const auto rom = minimal_gba_rom();
@@ -228,11 +232,12 @@ void irq_state_continuation_test() {
     auto settling = 0;
     for (int index = 0; index < 4; ++index) {
         const auto state = core->save_state();
-        // Le format 15 finit par l'âge de la ligne d'IRQ (gros-boutiste,
-        // -1 au repos), puis deux mots pour le BIOS ; la ligne n'est
+        // L'âge de la ligne d'IRQ (gros-boutiste, -1 au repos) précède deux
+        // mots pour le BIOS et le bloc du format 16 ; la ligne n'est
         // synchronisée qu'à 4 cycles.
         std::uint32_t age = 0;
-        for (auto byte = state.end() - 12; byte != state.end() - 8; ++byte) age = age << 8U | *byte;
+        const auto at = state.end() - format16_bytes - 12;
+        for (auto byte = at; byte != at + 4; ++byte) age = age << 8U | *byte;
         if (age < 4) ++settling;
         core->run_frame(frame, false);
         const auto continued = core->save_state();
@@ -267,10 +272,11 @@ void bios_busy_state_continuation_test() {
     auto busy = 0;
     for (int index = 0; index < 4; ++index) {
         const auto state = core->save_state();
-        // Le format 15 finit par le temps restant d'une fonction du BIOS et
-        // l'instruction qui la suit (gros-boutiste).
+        // Le temps restant d'une fonction du BIOS (gros-boutiste) précède
+        // l'instruction qui la suit et le bloc du format 16.
         std::uint32_t remaining = 0;
-        for (auto byte = state.end() - 8; byte != state.end() - 4; ++byte) remaining = remaining << 8U | *byte;
+        const auto at = state.end() - format16_bytes - 8;
+        for (auto byte = at; byte != at + 4; ++byte) remaining = remaining << 8U | *byte;
         if (remaining > 0) ++busy;
         core->run_frame(frame, false);
         const auto continued = core->save_state();
@@ -279,6 +285,71 @@ void bios_busy_state_continuation_test() {
         check(core->save_state() == continued, "fonction du BIOS GBA : reprise d'état décalée");
     }
     check(busy > 0, "aucun état pris pendant une fonction du BIOS");
+}
+
+void bios_halt_state_continuation_test() {
+    // Boucle de Halt du BIOS réveillée par un timer toutes les 1024 cycles
+    // (llvm-mc) : presque tout le temps se passe dans le Halt. Le jeu ajoute
+    // dans r7 l'instant de chaque reprise, lu sur le timer 1. Un état pris
+    // pendant le Halt doit garder la sortie du BIOS qui suit le réveil
+    // (format 16) : sinon, les reprises viennent plus tôt et r7 diffère.
+    const std::array<std::uint32_t, 23> code{
+        0xe3a00301, 0xe59f1044, 0xe59f2044, 0xe5821000,  // r0 = E/S ; [0x03007FFC] = gestionnaire
+        0xe3a01502, 0xe5801104, 0xe59f1038, 0xe5801100,  // TM1 libre ; TM0 : recharge 0xFC00, IRQ
+        0xe2803c02, 0xe3a01008, 0xe1c310b0, 0xe3a01001,  // IE = timer 0,
+        0xe1c310b8, 0xe321f01f, 0xe2806c01,              // IME = 1, IRQ autorisées ; r6 = timers
+        0xef020000, 0xe1d610b4, 0xe0877001, 0xe2855001,  // boucle : Halt du BIOS, r7 += TM1, ++r5
+        0xeafffffa, 0x080000c0, 0x03007ffc, 0x00c0fc00};
+    // Gestionnaire en 0x080000C0 : acquitte IF, ++r4, bx lr.
+    const std::array<std::uint32_t, 6> handler{0xe3a00301, 0xe2800c02, 0xe3a01008, 0xe1c010b2, 0xe2844001, 0xe12fff1e};
+    auto rom = rom_with(code);
+    for (std::size_t i = 0; i < handler.size(); ++i)
+        for (unsigned b = 0; b < 4; ++b) rom[0xc0 + i * 4 + b] = static_cast<std::uint8_t>(handler[i] >> (8U * b));
+    auto core = ravenemu::make_gba_core(std::nullopt);
+    core->load_rom(rom, {});
+    std::vector<std::int32_t> frame(240 * 160);
+    core->run_frame(frame, false);
+    auto halted = 0;
+    for (int index = 0; index < 4; ++index) {
+        const auto state = core->save_state();
+        // L'instruction qui suit le Halt en cours (gros-boutiste) précède SIOMULTI0-3.
+        std::uint32_t resume = 0;
+        const auto at = state.end() - 16 - 4;
+        for (auto byte = at; byte != at + 4; ++byte) resume = resume << 8U | *byte;
+        if (resume == 0x0800'0040U) ++halted;
+        core->run_frame(frame, false);
+        const auto continued = core->save_state();
+        core->load_state(state);
+        core->run_frame(frame, false);
+        check(core->save_state() == continued, "Halt du BIOS GBA : reprise d'état décalée");
+    }
+    check(halted > 0, "aucun état pris pendant un Halt du BIOS");
+}
+
+void multiplayer_data_state_test() {
+    // Seule, la console fait un transfert multijoueur, puis recopie sans fin
+    // SIOMULTI0 et SIOMULTI1 en IWRAM (llvm-mc). Un état les garde : rechargé
+    // ailleurs, la copie continue de les lire.
+    const std::array<std::uint32_t, 22> code{
+        0xe3a00301, 0xe2801c01, 0xe3a02000, 0xe1c123b4,  // RCNT = 0
+        0xe59f2034, 0xe1c122b8, 0xe59f2030, 0xe1c122ba,  // multijoueur ; SIOMLT_SEND = 0x1234
+        0xe59f202c, 0xe1c122b8, 0xe1d122b8, 0xe3120080,  // départ, attente de la fin
+        0x1afffffc, 0xe3a06403, 0xe1d122b0, 0xe1c620b0,  // boucle : [0x03000000] = SIOMULTI0,
+        0xe1d122b2, 0xe1c620b2, 0xeafffffa, 0x00002003,  //          [0x03000002] = SIOMULTI1
+        0x00001234, 0x00002083};
+    const auto rom = rom_with(code);
+    auto core = ravenemu::make_gba_core(std::nullopt);
+    core->load_rom(rom, {});
+    std::vector<std::int32_t> frame(240 * 160);
+    core->run_frame(frame, false);
+    check(iwram(*core, 0, 2) == 0x1234 && iwram(*core, 2, 2) == 0xffff, "SIOMULTI : transfert seul non reçu");
+    const auto state = core->save_state();
+    auto restored = ravenemu::make_gba_core(std::nullopt);
+    restored->load_rom(rom, {});
+    restored->run_frame(frame, false);
+    restored->load_state(state);
+    restored->run_frame(frame, false);
+    check(iwram(*restored, 0, 2) == 0x1234 && iwram(*restored, 2, 2) == 0xffff, "SIOMULTI perdus par l'état");
 }
 
 void multiplayer_link_test() {
@@ -633,6 +704,8 @@ int main() {
     prefetch_state_continuation_test();
     irq_state_continuation_test();
     bios_busy_state_continuation_test();
+    bios_halt_state_continuation_test();
+    multiplayer_data_state_test();
     multiplayer_link_test();
     normal_link_test();
     link_cable_validation_test();
