@@ -18,7 +18,7 @@ sans ROM ni BIOS tiers.
 
 ```sh
 cmake -S . -B build -DBUILD_TESTING=ON
-cmake --build build --target nds_cartridge_tests nds_memory_tests nds_boot_tests nds_cpu_tests nds_calls_tests --parallel 4
+cmake --build build --target nds_cartridge_tests nds_memory_tests nds_boot_tests nds_cpu_tests nds_calls_tests nds_data_tests --parallel 4
 ctest --test-dir build -R '^nds_' --output-on-failure
 ```
 
@@ -87,16 +87,27 @@ encore d'ordonnanceur, de compteur de cycles ou de rapport de fréquence ARM9/AR
 
 | Mode | Instructions actuellement prises en charge |
 | --- | --- |
-| ARM | Les 16 opérations de traitement de données (AND à MVN), opérande immédiate tournée ou registre décalé par une constante ; conditions EQ à AL ; B, BL, BX ; LDR/STR et LDRB/STRB à décalage immédiat, pré/post-indexés ; LDM/STM IA/IB/DA/DB |
-| Thumb | Décalages immédiats ; ADD/SUB registre ou immédiat ; MOV/CMP/ADD/SUB immédiats ; les 16 opérations ALU sur registres bas, dont décalages par registre et MUL ; ADD/CMP/MOV sur registres hauts, BX ; LDR littéral ; LDR/STR octet, demi-mot et mot à décalage immédiat, transferts relatifs à SP ; branches conditionnelles, B et BL ; PUSH/POP, LDMIA/STMIA, ADD relatif à PC/SP et ajustement de SP |
+| ARM | Les 16 opérations de traitement de données (AND à MVN), opérande immédiate tournée ou registre décalé par constante ou registre ; conditions EQ à AL ; B, BL, BX ; LDR/STR et LDRB/STRB à décalage immédiat ou registre décalé par constante, pré/post-indexés ; LDRH/STRH/LDRSB/LDRSH à décalage immédiat ou registre ; LDM/STM IA/IB/DA/DB ; MUL/MLA et UMULL/UMLAL/SMULL/SMLAL |
+| Thumb | Décalages immédiats ; ADD/SUB registre ou immédiat ; MOV/CMP/ADD/SUB immédiats ; les 16 opérations ALU sur registres bas, dont décalages par registre et MUL ; ADD/CMP/MOV sur registres hauts, BX ; LDR littéral ; LDR/STR octet, demi-mot et mot à décalage immédiat ou registre, LDRSB/LDRSH à offset registre, transferts relatifs à SP ; branches conditionnelles, B et BL ; PUSH/POP, LDMIA/STMIA, ADD relatif à PC/SP et ajustement de SP |
 | ARM9 uniquement | BLX par registre en ARM/Thumb et par immédiat en ARM/Thumb ; chargement de PC avec échange ARM/Thumb |
 
 Les stockages de PC, les writebacks avec base dans la liste transférée (sauf
 LDMIA Thumb, qui préserve la base chargée), les listes vides, les variantes
-LDM/STM avec bit S, les décalages ARM par registre, les transferts ARM par demi-mot et les autres
-variantes absentes sont refusés explicitement. MUL Thumb conserve C/V dans ce
-modèle ; ces drapeaux ne doivent pas servir à revendiquer une fidélité aux
-comportements indéterminés du matériel. Les transferts non alignés sont refusés.
+LDM/STM avec bit S et les autres variantes absentes sont refusés explicitement.
+Les décalages ALU ARM par registre ne prennent pas encore PC comme opérande,
+quantité de décalage ou destination : leurs règles de pipeline demandent une
+prise en charge distincte. LDRD/STRD et SWP restent absents. Les transferts non
+alignés sont refusés, y compris LDRSH sur une adresse impaire.
+
+Les produits ARM 32 bits sont calculés modulo 2^32, les accumulations longues
+modulo 2^64. SMULL/SMLAL traitent les deux sources comme des entiers signés sur
+32 bits. Avec S, N/Z décrivent le résultat complet (64 bits pour les produits
+longs) ; sans S, NZCV est conservé. C/V sont conservés par toutes les
+multiplications dans ce modèle, comme par MUL Thumb : cela ne reproduit pas les
+retenues indéterminées du multiplieur ARM7. Ses restrictions de recouvrement
+avec Rm sont refusées sur ARM7 et permises sur ARM9, en lisant toutes les
+sources avant de modifier les destinations. PC et deux destinations longues
+identiques sont refusés. Il n'y a toujours pas de calcul des cycles CPU.
 Les registres bancarisés, CPSR/SPSR, interruptions, exceptions, SWI, CP15, TCM,
 caches et autres instructions propres à ARMv5
 restent à développer. Ce sous-ensemble commun ne constitue pas encore un
@@ -132,6 +143,11 @@ conditions, erreurs, budgets et un échange ARM9/ARM7 par la RAM commune.
 `nds_calls` vérifie les appels ARM et Thumb imbriqués avec restauration de pile,
 les quatre modes d'adressage ARM, LDMIA/STMIA Thumb, les formes BLX et les retours
 entre modes sur ARM9, ainsi que les différences de chargement de PC sur ARM7.
+`nds_data` vérifie les lectures signées, les adressages indexés, les limites des
+décalages par registre, les produits 32/64 bits et l'accumulation. Deux programmes
+ARM et Thumb calculent chacun `-3*5 + 7*(-4) + (-2)*9 = -61` à partir de tableaux
+signés sur 16 bits, sur chacun des deux CPU. Les encodages non pris en charge et
+les erreurs d'alignement doivent préserver registres, writeback et mémoire.
 
 Prochains jalons : compléter le jeu d'instructions, ajouter les modes et
 exceptions, définir les timings et la synchronisation des deux CPU, puis

@@ -172,6 +172,12 @@ private:
             if ((raw & 0x00400000U) != 0) unsupported(); // banques utilisateur / restauration SPSR
             multiple((raw >> 16U) & 15U, raw & 0xffffU, (raw & 0x00100000U) != 0,
                      (raw & 0x01000000U) != 0, (raw & 0x00800000U) != 0, (raw & 0x00200000U) != 0);
+        } else if ((raw & 0x0fc000f0U) == 0x00000090U) {
+            arm_multiply(raw, false);
+        } else if ((raw & 0x0f8000f0U) == 0x00800090U) {
+            arm_multiply(raw, true);
+        } else if ((raw & 0x0e000090U) == 0x00000090U && (raw & 0x60U) != 0) {
+            arm_halfword(raw);
         } else if ((raw & 0x0c000000U) == 0) {
             arm_data(raw);
         } else unsupported();
@@ -179,20 +185,26 @@ private:
 
     void arm_data(std::uint32_t raw) {
         const bool immediate = (raw & 0x02000000U) != 0;
-        // Bit 4 : décalage par registre, multiplications et encodages spéciaux.
-        if (!immediate && (raw & 0x10U) != 0) unsupported();
+        const bool by_register = !immediate && (raw & 0x10U) != 0;
+        if (by_register && (raw & 0x80U) != 0) unsupported(); // encodage spécial hors ALU
         const auto opcode = (raw >> 21U) & 15U;
         const bool flags = (raw & 0x00100000U) != 0;
         const bool test = opcode >= 8 && opcode <= 11;
         const auto rd = (raw >> 12U) & 15U;
         if ((test && (!flags || rd != 0)) || (rd == 15 && flags)) unsupported();
+        if (by_register && (rd == 15 || ((raw >> 16U) & 15U) == 15 ||
+                            ((raw >> 8U) & 15U) == 15 || (raw & 15U) == 15))
+            unsupported(); // les variantes avec PC demandent des règles de pipeline distinctes
         const auto rn = reg((raw >> 16U) & 15U);
         Shifted operand{};
         if (immediate) {
             const auto rotate = ((raw >> 8U) & 15U) * 2U;
             const auto value = std::rotr(raw & 0xffU, static_cast<int>(rotate));
             operand = {value, rotate == 0 ? s.carry : (value >> 31U) != 0};
-        } else operand = shift(reg(raw & 15U), (raw >> 5U) & 3U, (raw >> 7U) & 31U, s.carry);
+        } else {
+            const auto amount = by_register ? reg((raw >> 8U) & 15U) : (raw >> 7U) & 31U;
+            operand = shift(reg(raw & 15U), (raw >> 5U) & 3U, amount, s.carry, by_register);
+        }
 
         std::uint32_t result{};
         std::optional<Result> sum;
@@ -223,10 +235,14 @@ private:
         const bool load = (raw & 0x00100000U) != 0;
         const auto rn = (raw >> 16U) & 15U;
         const auto rd = (raw >> 12U) & 15U;
-        if ((raw & 0x02000000U) != 0 || (!pre && writeback) || (rd == 15 && (!load || byte)) ||
+        const bool register_offset = (raw & 0x02000000U) != 0;
+        if ((!pre && writeback) || (rd == 15 && (!load || byte)) ||
             ((!pre || writeback) && (rn == 15 || rn == rd))) unsupported();
+        if (register_offset && ((raw & 0x10U) != 0 || (raw & 15U) == 15)) unsupported();
         const auto base = reg(rn);
-        const auto offset = raw & 0xfffU;
+        const auto offset = register_offset
+            ? shift(reg(raw & 15U), (raw >> 5U) & 3U, (raw >> 7U) & 31U, s.carry).value
+            : raw & 0xfffU;
         const auto adjusted = up ? base + offset : base - offset;
         const auto address = pre ? adjusted : base;
         if (load) {
@@ -237,6 +253,60 @@ private:
         else if (byte) ram.write8(cpu, address, static_cast<std::uint8_t>(reg(rd)));
         else ram.write32(cpu, address, reg(rd));
         if (!pre || writeback) s.registers[rn] = adjusted;
+    }
+
+    void arm_halfword(std::uint32_t raw) {
+        const bool pre = (raw & 0x01000000U) != 0;
+        const bool up = (raw & 0x00800000U) != 0;
+        const bool immediate = (raw & 0x00400000U) != 0;
+        const bool writeback = (raw & 0x00200000U) != 0;
+        const bool load = (raw & 0x00100000U) != 0;
+        const auto rn = (raw >> 16U) & 15U;
+        const auto rd = (raw >> 12U) & 15U;
+        const auto type = (raw >> 5U) & 3U;
+        if (rd == 15 || (!load && type != 1) || (!pre && writeback) ||
+            ((!pre || writeback) && (rn == 15 || rn == rd)) ||
+            (!immediate && ((raw & 0xf00U) != 0 || (raw & 15U) == 15))) unsupported();
+        const auto offset = immediate ? ((raw >> 4U) & 0xf0U) | (raw & 15U) : reg(raw & 15U);
+        const auto base = reg(rn);
+        const auto adjusted = up ? base + offset : base - offset;
+        const auto address = pre ? adjusted : base;
+        if (!load) ram.write16(cpu, address, static_cast<std::uint16_t>(reg(rd)));
+        else if (type == 1) s.registers[rd] = ram.read16(cpu, address);
+        else if (type == 2) s.registers[rd] = sign_extend(ram.read8(cpu, address), 8);
+        else s.registers[rd] = sign_extend(ram.read16(cpu, address), 16);
+        if (!pre || writeback) s.registers[rn] = adjusted;
+    }
+
+    void arm_multiply(std::uint32_t raw, bool wide) {
+        const auto hi = (raw >> 16U) & 15U;
+        const auto lo = (raw >> 12U) & 15U;
+        const auto rs = (raw >> 8U) & 15U;
+        const auto rm = raw & 15U;
+        const bool accumulate = (raw & 0x00200000U) != 0;
+        const bool flags = (raw & 0x00100000U) != 0;
+        if (hi == 15 || rs == 15 || rm == 15 || (wide && (lo == 15 || lo == hi)) ||
+            (!wide && ((accumulate && lo == 15) || (!accumulate && lo != 0))) ||
+            (cpu == Processor::arm7 && (hi == rm || (wide && lo == rm)))) unsupported();
+        if (!wide) {
+            const auto value = reg(rm) * reg(rs) + (accumulate ? reg(lo) : 0U);
+            s.registers[hi] = value;
+            if (flags) nz(value);
+        } else {
+            const bool signed_product = (raw & 0x00400000U) != 0;
+            std::uint64_t value;
+            if (signed_product) {
+                const auto x = static_cast<std::int64_t>(std::bit_cast<std::int32_t>(reg(rm)));
+                const auto y = static_cast<std::int64_t>(std::bit_cast<std::int32_t>(reg(rs)));
+                value = static_cast<std::uint64_t>(x * y);
+            } else value = static_cast<std::uint64_t>(reg(rm)) * reg(rs);
+            if (accumulate) value += (static_cast<std::uint64_t>(reg(hi)) << 32U) | reg(lo);
+            s.registers[lo] = static_cast<std::uint32_t>(value);
+            s.registers[hi] = static_cast<std::uint32_t>(value >> 32U);
+            if (flags) { s.negative = (value >> 63U) != 0; s.zero = value == 0; }
+        }
+        // C/V conservés dans ce modèle. Pas d'émulation des retenues
+        // indéterminées du multiplieur ARM7, ni de ses cycles internes.
     }
 
     void multiple(unsigned rn, std::uint32_t list, bool load, bool pre, bool up, bool writeback) {
@@ -308,6 +378,19 @@ private:
             }
         } else if ((raw & 0xf800U) == 0x4800U) {
             s.registers[(raw >> 8U) & 7U] = ram.read32(cpu, ((pc + 4U) & ~3U) + (raw & 0xffU) * 4U);
+        } else if ((raw & 0xf000U) == 0x5000U) {
+            const auto address = reg(rs) + reg((raw >> 6U) & 7U);
+            const auto type = (raw >> 9U) & 7U;
+            switch (type) {
+            case 0: thumb_transfer(rd, address, 4, false); break;
+            case 1: thumb_transfer(rd, address, 2, false); break;
+            case 2: thumb_transfer(rd, address, 1, false); break;
+            case 3: s.registers[rd] = sign_extend(ram.read8(cpu, address), 8); break;
+            case 4: thumb_transfer(rd, address, 4, true); break;
+            case 5: thumb_transfer(rd, address, 2, true); break;
+            case 6: thumb_transfer(rd, address, 1, true); break;
+            case 7: s.registers[rd] = sign_extend(ram.read16(cpu, address), 16); break;
+            }
         } else if ((raw & 0xe000U) == 0x6000U || (raw & 0xf000U) == 0x8000U) {
             const auto width = (raw & 0xf000U) == 0x8000U ? 2U : ((raw & 0x1000U) != 0 ? 1U : 4U);
             const auto address = reg(rs) + ((raw >> 6U) & 31U) * width;

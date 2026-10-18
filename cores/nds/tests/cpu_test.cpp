@@ -344,9 +344,9 @@ void fault_test(Processor processor) {
         0xe10f0000, // MRS
         0xe12fff3f, // BLX pc : variante imprévisible
         0xf0000000, // espace inconditionnel hors BLX
-        0xe0000091, // MUL ARM
+        0xe10f1090, // SWP : échange atomique encore absent
         0xe1b0f000, // MOVS pc : restauration SPSR non implémentée
-        0xe7901002, // LDR offset registre
+        0xe7901012, // LDR offset décalé par registre : encodage invalide
         0xe5d0f000, // LDRB pc : variante imprévisible
         0xe5a00004, // STR r0,[r0,#4]! : variante à writeback ambiguë
     };
