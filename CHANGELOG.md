@@ -2,6 +2,47 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.7.0 - 2026-10-18
+
+Cette version donne aux registres d'E/S et au port série GBA les valeurs que relit la console, au drapeau de H-Blank son instant, et au Halt du BIOS sa sortie ([#26](https://github.com/GhostPunishR/RavenCore/pull/26)). Le format des états GBA change ; l'API ne change pas.
+
+### Corrigé
+
+- **GBA : relecture des registres d'E/S.** Le CPU relisait chaque registre tel qu'il l'avait écrit. Il relit désormais ce que décrit GBATEK ; les bits inutilisés, que GBATEK ne détaille pas, ont été relevés sur console par la suite de tests de mGBA.
+  - Les bits inutilisés se lisent 0 : BG0CNT et BG1CNT (bit 13), WININ, WINOUT, BLDCNT, BLDALPHA, registres du son, DMAxCNT_H, DISPSTAT (bits 6 et 7), WAITCNT (bit 15 : cartouche GBA) et JOYCNT.
+  - Les parties en écriture seule aussi : durée, fréquence et départ des canaux du son, remises à zéro des FIFO, HALTCNT.
+  - SOUNDCNT_X indique les canaux du son en cours, que le jeu ne peut pas écrire.
+- **GBA : son éteint.** Quand le bit 7 de SOUNDCNT_X passe à 0, les registres du PSG (0x60 à 0x81) repartent de zéro, et ils ignorent ensuite les écritures jusqu'à ce que le son soit rallumé, comme le décrit GBATEK. Le réglage interne des canaux (volume, fréquence, DAC de l'onde, bruit) repart de zéro avec eux. Un canal déclenché pendant l'arrêt, ou relancé après sans nouveau réglage, ne part donc plus au rallumage. Relevé par la revue Codex.
+  - Un registre en écriture seule ou un emplacement inutilisé rend le bus ouvert quand tout son mot de 32 bits est illisible (défilements, matrices, fenêtres, MOSAIC, BLDY, FIFO, adresses des DMA), 0 sinon (DMAxCNT_L, 0x066…), comme le décrit GBATEK (« Reading from Unused or Write-Only I/O Ports »).
+- **GBA : relecture du port série selon son mode** (GBATEK, valeurs sans câble relevées sur console par la suite de mGBA).
+  - SIODATA32 ne se lit qu'en mode normal 32 bits.
+  - En multijoueur, SIOMULTI0-3 rendent les données reçues : une écriture du CPU ne les change pas, la console relit 0. L'écriture reste dans SIODATA32, qu'un passage en mode normal 32 bits retrouve.
+  - SIOCNT : le bit 15 se lit 0, comme les bits 4 à 6 hors multijoueur. En UART, non émulé, il indique une FIFO de réception vide.
+  - RCNT : les bits 9 à 13 se lisent 0. Hors mode GPIO, les bits 0 à 3 donnent l'état des lignes SC, SD, SI et SO.
+- **GBA : drapeau de H-Blank.** Le bit 1 de DISPSTAT ne se lève qu'à 1006 cycles de la ligne, 46 après la fin du tracé (GBATEK, « DISPSTAT »). L'IRQ de H-Blank reste à 960 cycles, mais elle vient désormais à chaque ligne, VBlank compris. GBATEK se contredit sur ce point ; la console la lève pendant le VBlank, comme le relève la suite de mGBA. Le DMA de H-Blank ne part toujours qu'aux lignes visibles.
+- **GBA : sortie du Halt du BIOS.** Sur console, le Halt du BIOS (SWI 2) ne rend pas la main au jeu dès le réveil : le gestionnaire d'IRQ passe, puis le BIOS sort de sa fonction. Le BIOS de RavenCore rendait la main aussitôt. Le jeu reprend désormais 27 cycles plus tard, comme sur la console : la suite de mGBA le mesure en attendant par Halt la fin d'un transfert série. Ce qui ressemblait à 27 cycles d'avance du port série, à tous les débits, venait de là.
+
+Sur la suite de mGBA lancée en local, hors du dépôt et de la CI :
+- I/O read passe de 11 à 130 cas sur 130 ;
+- SIO R/W passe de 7 à 90 sur 90 ;
+- SIO timing passe de 0 à 8 sur 8 ;
+- Misc. edge passe de 0 à 2 sur 12.
+
+Les autres mesures du test de H-Blank dépendent de la vitesse de ses boucles et restent à quelques cycles de la console. Les autres suites ne changent pas, et le cœur n'exécute que 0,08 % d'instructions de plus sur Pokémon Émeraude. Le câble link entre Pokémon Émeraude et Rubis fonctionne toujours (vérifié en local, ROM et sauvegardes jamais publiées).
+
+### Compatibilité des états instantanés
+
+- **GBA : format 16.** L'état garde l'instruction qui suit un Halt du BIOS en cours, et SIOMULTI0-3, désormais distincts de SIODATA32. Les états aux formats 11 à 15 se rechargent : un Halt en cours y rend la main dès son réveil, et SIOMULTI0-3 y reprennent la valeur rangée avec SIODATA32. Un état au format 16 ne se recharge pas dans une version 0.6.x.
+- **GB/GBC : format 11**, inchangé.
+- **API C : version 0**, inchangée ; **API C++** inchangée. Le paquet CMake se demande désormais avec `find_package(RavenCore 0.7)`.
+
+### Tests
+
+- `gba_raven_hardware` écrit puis relit les registres d'E/S : bits inutilisés, parties en écriture seule, bus ouvert ou 0, SOUNDCNT_X. Il relit aussi le port série dans chacun de ses modes, aux valeurs relevées sur console.
+- `gba_raven_timing` vérifie que le drapeau de H-Blank se lève à 1006 cycles, que l'IRQ part à 960, y compris pendant le VBlank, et qu'après un Halt du BIOS le jeu reprend 27 cycles plus tard qu'après un arrêt par HALTCNT.
+- `gba_raven_core` reprend au même cycle un état pris pendant un Halt du BIOS, et garde SIOMULTI0-3 dans un état.
+- `gba_raven_sensors` vérifie le format 16 et recharge un état au format 15.
+
 ## 0.6.0 - 2026-10-18
 
 Cette version donne aux IRQ et aux timers GBA les instants de la console, et fait fonctionner le câble link entre Pokémon Émeraude et Rubis ([#25](https://github.com/GhostPunishR/RavenCore/pull/25)). Le format des états GBA change ; l'API ne change pas.

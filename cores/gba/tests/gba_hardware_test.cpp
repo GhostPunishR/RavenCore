@@ -134,7 +134,13 @@ void serial_without_cable() {
     multi.bus().write16(i32(0x0400'0128U), 0x6083);       // multijoueur, 115200 bauds, départ, IRQ
     multi.machine().run_frame();
     check((multi.io16(0x128) & 0x80) == 0, "transfert multijoueur jamais terminé");
-    check(multi.io16(0x120) == 0x1234 && multi.io16(0x122) == 0xffff, "SIOMULTI : enfants absents à 0xFFFF");
+    check(multi.bus().read16(i32(0x0400'0120U)) == 0x1234 && multi.bus().read16(i32(0x0400'0122U)) == 0xffff,
+          "SIOMULTI : enfants absents à 0xFFFF");
+    // RegisterRamReset (bit 5) remet le port série à zéro, données reçues comprises.
+    multi.machine().cpu.state.regs[0] = 0x20;
+    multi.machine().bios.handle_swi(0x01);
+    multi.bus().write16(i32(0x0400'0128U), 0x2003);
+    check(multi.bus().read16(i32(0x0400'0120U)) == 0, "RegisterRamReset : SIOMULTI0 gardé");
 }
 
 // Capture vidéo : DMA3 en déclenchement spécial copie une unité par ligne,
@@ -490,6 +496,129 @@ void bios_divide_by_zero_hangs() {
     }
 }
 
+// Relecture des registres d'E/S (GBATEK) : chaque registre est écrit, puis
+// relu. Les bits inutilisés se lisent 0, comme la suite de tests de mGBA le
+// relève sur console. Un registre en écriture seule ou inutilisé rend le bus
+// ouvert quand le mot de 32 bits entier est illisible, 0 sinon.
+void io_registers_read_back_console_values() {
+    struct Case {
+        int offset;
+        int written;
+        int expected;
+        const char* name;
+    };
+    Fixture fixture;
+    auto& bus = fixture.bus();
+    bus.write16(i32(0x0400'0084U), 0x0080);  // son allumé
+    for (const auto& [offset, written, expected, name] : std::initializer_list<Case>{
+             {0x008, 0xffff, 0xdfff, "BG0CNT"},
+             {0x00c, 0xffff, 0xffff, "BG2CNT"},
+             {0x048, 0xffff, 0x3f3f, "WININ"},
+             {0x050, 0xffff, 0x3fff, "BLDCNT"},
+             {0x052, 0xffff, 0x1f1f, "BLDALPHA"},
+             {0x060, 0xffff, 0x007f, "SOUND1CNT_L"},
+             {0x062, 0xffff, 0xffc0, "SOUND1CNT_H"},
+             {0x072, 0xffff, 0xe000, "SOUND3CNT_H"},
+             {0x080, 0xffff, 0xff77, "SOUNDCNT_L"},
+             {0x082, 0xffff, 0x770f, "SOUNDCNT_H"},
+             {0x0ba, 0x7fe0, 0x77e0, "DMA0CNT_H"},
+             {0x0de, 0x7fe0, 0x7fe0, "DMA3CNT_H"},
+             {0x140, 0xffff, 0x0040, "JOYCNT"},
+             {0x150, 0xffff, 0x0000, "JOY_RECV_L"},
+             {0x154, 0xffff, 0x0000, "JOY_TRANS_L"},
+             {0x204, 0xffff, 0x7fff, "WAITCNT"},
+             {0x066, 0xffff, 0x0000, "0x066 (SOUND1CNT_X se lit)"},
+             {0x0b8, 0xffff, 0x0000, "DMA0CNT_L (DMA0CNT_H se lit)"},
+             {0x136, 0xffff, 0x0000, "0x136 (RCNT se lit)"},
+             {0x302, 0xffff, 0x0000, "0x302 (POSTFLG se lit)"},
+             {0x010, 0xffff, 0xbeef, "BG0HOFS"},
+             {0x012, 0xffff, 0xdead, "BG0VOFS"},
+             {0x04e, 0xffff, 0xdead, "0x04E (MOSAIC en écriture seule)"},
+             {0x054, 0xffff, 0xbeef, "BLDY"},
+             {0x0b0, 0xffff, 0xbeef, "DMA0SAD"},
+             {0x0e0, 0xffff, 0xbeef, "0x0E0"},
+         }) {
+        bus.write16(i32(0x0400'0000U + static_cast<std::uint32_t>(offset)), written);
+        bus.last_fetch = 0xdead'beefU;  // bus ouvert : dernière instruction lue
+        check(bus.read16(i32(0x0400'0000U + static_cast<std::uint32_t>(offset))) == expected, name);
+    }
+    // DISPSTAT : bits 6 et 7 à 0. SOUNDCNT_X : canaux en cours, en lecture seule.
+    bus.write16(i32(0x0400'0004U), 0xffff);
+    check((bus.read16(i32(0x0400'0004U)) & 0xffc0) == 0xff00, "DISPSTAT : bits 6 et 7 relus");
+    bus.write16(i32(0x0400'0084U), 0x00ff);
+    check(bus.read16(i32(0x0400'0084U)) == 0x0080, "SOUNDCNT_X : canaux à l'arrêt relus en cours");
+    bus.write16(i32(0x0400'0068U), 0xf000);  // canal 2 : volume 15
+    bus.write16(i32(0x0400'006cU), 0x8000);  // départ
+    check(bus.read16(i32(0x0400'0084U)) == 0x0082, "SOUNDCNT_X : canal 2 en cours non signalé");
+    // Son éteint (GBATEK) : les registres du PSG, 0x60 à 0x81, repartent de
+    // zéro et ignorent les écritures ; un départ demandé entre-temps est perdu.
+    bus.write16(i32(0x0400'0080U), 0x1177);  // SOUNDCNT_L
+    bus.write16(i32(0x0400'0084U), 0x0000);
+    check(bus.read16(i32(0x0400'0084U)) == 0x0000, "SOUNDCNT_X : son éteint relu allumé");
+    check(bus.read16(i32(0x0400'0068U)) == 0 && bus.read16(i32(0x0400'0080U)) == 0,
+          "son éteint : registres du PSG non remis à zéro");
+    bus.write16(i32(0x0400'0068U), 0xf000);
+    bus.write16(i32(0x0400'006cU), 0x8000);  // départ du canal 2, son éteint
+    check(bus.read16(i32(0x0400'0084U)) == 0x0000 && bus.read16(i32(0x0400'0068U)) == 0,
+          "son éteint : écriture du PSG gardée");
+    bus.write16(i32(0x0400'0084U), 0x0080);
+    check(bus.read16(i32(0x0400'0084U)) == 0x0080, "son rallumé : canal parti pendant l'arrêt");
+    // Le réglage d'avant l'arrêt est perdu : sans nouveau volume, le DAC du
+    // canal 2 reste éteint et le départ ne le fait pas jouer.
+    bus.write16(i32(0x0400'006cU), 0x8000);
+    check(bus.read16(i32(0x0400'0084U)) == 0x0080, "son rallumé : réglage du canal 2 gardé de l'arrêt");
+}
+
+// Port série relu selon son mode (GBATEK), valeurs relevées sur console sans
+// câble par la suite de tests de mGBA.
+void serial_registers_read_by_mode() {
+    Fixture fixture;
+    auto& bus = fixture.bus();
+    const auto read = [&bus](std::uint32_t offset) { return bus.read16(i32(0x0400'0000U + offset)); };
+    const auto write = [&bus](std::uint32_t offset, int value) { bus.write16(i32(0x0400'0000U + offset), value); };
+
+    // Mode normal 8 bits : SIODATA32 se lit 0 ; RCNT donne SC et SI hautes,
+    // SD basse, SO basse (SIOCNT bit 3 à 0).
+    write(0x128, 0x0000);
+    write(0x120, 0xffff);
+    check(read(0x120) == 0, "mode normal 8 bits : SIODATA32 relu");
+    write(0x134, 0x3fff);
+    check(read(0x134) == 0x01f5, "mode normal : RCNT");
+    write(0x128, 0xcfff);
+    check(read(0x128) == 0x4f8f, "mode normal 8 bits : SIOCNT");
+
+    // Mode normal 32 bits : SIODATA32 se relit, SIOMULTI2-3 non.
+    write(0x128, 0x1000);
+    write(0x120, 0xffff);
+    write(0x124, 0xffff);
+    check(read(0x120) == 0xffff && read(0x124) == 0, "mode normal 32 bits : SIODATA32");
+
+    // Multijoueur : SIOMULTI0-3 rendent les données reçues, pas l'écriture du
+    // CPU, que SIODATA32 garde pour le mode normal 32 bits.
+    write(0x128, 0x2000);
+    write(0x120, 0x1234);
+    check(read(0x120) == 0 && read(0x126) == 0, "multijoueur : écriture relue dans SIOMULTI");
+    write(0x134, 0x3fff);
+    check(read(0x134) == 0x01ff, "multijoueur : RCNT");
+    write(0x128, 0xefff);
+    check(read(0x128) == 0x6f8f, "multijoueur : SIOCNT");
+    write(0x128, 0x1000);
+    check(read(0x120) == 0x1234, "SIODATA32 : écriture faite en multijoueur perdue");
+
+    // UART, non émulé : FIFO de réception vide.
+    write(0x128, 0x3000);
+    write(0x128, 0xffff);
+    check(read(0x128) == 0x7faf && read(0x12a) == 0, "UART : SIOCNT ou SIODATA8");
+
+    // GPIO : les lignes telles qu'écrites. JOY Bus, non émulé : SI et SO hautes.
+    write(0x128, 0x0000);
+    write(0x134, 0xbfff);
+    check(read(0x134) == 0x81ff, "GPIO : RCNT");
+    write(0x134, 0xffff);
+    write(0x128, 0xcfff);
+    check(read(0x134) == 0xc1fc && read(0x128) == 0x4f8f, "JOY Bus : RCNT ou SIOCNT");
+}
+
 } // namespace ravenemu::gba::testing
 
 int main() {
@@ -503,6 +632,8 @@ int main() {
     soft_reset_follows_return_flag();
     haltcnt_write_halts();
     serial_without_cable();
+    io_registers_read_back_console_values();
+    serial_registers_read_by_mode();
     bios_decompression();
     dma3_video_capture();
     rewriting_an_enabled_dma_keeps_it_stopped();

@@ -72,7 +72,13 @@ public:
             break;
         case 0x84:
             master_enable = (value & 0x80) != 0;
-            if (!master_enable) { square1.reset(); square2.reset(); wave.reset(); noise.reset(); }
+            if (!master_enable) {
+                // Son éteint, les registres du PSG valent zéro (GBATEK) : le
+                // réglage des canaux repart de zéro avec eux, pas seulement
+                // leur état en cours.
+                for (int reg = 0x60; reg <= 0x80; reg += 2) write_register(reg, 0);
+                square1.reset(); square2.reset(); wave.reset(); noise.reset();
+            }
             break;
         default:
             if (offset >= 0x90 && offset <= 0x9f) {
@@ -98,6 +104,14 @@ public:
         }
         available_ -= count;
         return count;
+    }
+    // SOUNDCNT_X lu par le CPU : canaux PSG en cours (bits 0 à 3, lecture
+    // seule) et interrupteur général (bit 7). Son éteint, aucun canal ne joue
+    // (GBATEK).
+    [[nodiscard]] int sound_status() const noexcept {
+        if (!master_enable) return 0;
+        return (square1.enabled ? 1 : 0) | (square2.enabled ? 2 : 0) | (wave.enabled ? 4 : 0) |
+               (noise.enabled ? 8 : 0) | 0x80;
     }
     [[nodiscard]] int fifo_size(int channel) const noexcept { return channel == 0 ? fifo_a_.size : fifo_b_.size; }
     [[nodiscard]] int fifo_empty_reads(int channel) const noexcept { return fifo_empty_reads_[static_cast<std::size_t>(channel)]; }

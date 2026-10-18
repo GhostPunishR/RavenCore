@@ -262,10 +262,12 @@ public:
         // Format 14 aussi : transfert en cours sur le câble link.
         for (const auto value : m.serial.export_link_state()) out.i32(value);
         // Format 15 : recharges de timer pas encore en service, âge de la ligne
-        // d'IRQ, temps restant d'une fonction du BIOS interrompue.
+        // d'IRQ, temps restant d'une fonction du BIOS interrompue. Format 16 :
+        // retour d'un Halt du BIOS pas encore réveillé, puis SIOMULTI0-3.
         for (const auto value : m.timers.export_pending_reloads()) out.i32(value);
         out.i32(m.irq_line_age());
         for (const auto value : m.export_bios_busy()) out.i32(value);
+        for (const auto value : m.serial.multiplayer_data()) out.i32(value);
         return std::move(out).take();
     }
     void load_state(std::span<const std::uint8_t> bytes) override {
@@ -379,12 +381,18 @@ public:
             for (auto& value : reloads) value = in.i32();
             m.timers.import_pending_reloads(reloads);
             m.restore_irq_line_age(in.i32());
-            std::array<std::int32_t, 2> busy{};
-            for (auto& value : busy) value = in.i32();
+            // Avant le format 16, un Halt du BIOS rend la main dès son réveil.
+            std::array<std::int32_t, 3> busy{};
+            for (auto& value : std::span(busy).first(version >= 16 ? 3 : 2)) value = in.i32();
             m.restore_bios_busy(busy);
         } else {
             m.restore_irq_line_age(m.interrupts.pending() ? Machine::irq_sync_cycles : -1);
         }
+        // Avant le format 16, SIOMULTI0-3 étaient rangés avec SIODATA32.
+        std::array<std::int32_t, 4> multiplayer{};
+        for (std::size_t index = 0; index < multiplayer.size(); ++index)
+            multiplayer[index] = version >= 16 ? in.i32() : m.bus.io[0x120 + 2 * index] | m.bus.io[0x121 + 2 * index] << 8;
+        m.serial.import_multiplayer_data(multiplayer);
         if (!in.exhausted()) throw SaveStateError("État GBA corrompu (données excédentaires)");
         if (auto* save = m.cartridge.save()) {
             const auto* previous = machine_->cartridge.save();
@@ -395,7 +403,7 @@ public:
     }
 
 private:
-    static constexpr std::uint16_t state_version = 15;
+    static constexpr std::uint16_t state_version = 16;
 
     template <std::size_t N>
     static void read_array(BinaryReader& in, std::array<std::uint8_t, N>& output) {

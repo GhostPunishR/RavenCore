@@ -413,8 +413,9 @@ void restored_transfer_stays_out_of_the_next_one() {
     ravenemu::gba::LinkHub hub;
     hub.attach(0, parent.serial, parent.serial.clock());
     hub.attach(1, child.serial, child.serial.clock());
-    const auto io16 = [](ravenemu::gba::Machine& machine, std::uint32_t offset) {
-        return machine.bus.io[offset] | machine.bus.io[offset + 1] << 8;
+    // SIOMULTI0 et SIOMULTI1 : données reçues par le dernier transfert.
+    const auto received = [](const ravenemu::gba::Machine& machine, std::size_t index) {
+        return machine.serial.multiplayer_data()[index];
     };
     for (auto* machine : {&parent, &child}) {
         machine->bus.write16(i32(0x04000134U), 0);       // RCNT
@@ -429,7 +430,7 @@ void restored_transfer_stays_out_of_the_next_one() {
     const auto saved = child.serial.export_link_state();
     parent.run_for(1000);
     child.run_for(1000);
-    check(io16(child, 0x120) == 0xaaaa && io16(child, 0x122) == 0xbbbb, "câble GBA : premier transfert non reçu");
+    check(received(child, 0) == 0xaaaa && received(child, 1) == 0xbbbb, "câble GBA : premier transfert non reçu");
 
     // L'enfant revient au milieu du premier transfert ; le parent, en avance,
     // lance le second, dont l'enfant n'atteint le départ qu'après sa fin restaurée.
@@ -439,15 +440,15 @@ void restored_transfer_stays_out_of_the_next_one() {
     parent.bus.write16(i32(0x0400012aU), 0xcccc);
     parent.bus.write16(i32(0x04000128U), 0x2083);
     child.run_for(1000);
-    check(io16(child, 0x120) == 0xbbbb && io16(child, 0x122) == 0xffff,
+    check(received(child, 0) == 0xbbbb && received(child, 1) == 0xffff,
           "câble GBA : transfert restauré non terminé comme sans câble");
     // L'enfant change sa donnée avant le départ du second transfert, qui part
     // à 8000 cycles sur son horloge et dure 5755 : le second doit la lire.
     child.bus.write16(i32(0x0400012aU), 0xdddd);
     parent.run_for(6000);
     child.run_for(7000);
-    check(io16(parent, 0x120) == 0xcccc && io16(parent, 0x122) == 0xdddd &&
-              io16(child, 0x120) == 0xcccc && io16(child, 0x122) == 0xdddd,
+    check(received(parent, 0) == 0xcccc && received(parent, 1) == 0xdddd &&
+              received(child, 0) == 0xcccc && received(child, 1) == 0xdddd,
           "câble GBA : le transfert restauré a clos le suivant");
     hub.detach_all();
 }
@@ -645,8 +646,10 @@ void long_bios_call_lets_irqs_through() {
     ravenemu::gba::Machine machine(
         thumb_cartridge(), ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; }
     );
-    for (const auto& invalid : {std::array<std::int32_t, 2>{-1, 0}, std::array<std::int32_t, 2>{1 << 29, 0x0300'0100},
-                                std::array<std::int32_t, 2>{0, 0x0300'0100}})
+    // Le retour d'un Halt du BIOS n'attend que pendant l'arrêt : jamais avec du temps du BIOS.
+    for (const auto& invalid : {std::array<std::int32_t, 3>{-1, 0, 0}, std::array<std::int32_t, 3>{1 << 29, 0x0300'0100, 0},
+                                std::array<std::int32_t, 3>{0, 0x0300'0100, 0},
+                                std::array<std::int32_t, 3>{5, 0x0300'0100, 0x0300'0200}})
         expect_failure<ravenemu::SaveStateError>([&] { machine.restore_bios_busy(invalid); },
                                                  "temps du BIOS invalide accepté");
 }
@@ -706,6 +709,79 @@ void bios_interrupt_flags_cost_no_cycles() {
 
 } // namespace
 
+// Le Halt du BIOS d'origine (SWI 2) rend la main après son réveil : le
+// gestionnaire d'IRQ passe, puis le BIOS sort de sa fonction. Mesuré sur
+// console par la suite de mGBA (fin d'un transfert série attendue par Halt) :
+// le jeu reprend 27 cycles plus tard qu'après un arrêt par HALTCNT, qui ne
+// passe pas par le BIOS. Sans IRQ servie, RavenCore compte les 24 cycles de la
+// sortie du BIOS et le rechargement du pipeline au retour du SWI (2 cycles).
+// Le timer 0 réveille le CPU 256 cycles après son départ, le timer 1 compte
+// jusqu'à la reprise (llvm-mc).
+void bios_halt_returns_after_waking() {
+    using ravenemu::gba::i32;
+    using ravenemu::gba::InterruptController;
+    constexpr std::array<std::uint32_t, 37> code{
+        0xe3a04301, 0xe2845c01, 0xe3a00000, 0xe1c500b4, 0xe3a00080, 0xe1c500b6, 0xe3a000c0, 0xe1c500b2,  // timers
+        0xe3a01000, 0xef020000, 0xe1d560b4, 0xeafffffe, 0xe1a00000, 0xe1a00000, 0xe1a00000, 0xe1a00000,  // Halt
+        0xe3a04301, 0xe2845c01, 0xe3a00000, 0xe1c500b4, 0xe3a00080, 0xe1c500b6, 0xe3a000c0, 0xe1c500b2,  // timers
+        0xe3a01000, 0xe5c41301, 0xe1d560b4, 0xeafffffe, 0xe1a00000, 0xe1a00000, 0xe1a00000, 0xe1a00000,  // HALTCNT
+        0xe3a03301, 0xe2833c02, 0xe3a02008, 0xe1c320b2, 0xe12fff1e,  // gestionnaire : acquitte le timer 0
+    };
+    const auto resumed_at = [&code](std::uint32_t start, bool irq) {
+        ravenemu::gba::Machine machine(
+            thumb_cartridge(), ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; }
+        );
+        for (std::size_t index = 0; index < code.size(); ++index)
+            machine.bus.write32(i32(0x0300'0100U + 4U * static_cast<std::uint32_t>(index)), i32(code[index]));
+        machine.bus.write32(i32(0x0300'7ffcU), i32(0x0300'0180U));
+        machine.bus.write16(i32(0x0400'0100U), 0xff00);  // TM0 : 256 cycles
+        machine.interrupts.set_enable(1 << InterruptController::timer0);
+        machine.interrupts.set_master_enable(irq);
+        machine.bus.take_wait_cycles();
+        machine.cpu.reset(i32(start));
+        machine.cpu.state.irq_disabled = false;
+        machine.run_for(2000);
+        check(machine.cpu.state.regs[6] > 256, "Halt : le jeu n'a pas repris après le timer");
+        return machine.cpu.state.regs[6];
+    };
+    check(resumed_at(0x0300'0100U, true) - resumed_at(0x0300'0140U, true) == 27,
+          "Halt du BIOS : le jeu doit reprendre 27 cycles après un arrêt par HALTCNT");
+    check(resumed_at(0x0300'0100U, false) - resumed_at(0x0300'0140U, false) == 26,
+          "Halt du BIOS sans IRQ servie : sortie du BIOS et retour du SWI en 26 cycles");
+}
+
+// DISPSTAT (GBATEK) : le tracé finit à 960 cycles, où naît l'IRQ de H-Blank,
+// mais le drapeau de H-Blank ne se lève qu'à 1006. L'IRQ vient à chaque
+// ligne, VBlank compris (vérifié sur console par la suite de mGBA).
+void hblank_flag_and_irq_timing() {
+    using ravenemu::gba::i32;
+    using ravenemu::gba::InterruptController;
+    ravenemu::gba::Machine machine(
+        thumb_cartridge(), ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; }
+    );
+    machine.bus.write16(i32(0x0400'0004U), 0x0010);  // DISPSTAT : IRQ de H-Blank
+    auto& ppu = machine.ppu;
+    const auto hblank_irq = [&machine] {
+        return (machine.interrupts.flags & (1 << InterruptController::hblank)) != 0;
+    };
+    const auto hblank_flag = [&ppu] { return (ppu.dispstat_low() & 2) != 0; };
+    ppu.tick(959);
+    check(!hblank_irq() && !hblank_flag(), "H-Blank commencé avant la fin du tracé");
+    ppu.tick(1);
+    check(hblank_irq(), "IRQ de H-Blank absente à la fin du tracé");
+    ppu.tick(45);
+    check(!hblank_flag(), "drapeau de H-Blank levé avant 1006 cycles");
+    ppu.tick(1);
+    check(hblank_flag(), "drapeau de H-Blank absent à 1006 cycles");
+    ppu.tick(1232 - 1006);
+    check(!hblank_flag(), "drapeau de H-Blank resté levé à la ligne suivante");
+    ppu.tick(1232 * 199 + 959);
+    machine.interrupts.acknowledge(1 << InterruptController::hblank);
+    ppu.tick(1);
+    check(ppu.state_fields()[0] == 200 && hblank_irq(), "IRQ de H-Blank absente pendant le VBlank");
+    check((ppu.dispstat_low() & 1) != 0, "ligne 200 hors du VBlank");
+}
+
 int main() {
     corrupt_timer_state_is_rejected();
     cartridge_prefetch_timing();
@@ -714,6 +790,8 @@ int main() {
     irq_waits_four_cycles_then_enters();
     irq_entry_lets_the_cartridge_prefetch_run();
     halt_lets_the_handler_run_first();
+    bios_halt_returns_after_waking();
+    hblank_flag_and_irq_timing();
     intr_wait_lets_other_irqs_through();
     long_bios_call_lets_irqs_through();
     timer_reload_applies_one_cycle_after_write();

@@ -38,29 +38,85 @@ bool Bus::gpio_register(std::int32_t address) const noexcept {
     return region >= 0x08U && region <= 0x0dU && Gpio::covers(rom_offset(address));
 }
 
-int Bus::read_io(int offset) {
-    if (offset == 0x130) return keypad.input() & 0xff;
-    if (offset == 0x131) return (keypad.input() >> 8) & 0xff;
-    if (offset == 0x004 && ppu) return ppu_dispstat_low(ppu);
-    if (offset == 0x006 && ppu) return ppu_vcount(ppu);
-    if (offset == 0x007) return 0;
-    if (timers && offset >= 0x100 && offset <= 0x10f) return read_timer_byte(offset);
-    if (interrupts) {
-        if (offset == 0x200) return interrupts->enable & 0xff;
-        if (offset == 0x201) return (interrupts->enable >> 8) & 0xff;
-        if (offset == 0x202) return interrupts->flags & 0xff;
-        if (offset == 0x203) return (interrupts->flags >> 8) & 0xff;
-        if (offset == 0x208) return interrupts->master_enable ? 1 : 0;
-        if (offset == 0x209) return 0;
+namespace {
+
+constexpr int unreadable = -1;
+
+// Bits que le CPU relit dans un demi-mot d'E/S, d'après GBATEK et, pour les
+// bits inutilisés qui se lisent 0, la suite de tests de mGBA lancée sur
+// console. `unreadable` : registre en écriture seule ou emplacement inutilisé.
+constexpr int io_read_mask(int offset) noexcept {
+    switch (offset) {
+    case 0x004: return 0xff3f;                          // DISPSTAT : bits 6 et 7 à 0
+    case 0x006: return 0x00ff;                          // VCOUNT
+    case 0x008: case 0x00a: return 0xdfff;              // BG0CNT, BG1CNT : sans bit 13
+    case 0x048: case 0x04a: return 0x3f3f;              // WININ, WINOUT
+    case 0x050: return 0x3fff;                          // BLDCNT
+    case 0x052: return 0x1f1f;                          // BLDALPHA
+    case 0x060: return 0x007f;                          // SOUND1CNT_L
+    case 0x062: case 0x068: return 0xffc0;              // durée en écriture seule
+    case 0x064: case 0x06c: case 0x074: return 0x4000;  // fréquence et départ en écriture seule
+    case 0x070: return 0x00e0;                          // SOUND3CNT_L
+    case 0x072: return 0xe000;                          // SOUND3CNT_H : durée en écriture seule
+    case 0x078: return 0xff00;                          // SOUND4CNT_L : durée en écriture seule
+    case 0x07c: return 0x40ff;                          // SOUND4CNT_H : départ en écriture seule
+    case 0x080: return 0xff77;                          // SOUNDCNT_L
+    case 0x082: return 0x770f;                          // SOUNDCNT_H : remises à zéro en écriture seule
+    case 0x084: return 0x0080;                          // SOUNDCNT_X, sans APU
+    case 0x0ba: case 0x0c6: case 0x0d2: return 0xf7e0;  // DMA0CNT_H à DMA2CNT_H
+    case 0x0de: return 0xffe0;                          // DMA3CNT_H
+    case 0x140: return 0x0040;                          // JOYCNT : drapeaux du JOY Bus, non émulé
+    case 0x150: case 0x152: case 0x154: case 0x156: return 0;  // JOY_RECV, JOY_TRANS : se lisent 0
+    case 0x204: return 0x7fff;                          // WAITCNT : bit 15 à 0, cartouche GBA
+    case 0x208: return 0x0001;                          // IME
+    case 0x300: return 0x00ff;                          // POSTFLG ; HALTCNT en écriture seule
+    case 0x066: case 0x06a: case 0x06e: case 0x076: case 0x07a: case 0x07e: case 0x086: case 0x08a:
+    case 0x08c: case 0x08e: case 0x206:
+        return unreadable;
+    default: break;
     }
-    return io[static_cast<std::size_t>(offset)];
+    const auto within = [offset](int first, int last) { return offset >= first && offset <= last; };
+    if (within(0x010, 0x046) || within(0x04c, 0x05e) || within(0x0a0, 0x0de) || within(0x0e0, 0x0fe) ||
+        within(0x110, 0x11e) || within(0x12c, 0x12e) || within(0x136, 0x13e) || within(0x142, 0x14e) ||
+        within(0x15a, 0x1fe) || within(0x20a, 0x2fe) || within(0x302, 0x3fe))
+        return unreadable;
+    return 0xffff;
 }
 
-int Bus::read_timer_byte(int offset) {
+} // namespace
+
+int Bus::read_io(int offset) {
+    const auto half = offset & ~1;
+    const auto value = read_io_half(half);
+    if (value != unreadable) return (value >> ((offset & 1) * 8)) & 0xff;
+    // GBATEK, « Reading from Unused or Write-Only I/O Ports » : le bus ouvert
+    // quand le mot de 32 bits entier est illisible, 0 quand l'autre moitié se lit.
+    return io_read_mask(half ^ 2) == unreadable ? open_bus(u32(offset)) : 0;
+}
+
+int Bus::read_io_half(int offset) {
+    switch (offset) {
+    case 0x004: if (ppu) return ppu_dispstat_low(ppu) | io[0x005] << 8; break;
+    case 0x006: if (ppu) return ppu_vcount(ppu); break;
+    case 0x084: if (apu) return apu->sound_status(); break;
+    case 0x120: case 0x122: case 0x124: case 0x126: case 0x128: case 0x12a: case 0x134:
+        if (serial) return serial->read_register(offset);
+        break;
+    case 0x130: return keypad.input();
+    case 0x200: if (interrupts) return interrupts->enable & 0xffff; break;
+    case 0x202: if (interrupts) return interrupts->flags & 0xffff; break;
+    case 0x208: if (interrupts) return interrupts->master_enable ? 1 : 0; break;
+    default:
+        if (timers && offset >= 0x100 && offset <= 0x10e) return read_timer_half(offset);
+        break;
+    }
+    const auto mask = io_read_mask(offset);
+    return mask == unreadable ? unreadable : io_half(offset) & mask;
+}
+
+int Bus::read_timer_half(int offset) {
     const auto timer = (offset - 0x100) / 4;
-    const auto byte = (offset - 0x100) % 4;
-    const auto value = byte < 2 ? timers->counter(timer) : timers->control(timer);
-    return byte % 2 == 0 ? value & 0xff : (value >> 8) & 0xff;
+    return (offset & 2) == 0 ? timers->counter(timer) : timers->control(timer);
 }
 
 int Bus::read8_raw(std::int32_t address) {
@@ -294,7 +350,14 @@ void Bus::handle_io_write(int offset, int value) {
     } else if (offset == 0x134) {
         serial_rcnt_write(serial);
     } else if (apu && offset >= 0x060 && offset <= 0x09f) {
+        // Son éteint (SOUNDCNT_X bit 7 à 0), les registres du PSG, 0x60 à 0x81,
+        // restent à zéro et ignorent les écritures (GBATEK, « SOUNDCNT_X »).
+        if (offset < 0x082 && !apu->master_enable) {
+            write_io_half(offset, 0);
+            return;
+        }
         apu->write_register(offset, value);
+        if (offset == 0x084 && !apu->master_enable) std::fill(io.begin() + 0x060, io.begin() + 0x082, std::uint8_t{0});
     }
 }
 

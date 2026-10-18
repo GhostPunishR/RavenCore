@@ -4,6 +4,7 @@
 #include "apu/apu.hpp"
 #include "timers/timers.hpp"
 #include "dma/dma_controller.hpp"
+#include "serial/serial.hpp"
 #include "bios/decompression.hpp"
 
 namespace ravenemu::gba {
@@ -188,7 +189,10 @@ private:
         if ((flags & 4) != 0) bus_.palette.fill(0);
         if ((flags & 8) != 0) bus_.vram.fill(0);
         if ((flags & 0x10) != 0) bus_.oam.fill(0);
-        if ((flags & 0x20) != 0) std::fill(bus_.io.begin() + 0x120, bus_.io.begin() + 0x160, 0);
+        if ((flags & 0x20) != 0) {
+            std::fill(bus_.io.begin() + 0x120, bus_.io.begin() + 0x160, 0);
+            if (bus_.serial) bus_.serial->clear_multiplayer_data();
+        }
         if ((flags & 0x40) != 0) {
             std::fill(bus_.io.begin() + 0x60, bus_.io.begin() + 0x0a8, 0);
             if (bus_.apu) bus_.apu->reset();

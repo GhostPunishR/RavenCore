@@ -75,6 +75,9 @@ public:
     }
     // Recalcule les bits d'état de SIOCNT (SI, SD, numéro de joueur).
     void refresh_status() noexcept;
+    // Lecture par le CPU de SIODATA32/SIOMULTI0-3, SIOCNT, SIODATA8 et RCNT,
+    // selon le mode du port.
+    [[nodiscard]] int read_register(int offset) const noexcept;
 
     // Côté câble : ce que la console envoie, son niveau au repos, et son
     // entrée dans un transfert lancé par une autre.
@@ -98,6 +101,10 @@ public:
     static constexpr std::size_t link_state_words = 14;
     [[nodiscard]] std::array<std::int32_t, link_state_words> export_link_state() const noexcept;
     void import_link_state(std::span<const std::int32_t> state);
+    // SIOMULTI0-3 : données reçues par le dernier transfert multijoueur.
+    [[nodiscard]] const Received& multiplayer_data() const noexcept { return multiplayer_data_; }
+    void import_multiplayer_data(std::span<const std::int32_t> values);
+    void clear_multiplayer_data() noexcept { multiplayer_data_ = {}; }
     [[nodiscard]] int export_remaining() const noexcept { return remaining_; }
     void import_remaining(int remaining) {
         if (remaining != idle && (remaining <= 0 || remaining > longest_transfer))
@@ -132,6 +139,7 @@ private:
     int join_duration_{};             // durée de ce transfert
     std::uint32_t join_id_{};         // son numéro
     std::optional<Received> next_received_;  // son résultat, connu avant son départ
+    Received multiplayer_data_{};            // SIOMULTI0-3, distincts de SIODATA32
     bool busy_{};                     // bit Start/Busy de SIOCNT
 };
 

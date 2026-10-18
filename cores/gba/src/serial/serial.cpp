@@ -73,7 +73,7 @@ void Serial::start_multiplayer() {
     const auto players = linked() ? hub_->players() : 1;
     remaining_ = multiplayer_cycles[static_cast<std::size_t>(io_half(0x128) & 3)][static_cast<std::size_t>(players - 1)];
     // Pendant le transfert, le parent lit 0xFFFF dans SIOMULTI0..3 (mGBA).
-    for (int offset = 0x120; offset <= 0x126; offset += 2) write_io_half(offset, 0xffff);
+    multiplayer_data_.fill(0xffff);
     received_.reset();
     transfer_id_ = linked() ? hub_->start(*this, Mode::multiplayer, remaining_) : 0;
 }
@@ -146,9 +146,7 @@ void Serial::complete() {
     case Mode::multiplayer: {
         // Seule, la console garde sa donnée et lit 0xFFFF pour chaque enfant absent.
         const Received alone{static_cast<std::uint16_t>(io_half(0x12a)), 0xffff, 0xffff, 0xffff};
-        const auto& values = received ? *received : alone;
-        for (std::size_t index = 0; index < values.size(); ++index)
-            write_io_half(0x120 + 2 * static_cast<int>(index), values[index]);
+        multiplayer_data_ = received ? *received : alone;
         break;
     }
     case Mode::normal32:
@@ -195,6 +193,50 @@ void Serial::refresh_status() noexcept {
         return;
     }
     write_io_half(0x128, control);
+}
+
+/**
+ * Ce que relit le CPU (GBATEK, « GBA Communication Ports ») ; sans câble, les
+ * valeurs ont été vérifiées sur console par la suite de tests de mGBA.
+ * - SIODATA32 ne se lit qu'en mode normal 32 bits ; ailleurs, 0.
+ * - En multijoueur, SIOMULTI0-3 rendent les données reçues : y écrire ne les
+ *   change pas (la console relit 0 après une écriture de 0xFFFF). L'écriture
+ *   reste dans SIODATA32, que garde un passage en mode normal 32 bits.
+ * - SIOCNT : le bit 15 se lit 0, comme les bits 4 à 6 hors multijoueur ; en
+ *   UART, le bit 5 indique la FIFO de réception vide (mode non émulé).
+ * - RCNT : les bits 9 à 13 se lisent 0. Hors mode GPIO, les bits 0 à 3 donnent
+ *   l'état des lignes SC, SD, SI et SO.
+ */
+int Serial::read_register(int offset) const noexcept {
+    const auto control = io_half(0x128);
+    const auto rcnt = io_half(0x134);
+    const auto current = mode();
+    const auto uart = current == Mode::other && (rcnt & 0x8000) == 0;
+    switch (offset) {
+    case 0x120:
+    case 0x122:
+    case 0x124:
+    case 0x126:
+        if (current == Mode::multiplayer) return multiplayer_data_[static_cast<std::size_t>((offset - 0x120) / 2)];
+        return current == Mode::normal32 && offset < 0x124 ? io_half(offset) : 0;
+    case 0x128:
+        if (current == Mode::multiplayer) return control & 0x7fff;
+        return (control & 0x7f8f) | (uart ? 0x20 : 0);
+    case 0x12a: return uart ? 0 : io_half(offset);
+    case 0x134: {
+        if ((rcnt & 0xc000) == 0x8000) return rcnt & 0xc1ff;  // GPIO : les lignes telles qu'écrites
+        // JOY Bus, non émulé : SC et SD basses, SI et SO hautes.
+        if ((rcnt & 0xc000) == 0xc000) return (rcnt & 0xc1f0) | 0x0c;
+        // SC haute au repos. SD basse en mode normal, la ligne « prêt » en
+        // multijoueur. SI telle que la voit SIOCNT. SO basse quand la console
+        // la tire (voir so_low), haute en multijoueur et en UART.
+        auto lines = 0x0f;
+        if (normal(current)) lines = 0x01 | (control & 0x04) | (so_low() ? 0 : 0x08);
+        else if (current == Mode::multiplayer) lines = 0x09 | ((control >> 2) & 0x02) | (control & 0x04);
+        return (rcnt & 0x41f0) | lines;
+    }
+    default: return 0;
+    }
 }
 
 std::uint32_t Serial::outgoing(Mode mode) const noexcept {
@@ -268,6 +310,14 @@ void Serial::import_link_state(std::span<const std::int32_t> state) {
     received_ = received;
     next_received_ = next_received;
     busy_ = (io_half(0x128) & 0x80) != 0;
+}
+
+void Serial::import_multiplayer_data(std::span<const std::int32_t> values) {
+    if (values.size() != multiplayer_data_.size() ||
+        std::any_of(values.begin(), values.end(), [](std::int32_t value) { return value < 0 || value > 0xffff; }))
+        throw SaveStateError("État série GBA invalide");
+    for (std::size_t index = 0; index < values.size(); ++index)
+        multiplayer_data_[index] = static_cast<std::uint16_t>(values[index]);
 }
 
 void LinkHub::attach(int player, Serial& serial, std::int64_t origin) noexcept {

@@ -40,9 +40,11 @@ public:
                     bg2_ref_y_ = add32(bg2_ref_y_, signed16(reg16(0x26)));
                     bg3_ref_x_ = add32(bg3_ref_x_, signed16(reg16(0x32)));
                     bg3_ref_y_ = add32(bg3_ref_y_, signed16(reg16(0x36)));
-                    if (irq_enabled(0x10) && interrupts) interrupts->request(InterruptController::hblank);
                     if (dma) dma->trigger_hblank();
                 }
+                // L'IRQ de H-Blank vient à chaque ligne, VBlank compris (GBATEK,
+                // « DISPSTAT » ; vérifié sur console par la suite de mGBA).
+                if (irq_enabled(0x10) && interrupts) interrupts->request(InterruptController::hblank);
                 if (dma) dma->trigger_video_capture(vcount);
             }
             if (line_cycles_ >= line_cycles_total) {
@@ -71,9 +73,11 @@ public:
     [[nodiscard]] int cycles_until_next_event() const noexcept {
         return (in_hblank ? line_cycles_total : hdraw_cycles) - line_cycles_;
     }
+    // Le drapeau de H-Blank ne se lève qu'à 1006 cycles, 46 après la fin du
+    // tracé (GBATEK, « DISPSTAT »). Les bits 6 et 7 se lisent 0.
     [[nodiscard]] int dispstat_low() const noexcept {
-        auto status = (in_vblank ? 1 : 0) | (in_hblank ? 2 : 0) | (vcount_match ? 4 : 0);
-        return (bus_.io[4] & 0xf8) | status;
+        auto status = (in_vblank ? 1 : 0) | (line_cycles_ >= hblank_flag_cycles ? 2 : 0) | (vcount_match ? 4 : 0);
+        return (bus_.io[4] & 0x38) | status;
     }
     void on_affine_reference_write(int offset) noexcept {
         if (offset < 0x2c)
@@ -135,6 +139,7 @@ private:
     static constexpr int object_tile_base = 0x10000;
     static constexpr int object_palette_base = 256;
     static constexpr int hdraw_cycles = 960;
+    static constexpr int hblank_flag_cycles = 1006;
     static constexpr int line_cycles_total = 1232;
     static constexpr int total_lines = 228;
     static constexpr std::array object_width_{8, 16, 32, 64, 16, 32, 32, 64, 8, 8, 16, 32};
