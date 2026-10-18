@@ -81,6 +81,15 @@ void video(const void* data, unsigned width, unsigned height, std::size_t pitch)
     }
 }
 std::size_t audio(const std::int16_t*, std::size_t count) { return count; }
+// Sans masque select, chaque descripteur a une longueur en puissance de deux
+// et un départ aligné sur elle, sinon RetroArch rejette la carte.
+bool memory_map_valid() {
+    for (const auto& descriptor : memory_map)
+        if (descriptor.select != 0 || descriptor.len == 0 || (descriptor.len & (descriptor.len - 1)) != 0 ||
+            descriptor.start % descriptor.len != 0)
+            return false;
+    return true;
+}
 // Octet `address` (adresse de la console) lu comme le frontend : par la carte mémoire.
 const std::uint8_t* mapped(std::size_t address) {
     for (const auto& descriptor : memory_map)
@@ -173,6 +182,10 @@ int main() {
         return 1;
     }
     // Carte mémoire de RetroAchievements : régions aux adresses de la console.
+    if (!memory_map_valid()) {
+        std::cerr << "Memory descriptor RetroArch would reject\n";
+        return 1;
+    }
 #if defined(RAVENEMU_LIBRETRO_GBA)
     const auto region_length = [](std::size_t start) {
         for (const auto& descriptor : memory_map)
@@ -185,13 +198,15 @@ int main() {
         return 1;
     }
 #else
+    // ROM 0, VRAM, WRAM, OAM (0x80 puis 0x20 octets), HRAM, et sur GBC les
+    // banques 2 à 7 de la WRAM (0x4000 puis 0x2000 octets).
 #if defined(RAVENEMU_LIBRETRO_GBC)
-    constexpr std::size_t expected_regions = 6;  // ROM 0, VRAM, WRAM, OAM, HRAM, banques 2 à 7
+    constexpr std::size_t expected_regions = 8;
 #else
-    constexpr std::size_t expected_regions = 5;
+    constexpr std::size_t expected_regions = 6;
 #endif
     if (memory_map.size() != expected_regions || !mapped(0x0134) || *mapped(0x0134) != rom[0x134] || mapped(0x4000) ||
-        !mapped(0xc000) || mapped(0xa000) || mapped(0xff00)) {
+        !mapped(0xc000) || mapped(0xa000) || mapped(0xff00) || !mapped(0xfe9f) || mapped(0xfea0)) {
         std::cerr << "Game Boy achievement memory map missing or wrong\n";
         return 1;
     }
@@ -303,6 +318,14 @@ int main() {
     }
     if (!mapped(0xa000) || *mapped(0xa000) != 0x77 || !mapped(0xbfff) || mapped(0x16000)) {
         std::cerr << "Cartridge RAM not in the achievement memory map\n";
+        return 1;
+    }
+    retro_unload_game();
+    // 32 Kio de RAM : les banques 1 à 3 suivent en 0x16000, en blocs valides.
+    battery_rom[0x149] = 0x03;
+    if (!retro_load_game(&game)) return 1;
+    if (!memory_map_valid() || !mapped(0x16000) || !mapped(0x1bfff) || mapped(0x1c000)) {
+        std::cerr << "Cartridge RAM banks not in the achievement memory map\n";
         return 1;
     }
     retro_unload_game();

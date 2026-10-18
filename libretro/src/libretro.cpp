@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -305,14 +306,25 @@ void declare_achievement_memory() {
         const auto& region = achievement_regions[index];
         achievement_sizes[index] = core->read_achievement_memory(
             region.address, std::span(achievement_ram).subspan(region.address, region.size));
-        if (achievement_sizes[index] == 0) continue;
-        retro_memory_descriptor descriptor{};
-        descriptor.flags = region.flags;
-        descriptor.ptr = achievement_ram.data();
-        descriptor.offset = region.address;
-        descriptor.start = region.start;
-        descriptor.len = achievement_sizes[index];
-        descriptors.push_back(descriptor);
+        // Without a select mask, Libretro wants each descriptor's length to be
+        // a power of two, and RetroArch its start aligned on that length: the
+        // region is cut into such blocks (OAM, GBC banks, cartridge RAM).
+        auto start = region.start;
+        auto offset = static_cast<std::size_t>(region.address);
+        for (auto left = achievement_sizes[index]; left > 0;) {
+            auto length = std::bit_floor(left);
+            if (start != 0) length = std::min(length, start & (~start + 1));
+            retro_memory_descriptor descriptor{};
+            descriptor.flags = region.flags;
+            descriptor.ptr = achievement_ram.data();
+            descriptor.offset = offset;
+            descriptor.start = start;
+            descriptor.len = length;
+            descriptors.push_back(descriptor);
+            start += length;
+            offset += length;
+            left -= length;
+        }
     }
     retro_memory_map map{descriptors.data(), static_cast<unsigned>(descriptors.size())};
     env_cb(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &map);

@@ -14,9 +14,10 @@ Cette version active RetroAchievements dans les cœurs Libretro ([#27](https://g
 
   RetroArch garde des pointeurs vers cette mémoire pendant toute la partie, alors que RavenCore recrée sa machine à chaque reset et à chaque chargement d'état. RetroArch lit donc une copie de l'espace de RetroAchievements, rafraîchie après chaque image (quand les succès sont évalués), après un reset et après un chargement d'état. Une écriture du frontend dans cette copie n'atteint pas le jeu : les codes de triche restent non pris en charge.
   - Sur Game Boy, la banque de ROM paginée et les registres d'E/S ne sont pas exposés : un succès qui les lit est signalé comme non pris en charge. La banque 0 est copiée telle qu'elle est au démarrage, au reset et au chargement d'un état. La relire à chaque image, à travers le contrôleur de la cartouche, coûterait environ 2 % du temps d'une image.
+  - Chaque région est découpée en descripteurs dont la longueur est une puissance de deux et le départ aligné sur elle : c'est ce qu'exige `libretro.h` sans masque `select`, et RetroArch rejette sinon toute la carte (OAM, banques de la WRAM GBC, RAM de cartouche). Relevé par la revue Codex.
   - Les fichiers `.info` indiquent `memory_descriptors = "true"`.
 
-  Vérifié en local avec le code de rcheevos qui relie un cœur Libretro aux succès dans RetroArch (`rc_libretro`), compilé hors du dépôt. Il retrouve les régions GBA et Game Boy Color, et chaque octet lu par ce chemin est celui que rend le cœur. Pas encore essayé en jeu dans RetroArch.
+  Vérifié en local avec le code de rcheevos qui relie un cœur Libretro aux succès dans RetroArch (`rc_libretro`), compilé hors du dépôt. Il retrouve les régions GBA et Game Boy Color, y compris après le pré-traitement que RetroArch applique à la carte, et chaque octet lu par ce chemin est celui que rend le cœur. Pas encore essayé en jeu dans RetroArch.
 
 ### Modifié
 
@@ -30,7 +31,7 @@ Cette version active RetroAchievements dans les cœurs Libretro ([#27](https://g
 ### Tests
 
 - `libretro_smoke_gb`, `libretro_smoke_gbc` et `libretro_smoke_gba` vérifient plusieurs points :
-  - les succès sont annoncés et la carte mémoire est déclarée aux adresses de la console ;
+  - les succès sont annoncés et la carte mémoire est déclarée aux adresses de la console, en descripteurs que RetroArch accepte ;
   - la sauvegarde et la RAM de cartouche y apparaissent ;
   - un compteur en mémoire de travail y suit chaque image, garde son adresse, et repart d'un état rechargé comme d'un reset.
 - `gb_raven_core` et `gba_raven_core` vérifient qu'une lecture qui franchit une frontière de région rend les mêmes octets que des lectures d'un octet.
