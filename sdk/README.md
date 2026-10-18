@@ -35,7 +35,7 @@ cmake --install build --prefix /chemin/ravencore
 ```
 
 ```cmake
-find_package(RavenCore 0.5 REQUIRED)
+find_package(RavenCore 0.6 REQUIRED)
 target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 

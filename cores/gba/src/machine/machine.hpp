@@ -25,9 +25,32 @@ public:
         // Un SWI HLE touche directement registres et mémoire : les
         // périphériques doivent d'abord rattraper les instructions passées.
         cpu.swi_handler = [this](int number) {
+            if (number == Bios::busy_resume_swi && bios_busy_cycles_ > 0 &&
+                u32(cpu.state.regs[15]) == (cpu.state.thumb ? Bios::busy_resume_thumb : Bios::busy_resume_arm)) {
+                // Retour de l'IRQ qui a interrompu une fonction du BIOS : la
+                // fin de son temps s'écoule, puis le jeu reprend après son SWI.
+                cpu.state.halted = true;
+                cpu.branch_to(bios_busy_return_);
+                return;
+            }
             sync_within_instruction(bus.wait_cycles);
             sync_peripherals();
+            const auto start = bus.wait_cycles;
+            const auto synced = synced_in_instruction_;
+            const auto return_address = add32(cpu.state.regs[15], cpu.state.thumb ? 2 : 4);
             bios.handle_swi(number);
+            // Le BIOS d'origine exécute ses fonctions avec les IRQ de
+            // l'appelant : une longue copie (CpuSet, décompression…) les
+            // laisse passer. Son temps s'écoule donc après le SWI, CPU arrêté
+            // comme dans le BIOS, et une IRQ peut l'interrompre. Une fonction
+            // qui a touché aux E/S garde son temps dans le SWI.
+            if (bus.wait_cycles > start && bios_busy_cycles_ == 0 && synced_in_instruction_ == synced &&
+                !cpu.state.halted) {
+                bios_busy_cycles_ = bus.wait_cycles - start;
+                bios_busy_return_ = return_address;
+                bus.wait_cycles = start;
+                cpu.state.halted = true;
+            }
             next_event_ = 0;
         };
         bus.io_sync_context = this;
@@ -43,6 +66,7 @@ public:
             if (write) machine.next_event_ = 0;
         };
         interrupts.on_request = [this](int mask) { bios.interrupt_raised(mask); bus.diagnostics.interrupt(mask); };
+        interrupts.on_change = [this] { track_irq_line(); };
         cpu.reset(i32(0x08000000U));
     }
     void run_frame() {
@@ -73,16 +97,47 @@ public:
             }
             if (cpu.state.halted) {
                 // Une interruption ne peut naître que d'un événement : le CPU
-                // arrêté saute directement au prochain, sans retard.
+                // arrêté saute directement au prochain. Si elle doit être
+                // prise, il ne repart qu'une fois la ligne synchronisée, pour
+                // que le gestionnaire passe avant le code du jeu.
                 sync_peripherals();
-                const auto idle = std::max(1, std::min(cycles - elapsed, next_event_));
+                track_irq_line();
+                const auto settling = irq_settling_cycles();
+                if (bios_busy_cycles_ > 0) {
+                    // Temps d'une fonction du BIOS : rien ne s'exécute, sauf
+                    // une IRQ, dont le gestionnaire revient au point de reprise.
+                    if (irq_raised_at_ && !cpu.state.irq_disabled && settling == 0) {
+                        cpu.state.halted = false;
+                        cpu.branch_to(i32(cpu.state.thumb ? Bios::busy_resume_thumb : Bios::busy_resume_arm));
+                        continue;
+                    }
+                    const auto spent = std::max(
+                        1, std::min({cycles - elapsed, bios_busy_cycles_, settling > 0 ? settling : next_event_}));
+                    advance_now(spent); elapsed += spent;
+                    if ((bios_busy_cycles_ -= spent) == 0) cpu.state.halted = false;
+                    continue;
+                }
+                const auto idle = std::max(1, std::min(cycles - elapsed, settling > 0 ? settling : next_event_));
                 advance_now(idle); elapsed += idle;
                 bus.diagnostics.wait_step(idle, bios.wait_state() ? bios.wait_state()->interrupt_mask : 0);
-                if (bios.should_resume()) { cpu.state.halted = false; bus.diagnostics.wait_resolved(); bus.break_access_sequence(); }
+                if (irq_settling_cycles() == 0 && bios.should_resume()) {
+                    cpu.state.halted = false; bus.diagnostics.wait_resolved(); bus.break_access_sequence();
+                } else if (bios.wait_state() && irq_raised_at_ && !cpu.state.irq_disabled &&
+                           irq_settling_cycles() == 0) {
+                    // IntrWait laisse passer les autres IRQ : le CPU repart sur
+                    // le SWI, l'IRQ est prise avant lui, et son retour reprend l'attente.
+                    cpu.state.halted = false; bus.break_access_sequence();
+                    cpu.branch_to(add32(cpu.state.regs[15], cpu.state.thumb ? -2 : -4));
+                }
                 continue;
             }
-            if (interrupts.pending() && !cpu.state.irq_disabled) {
+            track_irq_line();
+            if (irq_raised_at_ && !cpu.state.irq_disabled && irq_settling_cycles() == 0) {
                 cpu.raise_exception(CpuState::mode_irq, 0x18, add32(cpu.state.regs[15], 4));
+                // Cycles internes du CPU : l'unité de préchargement de la cartouche lit pendant ce temps.
+                bus.idle(irq_entry_cycles);
+                const auto entry = bus.take_wait_cycles();
+                pending_cycles_ += entry; elapsed += entry;
             }
             in_instruction_ = true;
             const auto consumed = cpu.step(); bus.diagnostics.instruction();
@@ -128,8 +183,40 @@ public:
         while (remaining > 0) {
             const auto step = std::max(1, std::min({remaining, timers.cycles_until_next_overflow(), apu.cycles_until_next_sample(),
                                                     serial.cycles_until_completion()}));
+            clock_ += step;
             ppu.tick(step); timers.tick(step); apu.tick(step); serial.tick(step); remaining -= step;
         }
+    }
+
+    /**
+     * Ligne d'IRQ (IME, et une source à la fois dans IE et IF) : le CPU ne
+     * prend une IRQ qu'à la fin d'une instruction, une fois la ligne levée
+     * depuis 4 cycles, et l'entrée dans l'exception coûte 2 cycles de plus
+     * qu'un saut. Ces deux durées sont mesurées sur console : une IRQ de
+     * timer laisse encore passer trois NOP, pas quatre, et son gestionnaire
+     * arrête le timer au même cycle que sur la console. Les états gardent
+     * l'âge de la ligne.
+     */
+    static constexpr int irq_sync_cycles = 4;
+    static constexpr int irq_entry_cycles = 2;
+    [[nodiscard]] int irq_line_age() const noexcept {
+        if (!irq_raised_at_) return -1;
+        return static_cast<int>(std::min<std::int64_t>(irq_sync_cycles, clock_ + pending_cycles_ - *irq_raised_at_));
+    }
+    void restore_irq_line_age(int age) {
+        if (age < -1 || age > irq_sync_cycles) throw SaveStateError("État d'interruption GBA invalide");
+        if (age < 0) irq_raised_at_.reset();
+        else irq_raised_at_ = clock_ + pending_cycles_ - age;
+    }
+    // Temps restant d'une fonction du BIOS, et l'instruction qui la suit.
+    [[nodiscard]] std::array<std::int32_t, 2> export_bios_busy() const noexcept {
+        return {bios_busy_cycles_, bios_busy_cycles_ > 0 ? bios_busy_return_ : 0};
+    }
+    void restore_bios_busy(std::span<const std::int32_t> state) {
+        if (state.size() != 2 || state[0] < 0 || state[0] > max_bios_busy_cycles || (state[0] == 0 && state[1] != 0))
+            throw SaveStateError("État du BIOS GBA invalide");
+        bios_busy_cycles_ = state[0];
+        bios_busy_return_ = state[1];
     }
 
     Cartridge cartridge;
@@ -144,6 +231,26 @@ public:
     Bios bios;
 
 private:
+    // Suit la ligne d'IRQ : l'instant où elle s'est levée, rien au repos.
+    void track_irq_line() noexcept {
+        if (!interrupts.pending()) irq_raised_at_.reset();
+        else if (!irq_raised_at_) irq_raised_at_ = clock_ + pending_cycles_;
+    }
+    // Cycles avant que l'IRQ en attente ne puisse être prise ; 0 s'il n'y a
+    // rien à prendre, ou si elle peut l'être dès maintenant.
+    [[nodiscard]] int irq_settling_cycles() const noexcept {
+        if (!irq_raised_at_ || cpu.state.irq_disabled) return 0;
+        const auto age = clock_ + pending_cycles_ - *irq_raised_at_;
+        return static_cast<int>(std::max<std::int64_t>(0, irq_sync_cycles - age));
+    }
+
+    // Plus long qu'aucune fonction du BIOS : décompresser 16 Mio prend moins.
+    static constexpr std::int32_t max_bios_busy_cycles = 1 << 28;
+
+    std::int64_t clock_{};                       // cycles vus par les périphériques
+    std::optional<std::int64_t> irq_raised_at_;  // levée de la ligne d'IRQ
+    int bios_busy_cycles_{};                     // temps restant d'une fonction du BIOS
+    std::int32_t bios_busy_return_{};            // instruction qui suit son SWI
     int pending_cycles_{};
     int next_event_{};
     bool in_instruction_{};

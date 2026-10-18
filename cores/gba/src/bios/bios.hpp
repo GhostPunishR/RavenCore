@@ -74,7 +74,15 @@ public:
             break;
         }
     }
-    void interrupt_raised(int mask) { write_flags(flags() | mask); }
+    // Le BIOS d'origine laisse ce mot au gestionnaire du jeu ; RavenCore y
+    // note l'interruption à sa place, en IWRAM directement : ce n'est pas un
+    // accès du CPU, il ne doit ni prendre de cycles ni toucher au bus.
+    void interrupt_raised(int mask) noexcept {
+        const auto offset = static_cast<std::size_t>(u32(interrupt_flags_address) & 0x7fffU);
+        const auto value = (bus_.iwram[offset] | bus_.iwram[offset + 1] << 8) | mask;
+        bus_.iwram[offset] = static_cast<std::uint8_t>(value);
+        bus_.iwram[offset + 1] = static_cast<std::uint8_t>(value >> 8);
+    }
     [[nodiscard]] bool should_resume() {
         if (!bus_.interrupts) return true;
         if (!wait_state_) return (bus_.interrupts->enable & bus_.interrupts->flags & 0x3fff) != 0;
@@ -91,38 +99,59 @@ public:
         cpu_.state.halted = true;
     }
     void restore_wait_state(std::optional<WaitState> value) noexcept { wait_state_ = value; }
+    // Point de reprise d'une fonction du BIOS qu'une IRQ a interrompue (voir
+    // Machine) : le gestionnaire y revient, et ce SWI réservé, en ARM ou en
+    // Thumb, relance le temps restant de la fonction.
+    static constexpr std::uint32_t busy_resume_arm = 0x3b8;
+    static constexpr std::uint32_t busy_resume_thumb = 0x3bc;
+    static constexpr int busy_resume_swi = 0xff;
 
 private:
     static constexpr std::int32_t interrupt_flags_address = i32(0x03007ff8U);
     static constexpr std::uint32_t hang_address = 0x3b4;
+    // Comme le BIOS d'origine (GBATEK, « BIOS Interrupt Handling ») : le
+    // vecteur 0x18 saute en 0x128, qui sauve r0-r3, r12 et lr, appelle le
+    // gestionnaire du jeu lu en 0x03007FFC, puis rend la main. Le mot en 0x144
+    // n'est jamais exécuté, mais il est préchargé au retour : c'est la valeur
+    // que GBATEK documente pour une lecture du BIOS après une IRQ.
     void install_irq_handler() noexcept {
-        for (unsigned byte = 0; byte < 4; ++byte)
-            bus_.bios[hang_address + byte] = static_cast<std::uint8_t>(0xeaff'fffeU >> (byte * 8U));  // b .
-        // Même séquence que le gestionnaire du BIOS d'origine. Le mot qui le
-        // suit n'est jamais exécuté, mais il est préchargé au retour : c'est
-        // la valeur que GBATEK documente pour une lecture du BIOS après une IRQ.
+        const auto store = [this](std::uint32_t address, std::uint32_t word) {
+            for (unsigned byte = 0; byte < 4; ++byte)
+                bus_.bios[address + byte] = static_cast<std::uint8_t>(word >> (byte * 8U));
+        };
+        store(0x18, 0xea00'0042U);              // b 0x128
+        store(hang_address, 0xeaff'fffeU);      // b .
+        store(busy_resume_arm, 0xefff'0000U);   // swi 0xFF
+        store(busy_resume_thumb, 0x0000'dfffU); // swi 0xFF (Thumb)
         constexpr std::array<std::uint32_t, 8> handler{
             0xe92d500fU, 0xe3a00301U, 0xe28fe000U, 0xe510f004U, 0xe8bd500fU, 0xe25ef004U, 0, 0xe55ec002U,
         };
-        auto offset = 0x18U;
-        for (const auto word : handler)
-            for (unsigned byte = 0; byte < 4; ++byte) {
-                bus_.bios[offset++] = static_cast<std::uint8_t>(word >> (byte * 8U));
-            }
+        auto address = 0x128U;
+        for (const auto word : handler) {
+            store(address, word);
+            address += 4;
+        }
     }
     int flags() { return bus_.read32(interrupt_flags_address); }
     void write_flags(int value) { bus_.write32(interrupt_flags_address, value); }
     void clear_flags(int mask) { write_flags(flags() & ~mask); }
+    // IntrWait (GBATEK) : le BIOS d'origine attend en Halt, mais toute IRQ
+    // le réveille et le gestionnaire du jeu s'exécute pendant l'attente ;
+    // le BIOS se remet ensuite en Halt tant que l'IRQ attendue manque. Ici,
+    // le gestionnaire revient sur le SWI : un appel alors que l'attente est
+    // en cours la reprend, sans effacer les drapeaux déjà notés.
     void intr_wait(bool discard, int mask) {
-        if (bus_.interrupts) bus_.interrupts->master_enable = true;
+        if (bus_.interrupts) bus_.interrupts->set_master_enable(true);
         if (mask == 0) return;
-        if (discard)
+        const auto resumed = wait_state_.has_value();
+        if (discard && !resumed)
             clear_flags(mask);
         else if ((flags() & mask) != 0) {
             clear_flags(mask);
+            wait_state_.reset();
             return;
         }
-        wait_state_ = WaitState{mask, discard};
+        if (!resumed) wait_state_ = WaitState{mask, discard};
         cpu_.state.halted = true;
     }
     // SoftReset (GBATEK) : efface 0x03007E00..0x03007FFF (piles, vecteur et
