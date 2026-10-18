@@ -5,10 +5,26 @@
 #include <ravenemu/gba/core.hpp>
 #include <ravenemu/gbc/core.hpp>
 #include <ravenemu/sdk.hpp>
+#include <ravenemu/nds/cartridge.hpp>
+#include <ravenemu/nds/machine.hpp>
+#include <ravenemu/nds/cpu.hpp>
 
 #include <cstdio>
 
 int main() {
+    ravenemu::nds::Machine nds;
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x02000000, 0xeafffffe);
+    if (nds.memory().read32(ravenemu::nds::Processor::arm7, 0x02000000) != 0xeafffffe) return 1;
+    ravenemu::nds::Cpu nds_cpu{ravenemu::nds::Processor::arm9};
+    nds_cpu.reset(0x02000000, false);
+    nds_cpu.step(nds.memory());
+    if (nds_cpu.state().registers[15] != 0x02000000 || nds_cpu.state().instructions != 1) return 1;
+    // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
+    try {
+        const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};
+        return 1;
+    } catch (const ravenemu::RomLoadError&) {
+    }
     using ravenemu::sdk::System;
     for (const auto system : {System::game_boy, System::game_boy_color, System::game_boy_advance}) {
         if (!ravenemu::sdk::make_core(system)) return 1;

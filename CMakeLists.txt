@@ -29,13 +29,13 @@ if(RAVENEMU_INSTALL)
 
     install(TARGETS
             ravenemu_options ravenemu_common gbc_hardware gb_raven_core gbc_raven_core
-            gba_raven_core ravencore ravenemu_c_api
+            gba_raven_core nds_raven_core ravencore ravenemu_c_api
         EXPORT RavenCoreTargets
         ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
         INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
     install(DIRECTORY
             cores/common/include/ cores/gb/include/ cores/gbc/include/ cores/gba/include/
-            sdk/include/
+            sdk/include/ cores/nds/include/
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
     install(EXPORT RavenCoreTargets
         NAMESPACE RavenCore::

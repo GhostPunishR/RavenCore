@@ -32,10 +32,11 @@ add_subdirectory(common)
 add_subdirectory(gb)
 add_subdirectory(gbc)
 add_subdirectory(gba)
+add_subdirectory(nds)
 
-# Les trois moteurs ensemble : RavenCore::ravencore une fois installés.
+# Les moteurs et la base NDS : RavenCore::ravencore une fois installés.
 add_library(ravencore INTERFACE)
-target_link_libraries(ravencore INTERFACE gb_raven_core gbc_raven_core gba_raven_core)
+target_link_libraries(ravencore INTERFACE gb_raven_core gbc_raven_core gba_raven_core nds_raven_core)
 
 if(BUILD_TESTING)
     # Filet transversal : des états instantanés corrompus ne doivent planter

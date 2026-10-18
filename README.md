@@ -15,6 +15,8 @@ Ce sont les cœurs maison de [RavenEmu](https://github.com/GhostPunishR/RavenEmu
 | **RavenGBC** | Game Boy Color | Avancé |
 | **RavenGBA** | Game Boy Advance | Expérimental |
 
+Le développement de **RavenNDS** a commencé : [chargeur de cartouches, bus RAM et premier interpréteur ARM/Thumb](cores/nds/README.md). Des programmes synthétiques s'exécutent sur ARM9/ARM7 ; aucun jeu NDS ne tourne encore.
+
 **Sommaire :** [Compiler](#compiler) · [RetroArch](#utiliser-avec-retroarch) · [Intégrer](#intégrer-dans-un-projet) · [Tests](#tests) · [Limites](#état-et-limites) · [Versions](#versions) · [Contribuer](#contribuer) · [Licence](#licence)
 
 ## Compiler

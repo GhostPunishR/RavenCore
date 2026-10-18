@@ -2,6 +2,15 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## Non publié
+
+### Ajouté
+
+- Première base **NDS** : cible `nds_raven_core`, lecture structurelle des cartouches et extraction des exécutables ARM9/ARM7, avec tests synthétiques des entrées malformées. Aucun rendu ou lancement de jeu NDS à ce stade.
+- NDS : bus RAM avec miroirs des 4 Mio principaux, 32 Kio de WRAM partagée (quatre modes WRAMCNT) et 64 Kio privés ARM7. Préparation d'un chargement direct transactionnel des deux exécutables, validation des destinations et des entrées ARM/Thumb ; tests de partage, de réattribution mémoire et de préservation après erreur.
+- NDS : premier interpréteur d'un sous-ensemble ARM/Thumb commun aux ARM9/ARM7, avec registres indépendants, drapeaux NZCV, calculs, décalages, transferts RAM, branchements et échange ARM/Thumb par BX. `Machine::step` et `run_steps` exécutent un budget d'instructions du processeur choisi ; pas encore de synchronisation en cycles. Les instructions absentes et accès refusés arrêtent le CPU sur la faute avec un diagnostic contextualisé. Tests synthétiques de calcul, appels, interworking, RAM commune et préservation des états après erreur.
+- NDS : appels de fonctions imbriqués avec BL Thumb, PUSH/POP, LDM/STM ARM (IA/IB/DA/DB) et Thumb (IA), calculs d'adresses et ajustement de SP en Thumb. BLX sur ARM9 ; LDR/LDM/POP vers PC prennent le mode de l'adresse sur ARM9 et conservent le mode courant sur ARM7. Les écritures RAM multiples valident toute leur plage avant de modifier la mémoire. Tests de pile, retours ARM/Thumb et transferts refusés sans modification partielle.
+
 ## 0.7.1 - 2026-10-18
 
 Cette version active RetroAchievements dans les cœurs Libretro ([#27](https://github.com/GhostPunishR/RavenCore/pull/27)). L'API et le format des états ne changent pas.
