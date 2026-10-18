@@ -229,9 +229,10 @@ void irq_state_continuation_test() {
     for (int index = 0; index < 4; ++index) {
         const auto state = core->save_state();
         // Le format 15 finit par l'âge de la ligne d'IRQ (gros-boutiste,
-        // -1 au repos) ; elle n'est synchronisée qu'à 4 cycles.
+        // -1 au repos), puis deux mots pour le BIOS ; la ligne n'est
+        // synchronisée qu'à 4 cycles.
         std::uint32_t age = 0;
-        for (auto byte = state.end() - 4; byte != state.end(); ++byte) age = age << 8U | *byte;
+        for (auto byte = state.end() - 12; byte != state.end() - 8; ++byte) age = age << 8U | *byte;
         if (age < 4) ++settling;
         core->run_frame(frame, false);
         const auto continued = core->save_state();
@@ -240,6 +241,44 @@ void irq_state_continuation_test() {
         check(core->save_state() == continued, "IRQ GBA : reprise d'état décalée");
     }
     check(settling > 0, "aucun état pris pendant la synchronisation d'une IRQ");
+}
+
+void bios_busy_state_continuation_test() {
+    // Boucle de CpuFastSet de 16 Kio en EWRAM, et un timer à IRQ toutes les
+    // 1024 cycles (llvm-mc) : la plupart des trames s'arrêtent pendant le temps
+    // d'une copie, que les IRQ interrompent. Un état pris là doit reprendre
+    // au même cycle (format 15).
+    const std::array<std::uint32_t, 21> code{
+        0xe3a00301, 0xe59f103c, 0xe59f203c, 0xe5821000,  // r0 = E/S ; [0x03007FFC] = gestionnaire
+        0xe59f1038, 0xe5801100, 0xe2803c02, 0xe3a01008,  // TM0 : recharge 0xFC00, IRQ
+        0xe1c310b0, 0xe3a01001, 0xe1c310b8, 0xe321f01f,  // IE = timer 0, IME = 1, IRQ autorisées
+        0xe3a00402, 0xe2801801, 0xe3a02a01, 0xef0c0000,  // boucle : CpuFastSet 0x02000000 -> 0x02010000,
+        0xe2855001, 0xeafffff9,                          // ++r5
+        0x080000c0, 0x03007ffc, 0x00c0fc00};
+    // Gestionnaire en 0x080000C0 : acquitte IF, ++r4, bx lr.
+    const std::array<std::uint32_t, 6> handler{0xe3a00301, 0xe2800c02, 0xe3a01008, 0xe1c010b2, 0xe2844001, 0xe12fff1e};
+    auto rom = rom_with(code);
+    for (std::size_t i = 0; i < handler.size(); ++i)
+        for (unsigned b = 0; b < 4; ++b) rom[0xc0 + i * 4 + b] = static_cast<std::uint8_t>(handler[i] >> (8U * b));
+    auto core = ravenemu::make_gba_core(std::nullopt);
+    core->load_rom(rom, {});
+    std::vector<std::int32_t> frame(240 * 160);
+    core->run_frame(frame, false);
+    auto busy = 0;
+    for (int index = 0; index < 4; ++index) {
+        const auto state = core->save_state();
+        // Le format 15 finit par le temps restant d'une fonction du BIOS et
+        // l'instruction qui la suit (gros-boutiste).
+        std::uint32_t remaining = 0;
+        for (auto byte = state.end() - 8; byte != state.end() - 4; ++byte) remaining = remaining << 8U | *byte;
+        if (remaining > 0) ++busy;
+        core->run_frame(frame, false);
+        const auto continued = core->save_state();
+        core->load_state(state);
+        core->run_frame(frame, false);
+        check(core->save_state() == continued, "fonction du BIOS GBA : reprise d'état décalée");
+    }
+    check(busy > 0, "aucun état pris pendant une fonction du BIOS");
 }
 
 void multiplayer_link_test() {
@@ -593,6 +632,7 @@ int main() {
     audio_state_continuation_test();
     prefetch_state_continuation_test();
     irq_state_continuation_test();
+    bios_busy_state_continuation_test();
     multiplayer_link_test();
     normal_link_test();
     link_cable_validation_test();

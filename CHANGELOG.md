@@ -4,27 +4,32 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 ## Non publié
 
-Ces changements donnent aux IRQ et aux timers GBA les instants de la console. Le format des états GBA change ; l'API ne change pas.
+Ces changements donnent aux IRQ et aux timers GBA les instants de la console, et font fonctionner le câble link entre Pokémon Émeraude et Rubis. Le format des états GBA change ; l'API ne change pas.
 
 ### Corrigé
 
+- **GBA : câble link entre Pokémon Émeraude et Rubis ou Saphir.** La connexion échouait au Club Link (« Erreur de connexion »), alors que deux Émeraude se reliaient. Deux défauts du BIOS de RavenCore faisaient perdre à Rubis des IRQ série, donc le compte des transferts, si bien que ses sommes de contrôle tombaient une case trop tôt :
+  - IntrWait et VBlankIntrWait gardaient le CPU arrêté jusqu'à l'IRQ attendue, sans servir les autres. Sur console, toute IRQ réveille le BIOS : le gestionnaire du jeu s'exécute, puis l'attente reprend (GBATEK, « IntrWait »). C'est désormais le cas : le gestionnaire revient sur le SWI, qui reprend l'attente sans effacer les drapeaux déjà notés.
+  - Une longue fonction du BIOS (CpuSet, CpuFastSet, décompression) prenait tout son temps d'un bloc, et deux IRQ survenues pendant ce temps n'en faisaient qu'une. Le BIOS d'origine exécute ces fonctions avec les IRQ de l'appelant, qui les interrompent. RavenCore fait toujours la copie d'un coup, mais son temps s'écoule ensuite, avant l'instruction qui suit le SWI, et une IRQ peut l'interrompre. La durée totale ne change pas.
+
+  Vérifié en local avec les ROM et sauvegardes de l'utilisateur, jamais publiées : Émeraude et Rubis entrent ensemble au Centre Troc, dans les deux ordres, et y échangent un Pokémon. Deux Émeraude se relient toujours.
 - **GBA : instant où le CPU prend une IRQ.** Le CPU ne prend plus une IRQ dès la fin de l'instruction pendant laquelle elle se lève. Il attend que la ligne d'IRQ (IME, et une source à la fois dans IE et IF) soit levée depuis 4 cycles, puis entre dans l'exception, ce qui coûte 2 cycles internes de plus qu'un saut ; l'unité de préchargement de la cartouche lit pendant ces cycles. Les deux durées sont calées sur des valeurs mesurées sur console : la suite de tests de mGBA les publie, et RavenCore la lance en local, hors du dépôt et de la CI. Une IRQ de timer laisse ainsi encore passer trois NOP, comme sur la console, et son gestionnaire arrête le timer au même cycle.
 - GBA : un jeu arrêté par Halt, IntrWait ou VBlankIntrWait ne reprend qu'après son gestionnaire d'IRQ. Le CPU arrêté attend que la ligne soit synchronisée avant de repartir, au lieu d'exécuter d'abord une instruction du jeu.
 - GBA : le vecteur d'IRQ du BIOS est celui de la console. Le mot en 0x18 saute en 0x128, où commence le gestionnaire (GBATEK, « BIOS Interrupt Handling »). Une IRQ coûte donc aussi ce saut.
 - GBA : une recharge de timer écrite dans TMxCNT_L ne sert qu'à partir du cycle suivant. Un débordement dans le cycle même de l'écriture recharge encore l'ancienne valeur. Une écriture 32 bits qui donne la recharge et démarre le timer le fait partir de la nouvelle recharge.
 - GBA : quand une IRQ se lève, le BIOS de RavenCore la note en 0x03007FF8 directement en IWRAM. Il passait par le bus, ce qui comptait 2 cycles d'accès de trop dans l'instruction qui levait l'IRQ, par exemple une écriture dans IME.
 
-Sur la suite de mGBA lancée en local, timer-irq passe de 54 échecs à 0, et timers de 561 à 349. Les échecs restants viennent d'IRQ prises coup sur coup : chaque IRQ supplémentaire y arrive environ un cycle trop tard. Les autres suites ne changent pas. Le suivi de la ligne d'IRQ ne coûte que 0,04 % d'instructions de plus sur Pokémon Émeraude.
+Sur la suite de mGBA lancée en local, timer-irq passe de 54 échecs à 0, et timers de 561 à 349. Les échecs restants viennent d'IRQ prises coup sur coup : chaque IRQ supplémentaire y arrive environ un cycle trop tard. Les autres suites ne changent pas. Le suivi de la ligne d'IRQ et le temps interruptible du BIOS ne coûtent que 0,2 % d'instructions de plus sur Pokémon Émeraude.
 
 ### Compatibilité des états instantanés
 
-- **GBA : format 15.** L'état garde les recharges de timer écrites mais pas encore en service, et l'âge de la ligne d'IRQ. Un état pris pendant qu'une IRQ se synchronise reprend ainsi au même cycle. Les états aux formats 11 à 14 se rechargent ; une IRQ en attente y est prise sans délai, comme avant. Un état au format 15 ne se recharge pas dans une version 0.5.x.
+- **GBA : format 15.** L'état garde les recharges de timer écrites mais pas encore en service, l'âge de la ligne d'IRQ, et le temps restant d'une fonction du BIOS. Un état pris pendant qu'une IRQ se synchronise, ou pendant une copie du BIOS, reprend ainsi au même cycle. Les états aux formats 11 à 14 se rechargent ; une IRQ en attente y est prise sans délai, comme avant. Un état au format 15 ne se recharge pas dans une version 0.5.x.
 - **GB/GBC : format 11**, inchangé.
 
 ### Tests
 
-- `gba_raven_timing` vérifie qu'une IRQ levée pendant des NOP en IWRAM en laisse passer quatre, puis que l'entrée et le saut vers 0x128 prennent 5 cycles. Pendant ces cycles, l'unité de préchargement de la cartouche lit la ROM du jeu interrompu. Il vérifie aussi qu'un Halt réveillé par un timer laisse passer le gestionnaire avant le jeu, et qu'une recharge de timer ne sert qu'un cycle après son écriture, même reprise d'un état. Enfin, il contrôle que le BIOS note une IRQ sans prendre de cycles.
-- `gba_raven_core` lève une IRQ de VCount à chaque fin de trame. Un état pris avant qu'elle ne soit synchronisée doit reprendre au même cycle.
+- `gba_raven_timing` vérifie qu'une IRQ levée pendant des NOP en IWRAM en laisse passer quatre, puis que l'entrée et le saut vers 0x128 prennent 5 cycles. Pendant ces cycles, l'unité de préchargement de la cartouche lit la ROM du jeu interrompu. Il vérifie aussi qu'un Halt réveillé par un timer laisse passer le gestionnaire avant le jeu, et qu'une recharge de timer ne sert qu'un cycle après son écriture, même reprise d'un état. Il contrôle que le BIOS note une IRQ sans prendre de cycles. Enfin, il vérifie qu'un timer est servi pendant VBlankIntrWait, et pendant un CpuFastSet de 16 Kio dont la durée reste celle de la copie, sauf quand le jeu masque les IRQ.
+- `gba_raven_core` lève une IRQ de VCount à chaque fin de trame. Un état pris avant qu'elle ne soit synchronisée doit reprendre au même cycle. Un état pris pendant une boucle de CpuFastSet interrompue par un timer aussi.
 - `gba_raven_sensor` vérifie le format 15 et recharge un état au format 14.
 
 ## 0.5.2 - 2026-10-17

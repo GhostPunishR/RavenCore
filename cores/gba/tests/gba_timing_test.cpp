@@ -547,6 +547,110 @@ void halt_lets_the_handler_run_first() {
           "après un Halt, le code du jeu a repris avant le gestionnaire d'IRQ");
 }
 
+// Programme en IWRAM (llvm-mc) : un gestionnaire d'IRQ qui acquitte IF et
+// compte dans r4, et des appels du BIOS. En 0x03000100, VBlankIntrWait puis
+// lecture de VCOUNT dans r6 et r1 = 1 ; en 0x0300012C, CpuFastSet de 16 Kio
+// en EWRAM puis r3 = 1 ; en 0x03000180, la même copie en Thumb.
+ravenemu::gba::Machine& with_irq_counting_program(ravenemu::gba::Machine& machine) {
+    using ravenemu::gba::i32;
+    constexpr std::array<std::uint32_t, 17> code{
+        0xe3a00301, 0xef050000, 0xe1d060b6, 0xe3a01001, 0xeafffffe,              // attente du VBlank
+        0xe3a00301, 0xe2800c02, 0xe1d020b2, 0xe1c020b2, 0xe2844001, 0xe12fff1e,  // gestionnaire
+        0xe3a00402, 0xe2801801, 0xe3a02a01, 0xef0c0000, 0xe3a03001, 0xeafffffe,  // copie
+    };
+    for (std::size_t index = 0; index < code.size(); ++index)
+        machine.bus.write32(i32(0x0300'0100U + 4U * static_cast<std::uint32_t>(index)), i32(code[index]));
+    constexpr std::array<std::uint16_t, 10> thumb{
+        0x2002, 0x0600, 0x2101, 0x0409, 0x1841, 0x2201, 0x0312, 0xdf0c, 0x2301, 0xe7fe};
+    for (std::size_t index = 0; index < thumb.size(); ++index)
+        machine.bus.write16(i32(0x0300'0180U + 2U * static_cast<std::uint32_t>(index)), thumb[index]);
+    machine.bus.write32(i32(0x0300'7ffcU), i32(0x0300'0114U));
+    machine.bus.take_wait_cycles();
+    machine.cpu.state.irq_disabled = false;
+    return machine;
+}
+
+// IntrWait (GBATEK) : toute IRQ réveille le BIOS, le gestionnaire du jeu
+// s'exécute, puis l'attente reprend jusqu'à l'IRQ demandée. Un timer à IRQ
+// toutes les 4096 cycles doit donc être servi pendant VBlankIntrWait (c'est
+// ce qui manquait à Pokémon Rubis pour ses transferts série).
+void intr_wait_lets_other_irqs_through() {
+    using ravenemu::gba::i32;
+    using ravenemu::gba::InterruptController;
+    ravenemu::gba::Machine machine(
+        thumb_cartridge(), ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; }
+    );
+    with_irq_counting_program(machine);
+    machine.bus.write16(i32(0x0400'0004U), 0x0008);  // DISPSTAT : IRQ de VBlank
+    machine.bus.write16(i32(0x0400'0100U), 0xf000);  // TM0 : 4096 cycles,
+    machine.bus.write16(i32(0x0400'0102U), 0xc0);    // IRQ au débordement
+    machine.bus.take_wait_cycles();
+    machine.cpu.reset(i32(0x0300'0100U));
+    machine.cpu.state.irq_disabled = false;
+    machine.interrupts.set_enable(1 << InterruptController::vblank | 1 << InterruptController::timer0);
+    machine.run_for(240'000);
+    check(machine.cpu.state.regs[1] == 1 && machine.cpu.state.regs[6] == 160,
+          "VBlankIntrWait : le jeu n'a pas repris au VBlank");
+    check(machine.cpu.state.regs[4] >= 40, "VBlankIntrWait : IRQ du timer non servies pendant l'attente");
+
+    // Le gestionnaire revient sur le SWI : l'attente reprend sans effacer un
+    // VBlank noté entre-temps.
+    machine.cpu.state.halted = false;
+    machine.bios.handle_swi(0x05);
+    check(machine.cpu.state.halted, "VBlankIntrWait n'a pas arrêté le CPU");
+    machine.cpu.state.halted = false;
+    machine.bios.interrupt_raised(1 << InterruptController::vblank);
+    machine.bios.handle_swi(0x05);
+    check(!machine.cpu.state.halted && !machine.bios.wait_state(),
+          "VBlankIntrWait repris : VBlank noté pendant le gestionnaire perdu");
+}
+
+// Le BIOS d'origine exécute CpuSet, CpuFastSet ou une décompression avec les
+// IRQ de l'appelant : elles l'interrompent. RavenCore fait la copie d'un coup,
+// mais en garde le temps, que les IRQ peuvent interrompre.
+void long_bios_call_lets_irqs_through() {
+    using ravenemu::gba::i32;
+    using ravenemu::gba::InterruptController;
+    const auto copy = [](bool irqs, bool timer, bool thumb = false) {
+        auto machine = std::make_unique<ravenemu::gba::Machine>(
+            thumb_cartridge(), ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; }
+        );
+        with_irq_counting_program(*machine);
+        machine->bus.write32(i32(0x0200'0ffcU), i32(0x1234'5678U));
+        machine->bus.write16(i32(0x0400'0100U), 0xfc00);  // TM0 : 1024 cycles
+        machine->bus.write16(i32(0x0400'0102U), 0xc0);
+        machine->bus.take_wait_cycles();
+        machine->cpu.reset(i32(thumb ? 0x0300'0180U : 0x0300'012cU));
+        machine->cpu.state.thumb = thumb;
+        machine->cpu.state.irq_disabled = !irqs;
+        machine->interrupts.set_enable(timer ? 1 << InterruptController::timer0 : 0);
+        machine->interrupts.set_master_enable(true);
+        auto cycles = 0;
+        while (machine->cpu.state.regs[3] != 1 && cycles < 400'000) cycles += machine->run_for(1);
+        check(machine->bus.read32(i32(0x0201'0ffcU)) == i32(0x1234'5678U), "CpuFastSet : copie absente");
+        return std::pair{cycles, machine->cpu.state.regs[4]};
+    };
+    const auto [alone, none] = copy(true, false);
+    check(none == 0 && alone > 40'000, "CpuFastSet : temps de la copie perdu");
+    const auto [interrupted, served] = copy(true, true);
+    check(served >= 30 && interrupted > alone, "CpuFastSet : IRQ du timer non servies pendant la copie");
+    const auto [masked, blocked] = copy(false, true);
+    check(blocked == 0 && masked == alone, "CpuFastSet : IRQ servies alors que le jeu les masque");
+    // En Thumb, le gestionnaire revient au point de reprise Thumb du BIOS.
+    const auto [thumb_alone, thumb_none] = copy(true, false, true);
+    const auto [thumb_interrupted, thumb_served] = copy(true, true, true);
+    check(thumb_none == 0 && thumb_alone > 40'000 && thumb_served >= 30 && thumb_interrupted > thumb_alone,
+          "CpuFastSet en Thumb : IRQ non servies ou temps perdu");
+
+    ravenemu::gba::Machine machine(
+        thumb_cartridge(), ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; }
+    );
+    for (const auto& invalid : {std::array<std::int32_t, 2>{-1, 0}, std::array<std::int32_t, 2>{1 << 29, 0x0300'0100},
+                                std::array<std::int32_t, 2>{0, 0x0300'0100}})
+        expect_failure<ravenemu::SaveStateError>([&] { machine.restore_bios_busy(invalid); },
+                                                 "temps du BIOS invalide accepté");
+}
+
 // Une recharge écrite ne sert qu'au cycle suivant : le débordement du cycle
 // même de l'écriture recharge encore l'ancienne valeur.
 void timer_reload_applies_one_cycle_after_write() {
@@ -610,6 +714,8 @@ int main() {
     irq_waits_four_cycles_then_enters();
     irq_entry_lets_the_cartridge_prefetch_run();
     halt_lets_the_handler_run_first();
+    intr_wait_lets_other_irqs_through();
+    long_bios_call_lets_irqs_through();
     timer_reload_applies_one_cycle_after_write();
     pending_timer_reload_survives_a_state();
     bios_interrupt_flags_cost_no_cycles();

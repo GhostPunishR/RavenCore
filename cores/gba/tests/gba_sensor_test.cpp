@@ -273,10 +273,10 @@ void sensor_save_state_test() {
 
     // Format 14 : le bloc du préchargement et des timers suit celui des
     // capteurs (tête, compte, progression, activité, quatre délais), puis
-    // l'état du câble link. Format 15 : quatre recharges de timer en attente
-    // et l'âge de la ligne d'IRQ.
+    // l'état du câble link. Format 15 : quatre recharges de timer en attente,
+    // l'âge de la ligne d'IRQ et le temps restant d'une fonction du BIOS.
     constexpr std::size_t prefetch_bytes = 4U + 4U + 4U + 1U + 4U * 4U + 4U * Serial::link_state_words;
-    constexpr std::size_t irq_bytes = 4U * 4U + 4U;
+    constexpr std::size_t irq_bytes = 4U * 4U + 4U + 2U * 4U;
     check(state[4] == 0 && state[5] == 15, "version d'état GBA inattendue");
 
     // État au format 14 : sans le bloc du format 15. Il se recharge, capteur compris.
