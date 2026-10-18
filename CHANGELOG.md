@@ -44,7 +44,7 @@ Cette version donne aux registres d'E/S et au port série GBA les valeurs que re
 - **GBA : relecture des registres d'E/S.** Le CPU relisait chaque registre tel qu'il l'avait écrit. Il relit désormais ce que décrit GBATEK ; les bits inutilisés, que GBATEK ne détaille pas, ont été relevés sur console par la suite de tests de mGBA.
   - Les bits inutilisés se lisent 0 : BG0CNT et BG1CNT (bit 13), WININ, WINOUT, BLDCNT, BLDALPHA, registres du son, DMAxCNT_H, DISPSTAT (bits 6 et 7), WAITCNT (bit 15 : cartouche GBA) et JOYCNT.
   - Les parties en écriture seule aussi : durée, fréquence et départ des canaux du son, remises à zéro des FIFO, HALTCNT.
-  - SOUNDCNT_X indique les canaux du son en cours, que le jeu ne peut pas écrire.
+  - SOUNDCNT_X indique les canaux du son en cours, que le jeu ne peut pas écrire ; son éteint, il n'en signale aucun.
   - Un registre en écriture seule ou un emplacement inutilisé rend le bus ouvert quand tout son mot de 32 bits est illisible (défilements, matrices, fenêtres, MOSAIC, BLDY, FIFO, adresses des DMA), 0 sinon (DMAxCNT_L, 0x066…), comme le décrit GBATEK (« Reading from Unused or Write-Only I/O Ports »).
 - **GBA : relecture du port série selon son mode** (GBATEK, valeurs sans câble relevées sur console par la suite de mGBA).
   - SIODATA32 ne se lit qu'en mode normal 32 bits.
