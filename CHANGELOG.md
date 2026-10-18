@@ -2,9 +2,9 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
-## Non publié
+## 0.6.0 - 2026-10-18
 
-Ces changements donnent aux IRQ et aux timers GBA les instants de la console, et font fonctionner le câble link entre Pokémon Émeraude et Rubis. Le format des états GBA change ; l'API ne change pas.
+Cette version donne aux IRQ et aux timers GBA les instants de la console, et fait fonctionner le câble link entre Pokémon Émeraude et Rubis ([#25](https://github.com/GhostPunishR/RavenCore/pull/25)). Le format des états GBA change ; l'API ne change pas.
 
 ### Corrigé
 
@@ -25,6 +25,7 @@ Sur la suite de mGBA lancée en local, timer-irq passe de 54 échecs à 0, et ti
 
 - **GBA : format 15.** L'état garde les recharges de timer écrites mais pas encore en service, l'âge de la ligne d'IRQ, et le temps restant d'une fonction du BIOS. Un état pris pendant qu'une IRQ se synchronise, ou pendant une copie du BIOS, reprend ainsi au même cycle. Les états aux formats 11 à 14 se rechargent ; une IRQ en attente y est prise sans délai, comme avant. Un état au format 15 ne se recharge pas dans une version 0.5.x.
 - **GB/GBC : format 11**, inchangé.
+- **API C : version 0**, inchangée ; **API C++** inchangée. Le paquet CMake se demande désormais avec `find_package(RavenCore 0.6)`.
 
 ### Tests
 
