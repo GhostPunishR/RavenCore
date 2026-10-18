@@ -563,6 +563,10 @@ void io_registers_read_back_console_values() {
           "son éteint : écriture du PSG gardée");
     bus.write16(i32(0x0400'0084U), 0x0080);
     check(bus.read16(i32(0x0400'0084U)) == 0x0080, "son rallumé : canal parti pendant l'arrêt");
+    // Le réglage d'avant l'arrêt est perdu : sans nouveau volume, le DAC du
+    // canal 2 reste éteint et le départ ne le fait pas jouer.
+    bus.write16(i32(0x0400'006cU), 0x8000);
+    check(bus.read16(i32(0x0400'0084U)) == 0x0080, "son rallumé : réglage du canal 2 gardé de l'arrêt");
 }
 
 // Port série relu selon son mode (GBATEK), valeurs relevées sur console sans
