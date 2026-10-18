@@ -145,9 +145,10 @@ void gba_save_detection_test() {
 
 void audio_state_continuation_test() {
     auto rom = minimal_gba_rom();
-    // Configure PSG once, then loop without further IO writes.
+    // Configure PSG once, then loop without further IO writes. Sound is
+    // switched on first: while it is off, PSG registers ignore writes.
     const std::array<std::uint32_t, 13> code{
-        0xe59f0020, 0xe59f1020, 0xe5801080, 0xe3a01080, 0xe5801084,
+        0xe59f0020, 0xe3a01080, 0xe5801084, 0xe59f1018, 0xe5801080,
         0xe59f1014, 0xe5801060, 0xe3a01902, 0xe5801064, 0xeafffffe,
         0x04000000, 0x00001177, 0xf0800000};
     for (std::size_t i = 0; i < code.size(); ++i)

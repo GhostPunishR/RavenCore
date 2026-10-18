@@ -350,7 +350,14 @@ void Bus::handle_io_write(int offset, int value) {
     } else if (offset == 0x134) {
         serial_rcnt_write(serial);
     } else if (apu && offset >= 0x060 && offset <= 0x09f) {
+        // Son éteint (SOUNDCNT_X bit 7 à 0), les registres du PSG, 0x60 à 0x81,
+        // restent à zéro et ignorent les écritures (GBATEK, « SOUNDCNT_X »).
+        if (offset < 0x082 && !apu->master_enable) {
+            write_io_half(offset, 0);
+            return;
+        }
         apu->write_register(offset, value);
+        if (offset == 0x084 && !apu->master_enable) std::fill(io.begin() + 0x060, io.begin() + 0x082, std::uint8_t{0});
     }
 }
 

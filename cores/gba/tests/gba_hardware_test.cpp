@@ -550,10 +550,19 @@ void io_registers_read_back_console_values() {
     bus.write16(i32(0x0400'0068U), 0xf000);  // canal 2 : volume 15
     bus.write16(i32(0x0400'006cU), 0x8000);  // départ
     check(bus.read16(i32(0x0400'0084U)) == 0x0082, "SOUNDCNT_X : canal 2 en cours non signalé");
+    // Son éteint (GBATEK) : les registres du PSG, 0x60 à 0x81, repartent de
+    // zéro et ignorent les écritures ; un départ demandé entre-temps est perdu.
+    bus.write16(i32(0x0400'0080U), 0x1177);  // SOUNDCNT_L
     bus.write16(i32(0x0400'0084U), 0x0000);
     check(bus.read16(i32(0x0400'0084U)) == 0x0000, "SOUNDCNT_X : son éteint relu allumé");
+    check(bus.read16(i32(0x0400'0068U)) == 0 && bus.read16(i32(0x0400'0080U)) == 0,
+          "son éteint : registres du PSG non remis à zéro");
+    bus.write16(i32(0x0400'0068U), 0xf000);
     bus.write16(i32(0x0400'006cU), 0x8000);  // départ du canal 2, son éteint
-    check(bus.read16(i32(0x0400'0084U)) == 0x0000, "SOUNDCNT_X : canal signalé alors que le son est éteint");
+    check(bus.read16(i32(0x0400'0084U)) == 0x0000 && bus.read16(i32(0x0400'0068U)) == 0,
+          "son éteint : écriture du PSG gardée");
+    bus.write16(i32(0x0400'0084U), 0x0080);
+    check(bus.read16(i32(0x0400'0084U)) == 0x0080, "son rallumé : canal parti pendant l'arrêt");
 }
 
 // Port série relu selon son mode (GBATEK), valeurs relevées sur console sans
