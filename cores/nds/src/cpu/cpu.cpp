@@ -40,6 +40,7 @@ void Cpu::set_register(std::size_t index, std::uint32_t value) {
 }
 
 void Cpu::step(Memory& memory) {
+    if (memory.step_dma(processor_)) return; // priorité au bus DMA, aucun registre CPU modifié
     const bool irq = irq_line_ || memory.irq_pending(processor_);
     if ((fiq_line_ && !state_.fiq_disabled) || (irq && !state_.irq_disabled)) {
         const auto exception = fiq_line_ && !state_.fiq_disabled ? detail::Exception::fiq : detail::Exception::irq;

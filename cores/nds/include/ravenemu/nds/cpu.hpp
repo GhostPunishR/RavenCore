@@ -30,6 +30,8 @@ private:
  * Pas encore de cycles, pipeline préchargé ou CP15.
  * Une instruction non implémentée ou un accès mémoire refusé lève
  * CpuExecutionError, sans avancer le CPU ni modifier ses registres.
+ * Un DMA immédiat transfère une unité par pas en suspendant le CPU ; ses
+ * erreurs lèvent DmaTransferError et préservent l'unité fautive.
  */
 class Cpu {
 public:

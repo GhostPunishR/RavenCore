@@ -3,6 +3,7 @@
 #include <ravenemu/nds/hardware.hpp>
 #include <ravenemu/nds/interrupts.hpp>
 #include <ravenemu/nds/ipc.hpp>
+#include <ravenemu/nds/dma.hpp>
 
 #include <cstddef>
 #include <array>
@@ -22,7 +23,11 @@ public:
     Memory();
     // ARM7 : 16 Kio aux vecteurs bas ; ARM9 : 4 Kio aux vecteurs hauts NDS.
     void load_bios(Processor cpu, std::span<const std::uint8_t> bytes);
-    void clear_ram() noexcept; // remet aussi WRAMCNT, timers, IPC et IRQ à zéro ; conserve les BIOS
+    void clear_ram() noexcept; // remet aussi les périphériques à zéro ; conserve les BIOS
+    [[nodiscard]] bool dma_pending(Processor cpu) const noexcept;
+    // Une unité 16/32 bits, sans cycles. Renvoie false si aucun DMA immédiat en attente.
+    // Un échec préserve l'unité fautive ; les unités déjà terminées restent appliquées.
+    bool step_dma(Processor cpu);
     // Avance les huit timers d'autant de cycles de timer_clock_hz, sans exécuter les CPU.
     // Les débordements alimentent IF même si IME/IE sont désactivés.
     void advance_cycles(std::uint64_t cycles) noexcept;
@@ -48,6 +53,8 @@ public:
     void read_words(Processor cpu, std::uint32_t address, std::span<std::uint32_t> values);
 
 private:
+    [[nodiscard]] DmaController& dma(Processor cpu) noexcept;
+    [[nodiscard]] const DmaController& dma(Processor cpu) const noexcept;
     struct Timer {
         std::uint16_t counter{}, reload{}, phase{};
         std::uint8_t control{};
@@ -77,6 +84,9 @@ private:
     TimerBank arm9_timers_{};
     TimerBank arm7_timers_{};
     Ipc ipc_;
+    DmaController arm9_dma_{Processor::arm9};
+    DmaController arm7_dma_{Processor::arm7};
+    std::array<std::uint8_t, 16> dma_fill_{};
     std::uint8_t wram_control_{};
 };
 

@@ -19,6 +19,10 @@ void Memory::apply_ipc_interrupts(Ipc::Interrupts sources) noexcept {
 }
 
 std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address) const noexcept {
+    if (address >= 0x040000b0 && address <= 0x040000df)
+        return dma(cpu).read_byte(address - 0x040000b0U);
+    if (cpu == Processor::arm9 && address >= 0x040000e0 && address <= 0x040000ef)
+        return dma_fill_[address - 0x040000e0U];
     if (address >= 0x04000100 && address <= 0x0400010f)
         return timer_byte(cpu, address - 0x04000100U);
     if (address >= 0x04000180 && address <= 0x04000183)
@@ -38,6 +42,14 @@ std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address
 }
 
 void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t value) noexcept {
+    if (address >= 0x040000b0 && address <= 0x040000df) {
+        dma(cpu).write_byte(address - 0x040000b0U, value);
+        return;
+    }
+    if (cpu == Processor::arm9 && address >= 0x040000e0 && address <= 0x040000ef) {
+        dma_fill_[address - 0x040000e0U] = value;
+        return;
+    }
     if (address >= 0x04000100 && address <= 0x0400010f) {
         write_timer_byte(cpu, address - 0x04000100U, value);
         return;

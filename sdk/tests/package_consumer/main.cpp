@@ -12,6 +12,7 @@
 #include <ravenemu/nds/hardware.hpp>
 #include <ravenemu/nds/interrupts.hpp>
 #include <ravenemu/nds/ipc.hpp>
+#include <ravenemu/nds/dma.hpp>
 
 #include <cstdio>
 
@@ -42,6 +43,12 @@ int main() {
     if (nds_view.peek32(ravenemu::nds::Processor::arm7, 0x04100000) != 0x12345678 ||
         nds.memory().read32(ravenemu::nds::Processor::arm7, 0x04100000) != 0x12345678 ||
         nds_view.peek16(ravenemu::nds::Processor::arm7, 0x04000184) != 0x8101) return 1;
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x040000b0, 0x02000000);
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x040000b4, 0x02000004);
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x040000b8, 0x84000001);
+    nds_cpu.step(nds.memory()); // transfert DMA, CPU suspendu
+    if (nds_cpu.state().instructions != 1 || nds.memory().dma_pending(ravenemu::nds::Processor::arm9) ||
+        nds_view.peek32(ravenemu::nds::Processor::arm9, 0x02000004) != 0xeafffffe) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

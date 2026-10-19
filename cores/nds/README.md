@@ -14,6 +14,7 @@ nds/
 │   ├── bios/             # images et fenêtres BIOS
 │   ├── cartridge/        # cartouches .nds
 │   ├── cpu/              # ARM, Thumb, état, PSR et exceptions
+│   ├── dma/              # canaux, compteurs internes et transferts immédiats
 │   ├── interrupts/       # contrôleurs IME/IE/IF indépendants
 │   ├── ipc/              # synchronisation et FIFO ARM9/ARM7
 │   ├── machine/          # assemblage des deux CPU et chargement
@@ -85,7 +86,7 @@ CPU démarrent en System avec I/F masqués. Les images BIOS déjà fournies sont
 Ce chargement est une préparation expérimentale, pas une séquence de démarrage
 BIOS : pas de firmware, de déchiffrement, de paramètres de démarrage, de copie
 de l'en-tête dans la RAM ni d'initialisation complète des registres CPU. Seuls les
-MMIO d'interruption, timers, IPC et WRAMCNT/WRAMSTAT sont présents. TCM, VRAM, autres MMIO et
+MMIO d'interruption, DMA, timers, IPC et WRAMCNT/WRAMSTAT sont présents. TCM, VRAM, autres MMIO et
 comportements open-bus restent absents ; les accès non mappés lèvent `ravenemu::Error`. Les lectures ARM
 non alignées et leurs rotations ne sont pas encore prises en charge par le CPU.
 
@@ -106,9 +107,12 @@ const auto& arm7 = machine.cpu_state(ravenemu::nds::Processor::arm7);
 
 Ces appels exécutent le nombre demandé de pas sur le CPU sélectionné,
 sans faire avancer l'autre. Le budget est borné même sur une boucle infinie.
-Un pas exécute une instruction ou entre en IRQ/FIQ. Le compteur `instructions`
+Un pas transfère une unité DMA, entre en IRQ/FIQ ou exécute une instruction.
+Un DMA immédiat en attente est prioritaire sur les interruptions et suspend
+uniquement le CPU associé ; l'autre CPU n'avance que par ses propres appels.
+Le compteur `instructions`
 compte uniquement les instructions terminées, dont SWI, UDF et les conditions
-ARM fausses. Une entrée IRQ/FIQ ne l'incrémente pas. Il n'y a pas
+ARM fausses. Une unité DMA ou entrée IRQ/FIQ ne l'incrémente pas. Il n'y a pas
 encore d'ordonnanceur, de calcul des cycles CPU ou de rapport de fréquence ARM9/ARM7.
 Les timers disposent d'une horloge explicite indépendante, décrite ci-dessous.
 
@@ -172,7 +176,7 @@ machine.set_interrupt_lines(ravenemu::nds::Processor::arm9, true); // ligne IRQ
 machine.step(ravenemu::nds::Processor::arm9);
 ```
 
-IRQ/FIQ sont des entrées externes de niveau, échantillonnées à chaque pas :
+IRQ/FIQ sont des entrées externes de niveau, échantillonnées à chaque pas hors DMA :
 FIQ démasquée est prioritaire sur IRQ. I/F masquent leur prise en compte, et une
 ligne restée active peut provoquer une nouvelle entrée après le retour. L'IRQ
 du contrôleur MMIO est combinée à la ligne IRQ externe ; FIQ reste une entrée
@@ -196,10 +200,73 @@ ARM7 ; les sources DSi ne sont pas implémentées.
 Les périphériques émettent leurs événements par
 `Memory::request_interrupt(cpu, sources)`, où `sources` est un masque IF.
 Cette méthode sert aussi aux tests ; les timers alimentent IF lors de leur
-avancement explicite et l'IPC lors des échanges. PPU et DMA restent absents.
-Le CPU consulte la ligne du bus à chaque pas :
+avancement explicite, l'IPC lors des échanges et les DMA à leur fin de transfert.
+Le PPU reste absent. Le CPU consulte la ligne du bus à chaque pas hors DMA :
 un gestionnaire qui acquitte IF supprime la demande avant le retour. Référence :
 [GBATEK, DS Interrupts](https://mgba-emu.github.io/gbatek/ds.html#dsinterrupts).
+
+## DMA immédiats
+
+Chaque CPU possède quatre canaux, décrits par `DmaController` dans
+`<ravenemu/nds/dma.hpp>`. Pour le canal `n` (0 à 3), les registres 32 bits
+SAD, DAD et CNT sont à `0x040000b0 + 12*n`, puis `+4` et `+8`.
+Ils acceptent les accès 8/16/32 bits par voies little-endian.
+
+| Bits de CNT | Fonction |
+| --- | --- |
+| 0–20 ARM9 | Nombre d'unités, zéro signifie `0x200000` |
+| 0–13 ARM7 canaux 0–2 ; 0–15 canal 3 | Nombre d'unités, zéro signifie `0x4000` ou `0x10000` |
+| 21–22 | Destination : incrément, décrément, fixe, incrément/rechargement |
+| 23–24 | Source : incrément, décrément, fixe ; valeur 3 réservée |
+| 25 | Répétition, sans répétition automatique en immédiat |
+| 26 | Taille : 0 = 16 bits, 1 = 32 bits |
+| 27–29 ARM9 ; 28–29 ARM7 | Déclenchement, 0 = immédiat ; bit 27 ignoré sur ARM7 |
+| 30 | IRQ de fin, IF bit `8+n` |
+| 31 | Activation ; le passage 0 vers 1 charge les pointeurs et le compteur internes |
+
+ARM9 utilise 28 bits d'adresse sur tous les canaux. ARM7 utilise 27 bits
+pour SAD du canal 0 et DAD des canaux 0–2, 28 bits ailleurs. Le bit d'adresse
+0 est ignoré ; les pointeurs internes 32 bits ignorent aussi le bit 1.
+Les compteurs et adresses internes évoluent séparément : SAD, DAD et la
+longueur programmée restent lisibles sans modification pendant le transfert.
+La dernière unité efface enable et demande l'IRQ si elle est autorisée.
+Un arrêt logiciel annule le reste sans IRQ de fin.
+
+```cpp
+using ravenemu::nds::Processor;
+auto& bus = machine.memory();
+bus.write32(Processor::arm9, 0x040000b0, 0x02001000); // source RAM
+bus.write32(Processor::arm9, 0x040000b4, 0x02002000); // destination RAM
+bus.write32(Processor::arm9, 0x040000b8, 0xc4000003); // trois mots, immédiat, IRQ
+machine.run_steps(Processor::arm9, 3); // trois unités DMA, aucune instruction CPU
+```
+
+`Memory::dma_pending(cpu)` indique un transfert immédiat en attente.
+`Memory::step_dma(cpu)` transfère une unité ou renvoie false sans effet.
+`Cpu::step()` et `Machine::step()` le font automatiquement avant l'exécution
+CPU. Le canal 0 est prioritaire, puis 1, 2 et 3 ; un canal prioritaire activé
+entre deux unités suspend le canal inférieur, qui conserve sa progression.
+Les copies chevauchantes lisent la RAM à chaque unité, sans copie préalable
+du bloc source. Les masques et miroirs RAM propres à chaque CPU s'appliquent.
+
+Ce jalon accepte RAM vers RAM et DMAFILL ARM9 vers RAM. Les quatre registres
+DMAFILL à `0x040000e0–0x040000ef` fournissent 16 octets lisibles et modifiables
+sur ARM9, utilisables comme source fixe. Les autres MMIO, BIOS, TCM, VRAM et
+cartouches ne sont pas des extrémités DMA prises en charge. Un accès refusé
+ou le mode source réservé lève `DmaTransferError`, avec CPU, canal, adresses
+et compteur restant. Les deux extrémités sont validées avant chaque unité :
+une unité fautive ne modifie ni RAM ni progression ni IRQ ; les unités
+précédemment terminées restent appliquées.
+
+Le modèle reste sans cycles ni arbitrage temporel du bus. Les écritures aux
+registres d'un canal déjà actif sont conservées pour sa prochaine activation ;
+elles ne rechargent pas le transfert en cours. Une destination incrément/rechargement
+agit comme incrément en immédiat. Les modes vidéo, cartouche et géométrie
+restent armés sans déclencheur ; leurs répétitions restent à développer.
+Les pas DMA n'avancent pas l'horloge explicite des timers. Copier une machine
+copie aussi les canaux suspendus ; un chargement réussi ou `clear_ram()` remet
+canaux et DMAFILL à zéro. Référence :
+[GBATEK, DS DMA Transfers](https://mgba-emu.github.io/gbatek/ds.html#dsdmatransfers).
 
 ## Timers
 
@@ -363,9 +430,14 @@ de l'anneau, les erreurs, le vidage, les autorisations et les fronts IRQ.
 Il contrôle aussi les inspections sans effet, les transferts refusés avant
 tout effet MMIO, LDM ARM et LDR Thumb. Deux programmes ARM réalisent un
 aller-retour complet avec réponse calculée et gestionnaires IRQ synthétiques.
+`nds_dma` vérifie les huit canaux, les masques propres à chaque CPU, les
+longueurs nulles, les copies 16/32 bits, les modes d'adressage, les priorités,
+le remplissage, les copies chevauchantes, les erreurs et les copies de machine.
+Deux programmes ARM configurent leur DMA, restent suspendus pendant la copie,
+traitent l'IRQ de fin depuis un BIOS synthétique et reprennent leur exécution.
 
 Prochains jalons : compléter le jeu d'instructions, définir les timings et la
-synchronisation des deux CPU et des timers, puis DMA, vidéo
+synchronisation des deux CPU, DMA et timers, puis vidéo
 2D à deux écrans, entrées et audio.
 
 Aucun jeu ne tourne à ce stade. Le cœur n'est pas encore exposé par `Core`,

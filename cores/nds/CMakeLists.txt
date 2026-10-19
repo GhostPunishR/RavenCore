@@ -4,6 +4,8 @@ add_library(nds_raven_core STATIC
     src/memory/io.cpp
     src/interrupts/interrupt_controller.cpp
     src/ipc/ipc.cpp
+    src/dma/dma_controller.cpp
+    src/dma/transfer.cpp
     src/timers/timers.cpp
     src/bios/boot_rom.cpp
     src/machine/machine.cpp
@@ -60,4 +62,8 @@ if(BUILD_TESTING)
     target_include_directories(nds_ipc_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_ipc_tests PRIVATE nds_raven_core)
     add_test(NAME nds_ipc COMMAND nds_ipc_tests)
+    add_executable(nds_dma_tests tests/dma_test.cpp)
+    target_include_directories(nds_dma_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_dma_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_dma COMMAND nds_dma_tests)
 endif()
