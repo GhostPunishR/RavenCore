@@ -20,17 +20,19 @@ public:
         return result & 0x0f;
     }
     void write(int data, int direction) {
-        const auto new_sck = pin(data, direction, 0, sck_);
-        const auto new_sio = pin(data, direction, 1, sio_);
-        const auto new_cs = pin(data, direction, 2, chip_select_);
-        if (new_cs == 0) phase_ = idle;
+        // SCK/CS sont des entrées du composant : un GPIO relâché ne doit pas
+        // maintenir une ancienne sortie haute. SIO est tenu haut hors lecture.
+        const auto new_sck = (data & direction) & 1;
+        const auto new_sio = (direction & 2) ? (data >> 1) & 1 : sio_out_;
+        const auto new_cs = ((data & direction) >> 2) & 1;
+        if (new_cs == 0) { phase_ = idle; sio_out_ = 1; }
         else if (chip_select_ == 0) {
             phase_ = command_phase;
             shift_ = 0;
             bit_index_ = 0;
         } else if (sck_ == 0 && new_sck == 1) on_rise(new_sio);
         else if (sck_ == 1 && new_sck == 0) on_fall();
-        sck_ = new_sck;
+        sck_ = new_cs ? new_sck : 1;
         sio_ = new_sio;
         chip_select_ = new_cs;
     }
@@ -52,6 +54,7 @@ public:
             (static_cast<std::uint64_t>(u32(values[11])) << 32U) | u32(values[12]));
         std::copy_n(values.begin() + 13, 7, transfer_.begin());
         validate_state();
+        status_ &= writable_status;
     }
 
     /**
@@ -103,7 +106,7 @@ public:
         if (!epoch || *epoch - host < -max_offset || *epoch - host > max_offset) return;
         offset_seconds_ = *epoch - host;
         // FlashGBX remplit cet octet de 0x01, valeur impossible sur le composant.
-        if (bytes[7] != 1) status_ = 0x40 | (bytes[7] & 0x0e);
+        if (bytes[7] != 1) status_ = bytes[7] & writable_status;
     }
 
     /** Ce que la pile du composant conserve, transmis tel quel d'une machine à la suivante. */
@@ -121,13 +124,11 @@ private:
     // Une heure lointaine de plusieurs millénaires reste représentable
     // sans que `clock_() + offset_seconds_` puisse déborder.
     static constexpr std::int64_t max_offset = std::int64_t{1} << 40;
+    static constexpr int writable_status = 0x6a; // IRQ fréquence/minute/alarme et mode 24 heures
     static constexpr int idle = 0;
     static constexpr int command_phase = 1;
     static constexpr int reading = 2;
     static constexpr int writing = 3;
-    static int pin(int data, int direction, int bit, int previous) noexcept {
-        return (direction & (1 << bit)) != 0 ? (data >> bit) & 1 : previous;
-    }
     static int reverse_bits(int value) noexcept {
         auto input = static_cast<unsigned>(value) & 0xffU;
         unsigned result{};
@@ -175,9 +176,6 @@ private:
      */
     static std::optional<std::int64_t> wall_clock_epoch(std::tm date, std::int64_t near) {
         const auto wanted = date;
-        date.tm_isdst = -1;
-        const auto found = std::mktime(&date);
-        if (found == static_cast<std::time_t>(-1)) return std::nullopt;
         const auto shows_wanted = [&](std::int64_t epoch) {
             const auto shown = local_time(epoch);
             return shown.tm_year == wanted.tm_year && shown.tm_mon == wanted.tm_mon &&
@@ -187,9 +185,16 @@ private:
         const auto distance = [near](std::int64_t epoch) {
             return epoch > near ? epoch - near : near - epoch;
         };
-        auto best = static_cast<std::int64_t>(found);
-        for (const auto other : {best - 3600, best + 3600}) {
-            if (shows_wanted(other) && (!shows_wanted(best) || distance(other) < distance(best))) best = other;
+        std::optional<std::int64_t> best;
+        // Demander les deux régimes évite de supposer une transition d'une
+        // heure : certains fuseaux décalent l'horloge de trente minutes.
+        for (const auto daylight : {-1, 0, 1}) {
+            auto candidate = date;
+            candidate.tm_isdst = daylight;
+            const auto found = std::mktime(&candidate);
+            if (found == static_cast<std::time_t>(-1)) continue;
+            const auto epoch = static_cast<std::int64_t>(found);
+            if (shows_wanted(epoch) && (!best || distance(epoch) < distance(*best))) best = epoch;
         }
         return best;
     }
@@ -201,18 +206,20 @@ private:
         if (changed_) changed_();
     }
     void load_time(const std::tm& value, int at) noexcept {
-        transfer_[static_cast<std::size_t>(at)] = bcd(value.tm_hour);
+        const auto hour = (status_ & 0x40) ? value.tm_hour : value.tm_hour % 12;
+        transfer_[static_cast<std::size_t>(at)] = bcd(hour) | (value.tm_hour >= 12 ? 0x80 : 0);
         transfer_[static_cast<std::size_t>(at + 1)] = bcd(value.tm_min);
         transfer_[static_cast<std::size_t>(at + 2)] = bcd(value.tm_sec);
     }
     void decode_command() {
         auto byte = shift_ & 0xff;
         if ((byte & 0xf0) != 0x60) byte = reverse_bits(byte);
+        if ((byte & 0xf0) != 0x60) { phase_ = idle; bit_index_ = 0; sio_out_ = 1; return; }
         command_ = (byte >> 1) & 7;
         const auto is_reading = (byte & 1) != 0;
         shift_ = 0; bit_index_ = 0; byte_index_ = 0; transfer_.fill(0);
         if (command_ == 0) {
-            set_settings(0, 0x40);
+            set_settings(0, 0);
             phase_ = idle;
         } else if (command_ == 1) {
             byte_count_ = 1;
@@ -261,27 +268,33 @@ private:
     }
     void apply_written() {
         if (command_ == 1) {
-            set_settings(offset_seconds_, 0x40 | (transfer_[0] & 0x0e));
+            set_settings(offset_seconds_, transfer_[0] & writable_status);
             return;
         }
-        auto target = game_time();
-        const auto at = command_ == 2 ? 4 : 0;
+        const auto host = clock_();
+        auto target = local_time(host + offset_seconds_);
+        const auto at = command_ == 2 ? 4U : 0U;
+        const auto field = [](int byte, int minimum, int maximum) -> std::optional<int> {
+            if ((byte & 15) > 9 || (byte >> 4) > 9) return std::nullopt;
+            const auto value = from_bcd(byte);
+            return value >= minimum && value <= maximum ? std::optional{value} : std::nullopt;
+        };
         if (command_ == 2) {
-            target.tm_year = 100 + from_bcd(transfer_[0]);
-            target.tm_mon = from_bcd(transfer_[1]) - 1;
-            target.tm_mday = from_bcd(transfer_[2]);
+            const auto year = field(transfer_[0], 0, 99), month = field(transfer_[1], 1, 12), day = field(transfer_[2], 1, 31);
+            if (!year || !month || !day || transfer_[3] > 6) return;
+            target.tm_year = 100 + *year;
+            target.tm_mon = *month - 1;
+            target.tm_mday = *day;
         }
-        target.tm_hour = from_bcd(transfer_[static_cast<std::size_t>(at)] & 0x7f);
-        target.tm_min = from_bcd(transfer_[static_cast<std::size_t>(at + 1)]);
-        target.tm_sec = from_bcd(transfer_[static_cast<std::size_t>(at + 2)]);
-        // `target` part de l'heure hôte courante et porte donc son ancien
-        // indicateur heure d'été. Après une écriture de date, cet indicateur
-        // peut ne plus correspondre à la nouvelle saison : mktime décalerait
-        // alors silencieusement l'heure demandée d'une heure. Laisser la
-        // bibliothèque déterminer le régime de la nouvelle date.
-        target.tm_isdst = -1;
-        const auto epoch = std::mktime(&target);
-        if (epoch != static_cast<std::time_t>(-1)) set_settings(epoch - clock_(), status_);
+        const auto hour = field(transfer_[at] & 0x7f, 0, (status_ & 0x40) ? 23 : 11);
+        const auto minute = field(transfer_[at + 1], 0, 59), second = field(transfer_[at + 2], 0, 59);
+        if (!hour || !minute || !second) return;
+        target.tm_hour = *hour + (!(status_ & 0x40) && (transfer_[at] & 0x80) ? 12 : 0);
+        target.tm_min = *minute;
+        target.tm_sec = *second;
+        const auto epoch = wall_clock_epoch(target, host + offset_seconds_);
+        if (epoch && *epoch - host >= -max_offset && *epoch - host <= max_offset)
+            set_settings(*epoch - host, status_);
     }
 
     Clock clock_;
@@ -289,7 +302,7 @@ private:
     int sck_{};
     int sio_{};
     int chip_select_{};
-    int sio_out_{};
+    int sio_out_{1};
     int phase_{};
     int shift_{};
     int bit_index_{};

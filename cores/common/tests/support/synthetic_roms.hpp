@@ -40,4 +40,24 @@ inline std::vector<std::uint8_t> minimal_gba_rom() {
     return rom;
 }
 
+// Données fabriquées pour le détecteur CFRU : aucun octet de ROM Pokémon.
+inline std::vector<std::uint8_t> pokemon_rtc_gba_rom(bool rtc_driver = true) {
+    auto rom = minimal_gba_rom();
+    rom.resize(0x1000);
+    const auto text = [&](std::size_t at, const char* value) {
+        while (*value) rom[at++] = static_cast<std::uint8_t>(*value++);
+    };
+    text(0xac, "BPRE");
+    text(0x108, "pokemon red version");
+    text(0x300, "FLASH1M_V103");
+    if (rtc_driver) {
+        for (unsigned port = 0; port < 3; ++port) {
+            const auto at = 0x240U + port * 0x40U;
+            rom[at] = static_cast<std::uint8_t>(0xc4 + port * 2);
+            rom[at + 3] = 8;
+        }
+    }
+    return rom;
+}
+
 } // namespace ravenemu::testing

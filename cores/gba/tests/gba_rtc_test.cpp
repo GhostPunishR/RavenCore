@@ -1,6 +1,7 @@
 #include "memory/bus.hpp"
 
 #include "check.hpp"
+#include "synthetic_roms.hpp"
 
 #include <algorithm>
 #include <array>
@@ -74,16 +75,20 @@ constexpr std::int32_t control_register = 0x0800'00c8;
 /** Pilote reproduisant le cadençage de la bibliothèque du jeu. */
 class Master {
 public:
-    explicit Master(Bus& bus) : bus_(bus) {}
+    explicit Master(Bus& bus, bool cfru = false) : bus_(bus), cfru_(cfru) {}
 
     void begin() {
         bus_.write16(control_register, 1);   // registres relisibles
-        bus_.write16(direction_register, 7); // SCK, SIO et CS pilotés par le jeu
+        if (!cfru_) bus_.write16(direction_register, 7);
         bus_.write16(data_register, 1);      // SCK haut, CS bas
         bus_.write16(data_register, 5);      // CS monte : la transaction commence
+        if (cfru_) bus_.write16(direction_register, 7); // ordre du pilote CFRU
     }
 
-    void end() { bus_.write16(data_register, 1); }
+    void end() {
+        bus_.write16(data_register, 1);
+        if (cfru_) bus_.write16(data_register, 1);
+    }
 
     /** Octet de commande : poids fort en tête. */
     void command(int value) {
@@ -102,7 +107,8 @@ public:
         bus_.write16(direction_register, 5); // SIO repasse en entrée
         int value{};
         for (int bit = 0; bit < 8; ++bit) {
-            bus_.write16(data_register, 4); // SCK bas : le composant présente son bit
+            for (unsigned repeat = 0; repeat < (cfru_ ? 5U : 1U); ++repeat)
+                bus_.write16(data_register, 4); // SCK bas : le composant présente son bit
             bus_.write16(data_register, 5); // SCK haut : le jeu relit
             value |= ((bus_.read16(data_register) >> 1) & 1) << bit;
         }
@@ -119,11 +125,13 @@ public:
 
 private:
     void clock_out(int bit) {
-        bus_.write16(data_register, 4 | (bit << 1));     // SCK bas, donnée posée
+        for (unsigned repeat = 0; repeat < (cfru_ ? 3U : 1U); ++repeat)
+            bus_.write16(data_register, 4 | (bit << 1)); // SCK bas, donnée posée
         bus_.write16(data_register, 4 | (bit << 1) | 1); // SCK haut : échantillonnage
     }
 
     Bus& bus_;
+    bool cfru_;
 };
 
 /** Cartouche et bus partageant une horloge figée, pour un résultat reproductible. */
@@ -152,11 +160,9 @@ void detection_test() {
 }
 
 /**
- * La détection cherche la bibliothèque Seiko des cartouches d'origine ; elle ne
- * peut rien affirmer d'une ROM modifiée. Un jeu peut piloter le composant sans
- * porter la chaîne — c'est le cas des hacks qui ajoutent eux-mêmes le pilote —
- * et une ROM peut la porter sans que le matériel soit là. Le choix explicite de
- * l'appelant prime donc dans les deux sens, et la détection reste consultable.
+ * Le choix explicite prime sur la signature Seiko et sur les indices CFRU.
+ * D'autres pilotes de hacks peuvent échapper à ces critères ; le forçage reste
+ * disponible dans les deux sens, et la détection reste consultable.
  */
 void forced_rtc_test() {
     Fixture forced_on{false, true};
@@ -177,7 +183,7 @@ void forced_rtc_test() {
     forced_on.master.end();
     check(bytes[0] == to_bcd((expected.tm_year + 1900) % 100), "RTC forcé : année incorrecte");
     check(bytes[2] == to_bcd(expected.tm_mday), "RTC forcé : jour incorrect");
-    check(bytes[4] == to_bcd(expected.tm_hour), "RTC forcé : heure incorrecte");
+    check((bytes[4] & 0x7f) == to_bcd(expected.tm_hour), "RTC forcé : heure incorrecte");
 }
 
 void status_test() {
@@ -203,7 +209,7 @@ void date_time_read_test() {
     check(bytes[1] == to_bcd(expected.tm_mon + 1), "mois RTC incorrect");
     check(bytes[2] == to_bcd(expected.tm_mday), "jour RTC incorrect");
     check(bytes[3] == expected.tm_wday, "jour de la semaine RTC incorrect");
-    check(bytes[4] == to_bcd(expected.tm_hour), "heure RTC incorrecte");
+    check((bytes[4] & 0x7f) == to_bcd(expected.tm_hour), "heure RTC incorrecte");
     check(bytes[5] == to_bcd(expected.tm_min), "minute RTC incorrecte");
     check(bytes[6] == to_bcd(expected.tm_sec), "seconde RTC incorrecte");
 }
@@ -218,7 +224,7 @@ void time_only_read_test() {
     for (auto& value : bytes) value = fixture.master.read_byte();
     fixture.master.end();
 
-    check(bytes[0] == to_bcd(expected.tm_hour), "heure seule RTC incorrecte");
+    check((bytes[0] & 0x7f) == to_bcd(expected.tm_hour), "heure seule RTC incorrecte");
     check(bytes[1] == to_bcd(expected.tm_min), "minute seule RTC incorrecte");
     check(bytes[2] == to_bcd(expected.tm_sec), "seconde seule RTC incorrecte");
 }
@@ -244,7 +250,7 @@ void reversed_command_test() {
     check(bytes[0] == to_bcd((expected.tm_year + 1900) % 100), "commande inversée : année incorrecte");
     check(bytes[1] == to_bcd(expected.tm_mon + 1), "commande inversée : mois incorrect");
     check(bytes[2] == to_bcd(expected.tm_mday), "commande inversée : jour incorrect");
-    check(bytes[4] == to_bcd(expected.tm_hour), "commande inversée : heure incorrecte");
+    check((bytes[4] & 0x7f) == to_bcd(expected.tm_hour), "commande inversée : heure incorrecte");
 }
 
 /**
@@ -273,7 +279,7 @@ void date_time_write_test() {
     check(bytes[0] == 0x26, "année relue après réglage incorrecte");
     check(bytes[1] == 0x03, "mois relu après réglage incorrect");
     check(bytes[2] == 0x14, "jour relu après réglage incorrect");
-    check(bytes[4] == 0x12, "heure relue après réglage incorrecte");
+    check(bytes[4] == 0x92, "heure relue après réglage incorrecte");
     check(bytes[5] == 0x30, "minute relue après réglage incorrecte");
 
     // Le siècle ne se lit pas dans l'année BCD : 1926 et 2026 y sont
@@ -308,6 +314,8 @@ void reset_test() {
     fixture.master.begin();
     fixture.master.command(cmd_reset);
     fixture.master.end();
+    check(fixture.master.transaction_read(cmd_read_status) == 0, "force-reset : registre de contrôle non remis à zéro");
+    fixture.master.begin(); fixture.master.command(cmd_write_status); fixture.master.write_byte(0x40); fixture.master.end();
 
     const auto expected = local_time(frozen_epoch);
     fixture.master.begin();
@@ -317,7 +325,7 @@ void reset_test() {
     fixture.master.end();
 
     check(bytes[0] == to_bcd((expected.tm_year + 1900) % 100), "la remise à zéro n'a pas annulé l'écart");
-    check(bytes[4] == to_bcd(expected.tm_hour), "la remise à zéro n'a pas restauré l'heure hôte");
+    check((bytes[4] & 0x7f) == to_bcd(expected.tm_hour), "la remise à zéro n'a pas restauré l'heure hôte");
 }
 
 std::array<int, 7> read_date_time(Master& master) {
@@ -379,7 +387,7 @@ void unchanged_clock_follows_device_test() {
     later.cartridge.import_battery(source.cartridge.export_battery());
     const auto expected = local_time(next_day);
     const auto bytes = read_date_time(later.master);
-    check(bytes[2] == to_bcd(expected.tm_mday) && bytes[4] == to_bcd(expected.tm_hour) &&
+    check(bytes[2] == to_bcd(expected.tm_mday) && (bytes[4] & 0x7f) == to_bcd(expected.tm_hour) &&
               bytes[5] == to_bcd(expected.tm_min) && bytes[6] == to_bcd(expected.tm_sec),
           "horloge jamais réglée décalée après rechargement");
 }
@@ -395,7 +403,7 @@ void missing_or_blank_clock_settings_test() {
         Fixture fixture;
         fixture.cartridge.import_battery(battery);
         const auto bytes = read_date_time(fixture.master);
-        return bytes[4] == to_bcd(expected.tm_hour) && bytes[5] == to_bcd(expected.tm_min) &&
+        return (bytes[4] & 0x7f) == to_bcd(expected.tm_hour) && bytes[5] == to_bcd(expected.tm_min) &&
                fixture.master.transaction_read(cmd_read_status) == 0x40;
     };
     check(shows_device_time(std::vector<std::uint8_t>(sram_size, 0)), "sauvegarde sans bloc : horloge décalée");
@@ -406,7 +414,7 @@ void missing_or_blank_clock_settings_test() {
     flashgbx[sram_size + 7] = 0x01;
     Fixture fixture;
     fixture.cartridge.import_battery(flashgbx);
-    check(read_date_time(fixture.master)[4] == 0x23, "heure d'un bloc FlashGBX ignorée");
+    check(read_date_time(fixture.master)[4] == 0xa3, "heure d'un bloc FlashGBX ignorée");
     check(fixture.master.transaction_read(cmd_read_status) == 0x40, "octet de remplissage FlashGBX pris pour l'état");
 }
 
@@ -453,7 +461,7 @@ void write_only_until_enabled_test() {
     check(fixture.bus.read16(data_register) == expected, "GPIO relu alors que la relecture est désactivée");
 }
 
-/** Sans marqueur, les adresses GPIO restent de la ROM, même relecture activée. */
+/** Sans marqueur ni pilote reconnu, le GPIO reste de la ROM, même relecture activée. */
 void absent_rtc_reads_rom_test() {
     Fixture fixture{false};
     fixture.bus.write16(control_register, 1);
@@ -523,10 +531,199 @@ void gpio_pin_state_validation_test() {
 
 } // namespace
 
+// Heure mutable : un même composant doit continuer à avancer, même sans
+// exécuter de trames, et verrouiller ses sept octets pendant une transaction.
+struct LiveFixture {
+    std::int64_t now{frozen_epoch};
+    RomImage image{std::make_shared<const std::vector<std::uint8_t>>(ravenemu::testing::pokemon_rtc_gba_rom())};
+    Cartridge cartridge{image, std::nullopt, std::nullopt, [this] { return now; }};
+    Bus bus{cartridge};
+    Master master{bus, true};
+};
+
+void pokemon_driver_detection_test() {
+    using ravenemu::testing::pokemon_rtc_gba_rom;
+    check(RomTraits::detect(pokemon_rtc_gba_rom()).rtc, "pilote Pokémon sans SIIRTC non détecté");
+    check(!RomTraits::detect(pokemon_rtc_gba_rom(false)).rtc, "identité de Rouge Feu original prise pour une RTC");
+    auto image = pokemon_rtc_gba_rom();
+    std::fill_n(image.begin() + 0x108, 20, 0);
+    check(!RomTraits::detect(image).rtc, "BPRE et nombres GPIO sans identité interne suffisent à activer RTC");
+    image = pokemon_rtc_gba_rom(); image[0x2c0] = 0;
+    check(!RomTraits::detect(image).rtc, "pilote incomplet accepté sans registre de contrôle");
+    image[0x900] = 0xc8; image[0x903] = 8;
+    check(!RomTraits::detect(image).rtc, "références GPIO sans proximité prises pour un pilote");
+    image = pokemon_rtc_gba_rom();
+    std::fill_n(image.begin() + 0xac, 4, 'X');
+    check(RomTraits::detect(image).rtc, "détection dépend du code BPRE au lieu du pilote");
+    for (std::size_t size = 0; size < 0x130; ++size)
+        check(!RomTraits::detect(std::span{image}.first(size)).rtc, "en-tête tronqué accepté");
+    auto shared = std::make_shared<const std::vector<std::uint8_t>>(pokemon_rtc_gba_rom());
+    Cartridge disabled(shared, std::nullopt, false, [] { return frozen_epoch; });
+    check(disabled.rtc_detected() && !disabled.rtc(), "forçage off perdu sur un hack détecté");
+    LiveFixture live;
+    check(live.cartridge.rtc() && live.cartridge.save_type() == GbaSaveType::flash_128k,
+          "RTC automatique ou Flash 128 Kio perdue");
+    check(live.master.transaction_read(cmd_read_status) == 0x40, "probe CFRU : état 24 h absent");
+    const auto data = read_date_time(live.master);
+    const auto expected = local_time(live.now);
+    check(data[0] == to_bcd((expected.tm_year + 1900) % 100) && data[1] == to_bcd(expected.tm_mon + 1) &&
+              data[2] == to_bcd(expected.tm_mday) && data[3] == expected.tm_wday &&
+              (data[4] & 0x7f) == to_bcd(expected.tm_hour) && data[5] == to_bcd(expected.tm_min) && data[6] == to_bcd(expected.tm_sec),
+          "pilote CFRU : date complète incorrecte sans forçage");
+}
+
+void gpio_edges_and_direction_test() {
+    Fixture f;
+    f.master.begin();
+    // Un front SCK produit par DIR, plutôt que DATA, doit être pris en compte.
+    for (int bit = 7; bit >= 0; --bit) {
+        f.bus.write16(direction_register, 6);
+        f.bus.write16(data_register, 5 | (((cmd_read_status >> bit) & 1) << 1));
+        f.bus.write16(direction_register, 7);
+    }
+    check(f.master.read_byte() == 0x40, "transitions SCK via GPIO direction ignorées");
+    f.master.end();
+    check((f.bus.read16(data_register) & 2) != 0, "SIO doit être haut au repos");
+    // Des écritures STRB ne doivent ni activer le port, ni commander la RTC.
+    f.bus.write16(control_register, 0); f.bus.write8(control_register, 1);
+    check(!f.cartridge.gpio()->readable(), "STRB a activé le GPIO");
+    f.bus.write16(control_register, 1); f.bus.write16(direction_register, 5);
+    f.bus.write8(direction_register, 7);
+    check(f.bus.read16(direction_register) == 5, "STRB a modifié les directions");
+    f.master.begin(); f.master.command(cmd_read_date_time);
+    f.bus.write16(direction_register, 3); // CS relâché : doit tomber et annuler la lecture
+    f.bus.write16(direction_register, 7); // CS remonte avec le latch conservé
+    f.master.command(cmd_read_status);
+    check(f.master.read_byte() == 0x40, "relâcher CS n'a pas interrompu la transaction");
+    f.master.end();
+    // La sortie de la RTC prime sur un bit SIO écrit alors que la broche est en entrée.
+    f.master.begin(); f.master.command(cmd_read_status); f.bus.write16(direction_register, 5);
+    int status = 0;
+    for (int bit = 0; bit < 8; ++bit) {
+        f.bus.write16(data_register, 6); f.bus.write16(data_register, 7);
+        const auto pins = f.bus.read16(data_register);
+        status |= ((pins >> 1) & 1) << bit;
+        check((pins & 5) == 5, "sorties SCK/CS relues incorrectement");
+    }
+    check(status == 0x40, "latch de sortie SIO a écrasé les données d'entrée");
+    f.master.end();
+    f.bus.write16(direction_register, 0xffff);
+    check(f.bus.read16(direction_register) == 15 && f.bus.read16(0x0a0000c6) == 15 &&
+              (u32(f.bus.read32(data_register)) >> 16U) == 15, "masques et miroirs des registres GPIO");
+}
+
+void invalid_commands_and_dates_test() {
+    Fixture f;
+    f.master.begin(); f.master.command(cmd_write_date_time);
+    for (const auto byte : {0x30,0x02,0x28,0,0x12,0x34,0x56}) f.master.write_byte(byte);
+    f.master.end();
+    const auto before = f.cartridge.rtc()->settings();
+    for (const auto command : {0x00,0xff,0x10,0x11}) {
+        f.master.begin(); f.master.command(command); f.master.end();
+        check(f.cartridge.rtc()->settings().offset_seconds == before.offset_seconds, "commande sans code fixe a changé l'heure");
+    }
+    for (const auto date : {std::array{0x30,0x02,0x30,0,0x12,0,0}, std::array{0x30,0x13,1,0,0x12,0,0},
+                            std::array{0x30,1,1,0,0x2a,0,0}, std::array{0x30,1,1,0,0x12,0x60,0}}) {
+        f.master.begin(); f.master.command(cmd_write_date_time);
+        for (const auto byte : date) f.master.write_byte(byte);
+        f.master.end();
+        check(f.cartridge.rtc()->settings().offset_seconds == before.offset_seconds, "date invalide normalisée et appliquée");
+    }
+    auto battery = f.cartridge.export_battery(); battery[sram_size + 1] = 2; battery[sram_size + 2] = 0x30;
+    Fixture restored; restored.cartridge.import_battery(battery);
+    check(restored.cartridge.rtc()->settings().offset_seconds == 0, "bloc batterie de calendrier invalide accepté");
+}
+
+void time_formats_and_live_clock_test() {
+    LiveFixture f;
+    // Une date locale indépendante du fuseau de la machine exécutant le test.
+    std::tm start{}; start.tm_year = 126; start.tm_mon = 11; start.tm_mday = 31;
+    start.tm_hour = 23; start.tm_min = 59; start.tm_sec = 58; start.tm_isdst = -1;
+    f.now = static_cast<std::int64_t>(std::mktime(&start));
+    auto data = read_date_time(f.master);
+    check(data[4] == 0xa3 && data[5] == 0x59 && data[6] == 0x58, "heure 24 h ou indicateur PM incorrect");
+    f.master.begin(); f.master.command(cmd_write_status); f.master.write_byte(0xff); f.master.end();
+    check(f.master.transaction_read(cmd_read_status) == 0x6a, "bits réservés ou état d'alimentation écrits");
+    f.master.begin(); f.master.command(cmd_write_status); f.master.write_byte(0); f.master.end();
+    check(f.master.transaction_read(cmd_read_status) == 0, "mode 12 h refusé");
+    check(read_date_time(f.master)[4] == 0x91, "23 h doit se lire 11 PM en mode 12 h");
+    auto battery = f.cartridge.export_battery();
+    constexpr auto flash_size = 128U * 1024U;
+    check(battery[flash_size + 4] == 0x23 && battery[flash_size + 7] == 0,
+          "format batterie historique 24 h ou état 12 h modifié");
+    LiveFixture restored; restored.now = f.now; restored.cartridge.import_battery(battery);
+    check(read_date_time(restored.master)[4] == 0x91, "mode 12 h perdu par le bloc de 16 octets");
+    f.now += 5;
+    data = read_date_time(f.master);
+    check(data[0] == 0x27 && data[1] == 1 && data[2] == 1 && data[4] == 0 && data[5] == 0 && data[6] == 3,
+          "horloge n'a pas passé minuit et le changement d'année");
+    // Midi est 00 PM dans le composant Seiko, pas 12 PM.
+    f.master.begin(); f.master.command(0x66);
+    for (const auto byte : {0x80,0x12,0x34}) f.master.write_byte(byte);
+    f.master.end();
+    check(read_date_time(f.master)[4] == 0x80, "écriture de midi 12 h / PM incorrecte");
+    f.master.begin(); f.master.command(cmd_write_status); f.master.write_byte(0x40); f.master.end();
+    data = read_date_time(f.master);
+    check(data[4] == 0x92 && data[5] == 0x12 && data[6] == 0x34, "retour au format 24 h a changé l'heure");
+    f.master.begin(); f.master.command(cmd_read_date_time);
+    std::array<int,7> latched{};
+    for (auto& byte : latched) { byte = f.master.read_byte(); f.now += 61; }
+    f.master.end();
+    check(latched == data && read_date_time(f.master) != data, "date non verrouillée ou horloge n'avançant plus");
+    LiveFixture leap;
+    leap.master.begin(); leap.master.command(cmd_write_date_time);
+    for (const auto byte : {0x28,2,0x29,2,0x23,0x59,0x58}) leap.master.write_byte(byte);
+    leap.master.end();
+    data = read_date_time(leap.master);
+    check(data[0] == 0x28 && data[1] == 2 && data[2] == 0x29 && data[3] == 2, "date bissextile ou jour de semaine incorrect");
+    leap.now += 3; data = read_date_time(leap.master);
+    check(data[1] == 3 && data[2] == 1 && data[3] == 3 && data[6] == 1, "fin février bissextile incorrecte");
+}
+
+void daylight_write_and_reload_test() {
+#if !defined(_WIN32)
+    const char* old = std::getenv("TZ"); const std::string saved = old ? old : ""; const bool had = old != nullptr;
+    for (const auto zone : {"UTC0", "EST5EDT,M3.2.0/2,M11.1.0/2", "LHST-10:30LHDT-11,M10.1.0/2,M4.1.0/2"}) {
+        setenv("TZ",zone,1); tzset();
+        for (const auto daylight : {0,1}) {
+            std::tm start{}; start.tm_year = 126; start.tm_mon = zone[0] == 'L' ? 3 : 10;
+            start.tm_mday = zone[0] == 'L' ? 5 : 1; start.tm_hour = 1; start.tm_min = 45; start.tm_isdst = daylight;
+            LiveFixture f; f.now = static_cast<std::int64_t>(std::mktime(&start));
+            const auto initial = read_date_time(f.master);
+            f.master.begin(); f.master.command(cmd_write_date_time);
+            for (const auto byte : initial) f.master.write_byte(byte);
+            f.master.end();
+            check(f.cartridge.rtc()->settings().offset_seconds == 0, "écriture d'une heure ambiguë a introduit un décalage");
+            LiveFixture later; later.now = f.now + 1800; later.cartridge.import_battery(f.cartridge.export_battery());
+            check(later.cartridge.rtc()->settings().offset_seconds == 0 &&
+                      (read_date_time(later.master)[4] & 0x7f) == to_bcd(local_time(later.now).tm_hour),
+                  "persistance décalée par le fuseau ou un changement DST de trente minutes");
+        }
+        LiveFixture season;
+        std::tm summer{}; summer.tm_year = 126; summer.tm_mon = 6; summer.tm_mday = 1;
+        summer.tm_hour = 12; summer.tm_isdst = -1;
+        season.now = static_cast<std::int64_t>(std::mktime(&summer));
+        season.master.begin(); season.master.command(cmd_write_date_time);
+        for (const auto byte : {0x26,1,1,4,0x12,0x34,0x56}) season.master.write_byte(byte);
+        season.master.end();
+        const auto winter = read_date_time(season.master);
+        check(winter[1] == 1 && winter[2] == 1 && winter[4] == 0x92 && winter[5] == 0x34,
+              "écriture d'une date d'une autre saison a décalé l'heure");
+    }
+    if (had) setenv("TZ",saved.c_str(),1); else unsetenv("TZ");
+    tzset();
+#endif
+}
+
 } // namespace ravenemu::gba::testing
 
 int main() {
     using namespace ravenemu::gba::testing;
+    pokemon_driver_detection_test();
+    gpio_edges_and_direction_test();
+    invalid_commands_and_dates_test();
+    time_formats_and_live_clock_test();
+    daylight_write_and_reload_test();
     detection_test();
     forced_rtc_test();
     status_test();
