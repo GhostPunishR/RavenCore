@@ -233,9 +233,8 @@ void Bus::write8_raw(std::int32_t address, int value) {
     case 0x06: vram[static_cast<std::size_t>(vram_offset(address))] = byte; break;
     case 0x07: oam[raw & 0x3ffU] = byte; break;
     case 0x08: case 0x09: case 0x0a: case 0x0b: case 0x0c: case 0x0d:
-        if (auto* port = cartridge.gpio(); port && gpio_register(address) && (rom_offset(address) & 1) == 0) {
-            port->write16(rom_offset(address), value);
-        }
+        // Le bus ROM/GPIO n'accepte pas STRB : seuls les transferts 16/32 bits
+        // pilotent les broches (GBATEK, GBA Cart I/O Port).
         break;
     case 0x0e: case 0x0f:
         if (auto* tilt = cartridge.tilt(); tilt && TiltSensor::writes(static_cast<int>(raw & 0xffffU)))

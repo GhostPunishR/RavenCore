@@ -266,6 +266,30 @@ int main() {
     }
     option_values.clear();
 
+    // Le choix auto doit instancier la RTC avant d'exposer SAVE_RAM au frontend.
+    auto rtc_hack = ravenemu::testing::pokemon_rtc_gba_rom();
+    retro_game_info rtc_game{};
+    rtc_game.data = rtc_hack.data(); rtc_game.size = rtc_hack.size();
+    if (!retro_load_game(&rtc_game) || retro_get_memory_size(RETRO_MEMORY_SAVE_RAM) != 131072 + 16) {
+        std::cerr << "GBA Pokemon RTC auto-detection failed\n";
+        return 1;
+    }
+    auto* rtc_save = static_cast<std::uint8_t*>(retro_get_memory_data(RETRO_MEMORY_SAVE_RAM));
+    if (!rtc_save || rtc_save[131072 + 7] != 0x40) return 1;
+    rtc_save[0x123] = 0x5a; rtc_save[0x10123] = 0xa5; // ancienne .sav importée par le frontend
+    retro_reset(); retro_run();
+    rtc_save = static_cast<std::uint8_t*>(retro_get_memory_data(RETRO_MEMORY_SAVE_RAM));
+    if (!rtc_save || rtc_save[0x123] != 0x5a || rtc_save[0x10123] != 0xa5 ||
+        retro_get_memory_size(RETRO_MEMORY_SAVE_RAM) != 131072 + 16) return 1;
+    retro_unload_game();
+    option_values["ravenemu_gba_rtc"] = "disabled";
+    if (!retro_load_game(&rtc_game) || retro_get_memory_size(RETRO_MEMORY_SAVE_RAM) != 131072) return 1;
+    retro_unload_game(); option_values.clear();
+    auto original_pokemon = ravenemu::testing::pokemon_rtc_gba_rom(false);
+    rtc_game.data = original_pokemon.data(); rtc_game.size = original_pokemon.size();
+    if (!retro_load_game(&rtc_game) || retro_get_memory_size(RETRO_MEMORY_SAVE_RAM) != 131072) return 1;
+    retro_unload_game();
+
     // Drill Dozer (V49) : LDR r0, =0x080000C4 ; MOV r1, #8 ; STRH r1, [r0, #2] ;
     // STRH r1, [r0] ; B . — la broche 3 du GPIO allume le moteur.
     auto rumble_rom = ravenemu::testing::minimal_gba_rom();

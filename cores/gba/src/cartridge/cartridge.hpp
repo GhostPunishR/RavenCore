@@ -7,7 +7,8 @@ namespace ravenemu::gba {
 
 /**
  * Ce que la ROM révèle d'elle-même : type de sauvegarde et présence de la
- * bibliothèque RTC Seiko. La détection parcourt toute la ROM (jusqu'à 32 Mio) ;
+ * bibliothèque RTC Seiko ou d'un pilote compatible CFRU. La détection parcourt
+ * toute la ROM (jusqu'à 32 Mio) ;
  * comme elle ne dépend que de son contenu, le cœur la fait une fois au
  * chargement et la réutilise pour chaque machine (reset, état instantané).
  */
@@ -18,15 +19,38 @@ struct RomTraits {
     CartridgeSensors sensors{};
 
     [[nodiscard]] static RomTraits detect(std::span<const std::uint8_t> rom) {
-        // La détection cherche la bibliothèque Seiko que les cartouches d'origine
-        // embarquent. Elle ne peut rien affirmer d'une ROM modifiée : un jeu peut
-        // piloter le composant sans porter cette chaîne, et une ROM peut la
-        // contenir sans que le matériel soit présent. Le choix explicite de
-        // l'appelant prime donc, dans les deux sens.
         constexpr std::string_view rtc_marker = "SIIRTC_V";
-        return {detect_save(rom),
-                std::search(rom.begin(), rom.end(), rtc_marker.begin(), rtc_marker.end()) != rom.end(),
-                has_rumble_motor(rom), detect_sensors(rom)};
+        const auto seiko = std::search(rom.begin(), rom.end(), rtc_marker.begin(), rtc_marker.end()) != rom.end();
+        return {detect_save(rom), seiko || has_pokemon_rtc_driver(rom), has_rumble_motor(rom), detect_sensors(rom)};
+    }
+    /**
+     * Les pilotes CFRU peuvent omettre le marqueur Seiko. Ne pas se fier à BPRE :
+     * le Rouge Feu original n'a pas de RTC. On exige l'identité Game Freak de
+     * Rouge Feu ET un groupe de références aux trois ports du pilote série.
+     * Ces indices sont attestés par les sources CFRU et un patch Unbound ; voir
+     * cores/gba/tests/rtc_compatibility.md. Le forçage explicite conserve la priorité.
+     */
+    [[nodiscard]] static bool has_pokemon_rtc_driver(std::span<const std::uint8_t> rom) noexcept {
+        constexpr std::string_view identity = "pokemon red version";
+        constexpr std::size_t name_offset = 0x108;
+        if (rom.size() < name_offset + identity.size() + 1 ||
+            !std::equal(identity.begin(), identity.end(), rom.begin() + name_offset) ||
+            rom[name_offset + identity.size()] != 0) return false;
+        std::array<std::size_t, 3> last{};
+        unsigned seen = 0;
+        // Littéraux ARM/Thumb alignés sur un mot ; les trois adresses doivent
+        // être voisines (1 Kio), pas des nombres isolés dans les données du jeu.
+        for (std::size_t at = 0x120; at + 4 <= rom.size(); at += 4) {
+            if (rom[at + 1] != 0 || rom[at + 2] != 0 || rom[at + 3] != 8) continue;
+            const auto low = rom[at];
+            if (low != 0xc4 && low != 0xc6 && low != 0xc8) continue;
+            const auto index = static_cast<unsigned>(low - 0xc4) / 2;
+            last[index] = at;
+            seen |= 1U << index;
+            if (seen == 7 && *std::max_element(last.begin(), last.end()) -
+                                  *std::min_element(last.begin(), last.end()) <= 0x400) return true;
+        }
+        return false;
     }
     // Moteur de vibration sur la broche 3 du GPIO (GBATEK) : Drill Dozer (V49)
     // et WarioWare: Twisted! (RZW), reconnus par le code de jeu en 0xAC.
@@ -136,7 +160,7 @@ public:
         }
         if (auto* clock = rtc(); clock && previous.rtc()) clock->restore(previous.rtc()->settings());
     }
-    /** Vrai si la ROM porte la signature de la bibliothèque Seiko. */
+    /** Vrai si la ROM révèle la bibliothèque Seiko ou un pilote RTC compatible. */
     [[nodiscard]] bool rtc_detected() const noexcept { return rtc_detected_; }
     /** Capteur d'inclinaison logé dans la zone SRAM, ou nullptr. */
     [[nodiscard]] TiltSensor* tilt() noexcept { return tilt_.get(); }

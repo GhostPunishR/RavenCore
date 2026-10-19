@@ -710,6 +710,103 @@ void rtc_settings_follow_battery_test() {
     check(core->snapshot_battery_ram()->data == loaded, "heure réglée par le jeu perdue au reset");
 }
 
+// Programme ARM original : commandes série, puis état/date/heure dans EWRAM.
+// Aucun octet d'un pilote tiers ; les références GPIO sont réellement utilisées.
+void automatic_rtc_public_core_test() {
+    auto rom = ravenemu::testing::pokemon_rtc_gba_rom();
+    rom.resize(0x10000);
+    const auto word = [&](std::size_t at, std::uint32_t value) {
+        for (unsigned b = 0; b < 4; ++b) rom[at + b] = static_cast<std::uint8_t>(value >> (b * 8));
+    };
+    for (const auto at : {0x240U,0x280U,0x2c0U}) word(at,0);
+    word(0,0xea0000fe); // B 08000400
+    word(0x3d0,0x080000c4); word(0x3d4,0x02000000); word(0x3d8,0x080000c6); word(0x3dc,0x080000c8);
+    std::size_t at = 0x400;
+    const auto emit = [&](std::uint32_t opcode) { word(at,opcode); at += 4; };
+    emit(0xe51f0038); emit(0xe51f2038); emit(0xe51f5038); emit(0xe51f6038); // LDR r0,r2,r5,r6 : ports et résultat
+    const auto write = [&](unsigned base, unsigned value, unsigned repeat = 1) {
+        emit(0xe3a01000U | value); // MOV r1,#value
+        for (unsigned n = 0; n < repeat; ++n) emit(0xe1c010b0U | (base << 16U)); // STRH r1,[base]
+    };
+    write(6,1);
+    unsigned destination = 0;
+    for (const auto& transfer : {std::pair{0x63U,1U}, std::pair{0x65U,7U}, std::pair{0x67U,3U}}) {
+        write(0,1); write(0,5); write(5,7); // ordre des broches observé dans CFRU
+        for (int bit = 7; bit >= 0; --bit) {
+            const auto pins = 4U | (((transfer.first >> static_cast<unsigned>(bit)) & 1U) << 1U);
+            write(0,pins,3); write(0,pins | 1U);
+        }
+        write(5,5);
+        for (unsigned byte = 0; byte < transfer.second; ++byte) {
+            emit(0xe3a04000); // MOV r4,#0
+            for (unsigned bit = 0; bit < 8; ++bit) {
+                write(0,4,5); write(0,5);
+                emit(0xe1d030b0); emit(0xe2033002); // LDRH r3,[r0] ; AND r3,r3,#2
+                emit(0xe1844003U | (bit == 0 ? 0xa0U : (bit - 1) << 7U)); // ORR r4,r4,r3,shift
+            }
+            emit(0xe5c24000U | destination++); // STRB r4,[r2,#destination]
+        }
+        write(0,1,2);
+    }
+    emit(0xeafffffe);
+    auto core = ravenemu::make_gba_core(std::nullopt);
+    constexpr std::int64_t epoch = 1'767'225'600;
+    core->set_clock_epoch(epoch); core->load_rom(rom,{});
+    check(core->gba_rtc_active() && core->gba_save_type() == ravenemu::GbaSaveType::flash_128k,
+          "interface publique : hack non détecté automatiquement");
+    std::vector<std::int32_t> frame(core->video_spec().pixel_count());
+    const auto read = [&] {
+        core->run_frame(frame,false);
+        std::array<std::uint8_t,11> bytes{};
+        check(core->read_achievement_memory(0x8000,bytes) == bytes.size(), "résultat RTC EWRAM inaccessible");
+        return bytes;
+    };
+    const auto expected = [](std::int64_t seconds) {
+        const auto value = static_cast<std::time_t>(seconds); std::tm now{};
+#if defined(_WIN32)
+        localtime_s(&now,&value);
+#else
+        localtime_r(&value,&now);
+#endif
+        const auto bcd = [](int n) { return static_cast<std::uint8_t>((n / 10) * 16 + n % 10); };
+        const auto hour = static_cast<std::uint8_t>(bcd(now.tm_hour) | (now.tm_hour >= 12 ? 0x80 : 0));
+        return std::array<std::uint8_t,11>{0x40,bcd((now.tm_year + 1900) % 100),bcd(now.tm_mon + 1),bcd(now.tm_mday),
+            static_cast<std::uint8_t>(now.tm_wday),hour,bcd(now.tm_min),bcd(now.tm_sec),hour,bcd(now.tm_min),bcd(now.tm_sec)};
+    };
+    check(read() == expected(epoch), "programme ARM : date/heure/état RTC incorrects");
+    const auto first = core->snapshot_battery_ram()->data;
+    check(first.size() == 0x20000 + 16, "taille .sav d'un hack RTC incorrecte");
+    core->set_clock_epoch(epoch + 86'461); core->reset();
+    check(read() == expected(epoch + 86'461), "reset ou avancement de l'heure hôte perdu");
+    core->load_rom(rom,first);
+    check(read() == expected(epoch + 86'461), "rechargement .sav a décalé la date système");
+    auto legacy = first; legacy.resize(0x20000); legacy[0x123] = 0x5a; legacy[0x10123] = 0xa5;
+    core->load_rom(rom,legacy);
+    auto battery = core->snapshot_battery_ram()->data;
+    check(std::equal(legacy.begin(),legacy.end(),battery.begin()), "ancienne .sav Flash altérée");
+    // Un décalage déjà enregistré doit suivre le reset de l'émulateur.
+    for (unsigned byte = 0; byte < 8; ++byte)
+        battery[0x20008 + byte] = static_cast<std::uint8_t>(static_cast<std::uint64_t>(epoch + 86'461 - 3600) >> (byte * 8));
+    core->load_rom(rom,battery); core->reset();
+    check(read() == expected(epoch + 86'461 + 3600), "décalage batterie perdu au reset automatique");
+    core->set_gba_forced_rtc(false); core->load_rom(rom,legacy);
+    check(!core->gba_rtc_active() && core->snapshot_battery_ram()->data.size() == 0x20000,
+          "forçage RTC off perdu dans l'interface publique");
+    core->set_gba_forced_rtc(std::nullopt); core->set_clock_epoch(std::nullopt);
+    const auto before = std::time(nullptr);
+    core->load_rom(rom,{});
+    const auto host_battery = core->snapshot_battery_ram()->data;
+    const auto after = std::time(nullptr);
+    std::uint64_t latch = 0;
+    for (unsigned byte = 0; byte < 8; ++byte) latch |= std::uint64_t{host_battery[0x20008 + byte]} << (byte * 8);
+    check(latch >= static_cast<std::uint64_t>(before) && latch <= static_cast<std::uint64_t>(after),
+          "RTC sans override n'utilise pas l'horloge système réelle");
+    const auto local = expected(static_cast<std::int64_t>(latch));
+    for (std::size_t field = 0; field < 7; ++field)
+        check(host_battery[0x20000 + field] == (local[field + 1] & (field == 4 ? 0x7f : 0xff)),
+              "horloge système : date locale du bloc RTC incorrecte");
+}
+
 int main() {
     achievement_memory_map_test();
     keypad_interrupt_state_validation_test();
@@ -731,5 +828,6 @@ int main() {
     eeprom_cartridge_has_no_sram_test();
     reset_keeps_unsaved_battery_test();
     rtc_settings_follow_battery_test();
+    automatic_rtc_public_core_test();
     return 0;
 }
