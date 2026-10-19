@@ -21,7 +21,7 @@ nds/
 │   ├── machine/          # assemblage des deux CPU et chargement
 │   ├── memory/           # bus RAM, miroirs et WRAM
 │   ├── timers/           # compteurs, préscalers et cascade
-│   └── video/            # horloge LCD, VRAM, fonds et sprites des moteurs A/B
+│   └── video/            # horloge LCD, VRAM, fonds, sprites, fenêtres et effets A/B
 └── tests/                # programmes et BIOS synthétiques
 ```
 
@@ -474,15 +474,62 @@ priorité OBJ plus haute peut donc passer devant un OBJ de plus petit indice.
 L'indice de couleur zéro est transparent ; la couleur BG standard zéro sert
 de backdrop. Un noir provenant d'un indice non nul reste opaque.
 
-Fenêtres, mosaïque, mélanges/effets de couleur, palettes étendues et OBJ
-semi-transparents/fenêtre/bitmap restent à développer. Les variantes actives
+Mosaïque et palettes étendues restent à développer. Les variantes actives
 non prises en charge lèvent une erreur plutôt que de produire une image
-partiellement correcte ; leurs registres supplémentaires ne sont pas encore
-mappés. Le moteur ne reproduit pas les limites de pixels OBJ par ligne ni
-les modifications de registres au cours du balayage. Copies et chargements
+partiellement correcte ; le port MOSAIC n'est pas encore mappé. Le moteur ne
+reproduit pas les limites de pixels OBJ par ligne ni les modifications de registres au cours du balayage. Copies et chargements
 conservent ou réinitialisent palettes, OAM et registres comme les autres états
 NDS. Références : [GBATEK, DS Video BG Modes](https://mgba-emu.github.io/gbatek/ds.html#dsvideobgmodescontrol)
 et [DS Video OBJs](https://mgba-emu.github.io/gbatek/ds.html#dsvideoobjs).
+
+## Fenêtres et effets 2D
+
+Chaque moteur possède WIN0H/WIN1H, WIN0V/WIN1V, WININ/WINOUT et
+BLDCNT/BLDALPHA/BLDY, à `0x04000040–0x0400004b` et
+`0x04000050–0x04000055` pour A, avec un décalage de `0x1000` pour B.
+Ces ports ARM9 acceptent les voies 8/16 bits et les mots entièrement mappés ;
+leurs valeurs sont relisibles dans ce modèle, même pour les ports matériels
+à écriture seule. Bits réservés de WININ/OUT et des effets masqués, remise
+à zéro et protection par POWCNT1 suivent les autres ports BG.
+
+Les coordonnées de fenêtres sont sur 8 bits : début inclus, fin exclue,
+intervalle traversant zéro si début > fin, intervalle vide si début = fin.
+La priorité est WIN0, puis WIN1, puis OBJWIN, puis extérieur. Chaque région
+active séparément BG0–3, OBJ et les effets ; sans fenêtre activée dans
+DISPCNT, ces six autorisations sont toutes actives. Le backdrop reste visible.
+Les OBJ en mode fenêtre ne dessinent aucune couleur : leurs indices non nuls
+créent un masque, y compris avec flips ou matrice affine. Leur priorité OAM
+et leur palette n'influencent pas ce masque ; OBJ et OBJWIN doivent être activés.
+
+La composition retient les deux premières couches non transparentes, après
+masquage, et un seul gagnant OBJ. BLDCNT sélectionne les premières et secondes
+cibles : un pixel intermédiaire non sélectionné bloque le mélange. Les facteurs
+EVA/EVB/EVY sont limités à 16 ; les canaux du mélange sont saturés. Les effets
+couvrent mélange alpha, éclaircissement et assombrissement, backdrop compris.
+Un OBJ semi-transparent force le mélange si la seconde couche est sélectionnée,
+indépendamment du mode et de la première cible BLDCNT ; sinon les règles de
+luminosité ordinaires s'appliquent. Les fenêtres peuvent désactiver ces effets.
+Deux OBJ ne se mélangent jamais entre eux ; BG vers OBJ et OBJ vers BG restent
+possibles.
+
+Les OBJ bitmap utilisent RGB555 + bit 15 de visibilité, sans palette. En 1D,
+la source est contiguë sur la largeur de l'objet, avec frontière de 128 octets,
+ou 256 sur A (DISPCNT bit 22). En 2D, la source a un stride de 128 ou 256 pixels
+(DISPCNT bit 5), et le numéro de tuile définit son origine par blocs de 8×8.
+DISPCNT bit 6 choisit ce mapping indépendamment du mapping des OBJ tuilés.
+Les flips, matrices et boîtes doubles restent applicables. Alpha-OAM zéro masque
+l'objet ; les valeurs 1–15 donnent un facteur `(Alpha-OAM+1)/16`, avec complément
+pour la seconde cible, indépendamment de BLDALPHA. Sans seconde cible autorisée,
+le pixel visible conserve sa couleur. La combinaison 1D avec bit 5 actif est
+réservée et refusée.
+
+Les calculs de couleur sont effectués directement en RGB555 avec division
+entière. Le chemin interne RGB666 du matériel DS et ses arrondis ne sont pas
+encore reproduits. La luminosité maître reste distincte et non implémentée.
+Le rendu conserve son fonctionnement par instantané, sans effets de balayage.
+Références : [GBATEK, fenêtres LCD](https://mgba-emu.github.io/gbatek/gba.html#lcdiowindowfeature),
+[effets de couleur](https://mgba-emu.github.io/gbatek/gba.html#lcdiocolorspecialeffects)
+et [OBJ DS](https://mgba-emu.github.io/gbatek/ds.html#dsvideoobjs).
 
 ## Timers
 
@@ -665,9 +712,15 @@ sprites 1D/2D, flips, matrices et wrap NDS. Un programme ARM construit deux
 scènes BG/OBJ indépendantes, vérifiées sur les deux images complètes, puis
 permute les écrans ; copies et échecs de chargement doivent les préserver.
 
+`nds_effects` vérifie fenêtres superposées et traversant zéro, masques de couches,
+OBJWIN, cibles alpha, coefficients et saturations, luminosité, OBJ semi-transparents
+et bitmaps 1D/2D, transparence, flips et matrices sur les deux moteurs. Des STR ARM
+configurent deux scènes avec mélanges différents, vérifiées pixel par pixel ;
+la copie des effets et la permutation des écrans sont aussi contrôlées.
+
 Prochains jalons : compléter le jeu d'instructions, définir les timings et la
-synchronisation des deux CPU, DMA et timers, puis fenêtres, effets et palettes
-étendues, entrées et audio.
+synchronisation des deux CPU, DMA et timers, puis mosaïque, palettes étendues,
+luminosité maître, entrées et audio.
 
 Aucun jeu ne tourne à ce stade. Le cœur n'est pas encore exposé par `Core`,
 le SDK ou Libretro : ces interfaces viendront avec une exécution fonctionnelle.

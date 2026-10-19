@@ -22,9 +22,11 @@ std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address
     if (cpu == Processor::arm9) {
         if (address >= 0x04001000 && address <= 0x04001003)
             return static_cast<std::uint8_t>(display_control_b_ >> ((address & 3U) * 8U));
-        if ((address >= 0x04000008 && address <= 0x0400003f) ||
-            (address >= 0x04001008 && address <= 0x0400103f))
-            return video_.registers_[(address >> 12U) & 1U][address & 0x3fU];
+        if ((address >= 0x04000008 && address <= 0x0400004b) ||
+            (address >= 0x04000050 && address <= 0x04000055) ||
+            (address >= 0x04001008 && address <= 0x0400104b) ||
+            (address >= 0x04001050 && address <= 0x04001055))
+            return video_.registers_[(address >> 12U) & 1U][address & 0x7fU];
         if (address >= 0x04000000 && address <= 0x04000003)
             return static_cast<std::uint8_t>(display_control_ >> ((address & 3U) * 8U));
         if (address >= 0x04000240 && address <= 0x04000249 && address != 0x04000247)
@@ -66,9 +68,11 @@ void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t va
                 (static_cast<std::uint32_t>(value) << shift)) & 0xc0b1fff7U;
             return;
         }
-        if ((address >= 0x04000008 && address <= 0x0400003f) ||
-            (address >= 0x04001008 && address <= 0x0400103f)) {
-            video_.write_register((address >> 12U) & 1U, address & 0x3fU, value);
+        if ((address >= 0x04000008 && address <= 0x0400004b) ||
+            (address >= 0x04000050 && address <= 0x04000055) ||
+            (address >= 0x04001008 && address <= 0x0400104b) ||
+            (address >= 0x04001050 && address <= 0x04001055)) {
+            video_.write_register((address >> 12U) & 1U, address & 0x7fU, value);
             return;
         }
         if (address >= 0x04000000 && address <= 0x04000003) {

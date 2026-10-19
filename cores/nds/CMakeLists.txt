@@ -7,6 +7,8 @@ add_library(nds_raven_core STATIC
     src/video/vram.cpp
     src/video/frame.cpp
     src/video/renderer.cpp
+    src/video/objects.cpp
+    src/video/compositor.cpp
     src/interrupts/interrupt_controller.cpp
     src/ipc/ipc.cpp
     src/dma/dma_controller.cpp
@@ -83,4 +85,8 @@ if(BUILD_TESTING)
     target_include_directories(nds_2d_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_2d_tests PRIVATE nds_raven_core)
     add_test(NAME nds_2d COMMAND nds_2d_tests)
+    add_executable(nds_effects_tests tests/effects_test.cpp)
+    target_include_directories(nds_effects_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_effects_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_effects COMMAND nds_effects_tests)
 endif()

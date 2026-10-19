@@ -282,14 +282,14 @@ void diagnostics_and_dma_test() {
     const std::array<std::uint32_t,3> oam_upload{0x02001000,0x07000400,0x84000001};
     m.write_words(arm9,0x040000b0,oam_upload); m.step_dma(arm9);
     check(m.read32(arm9,0x07000400)==0x03e0001f,"DMA vers OAM B");
-    m.write32(arm9,port(0),0x00012100);
-    expect_failure<ravenemu::Error>([&]{static_cast<void>(m.render_frame());},"fenêtre 2D absente ignorée");
+    m.write32(arm9,port(0),0x00010100); m.write16(arm9,port(0)+8,0x40);
+    expect_failure<ravenemu::Error>([&]{static_cast<void>(m.render_frame());},"mosaïque BG absente ignorée");
     m.write32(arm9,port(0),0x00010108);
     expect_failure<ravenemu::Error>([&]{static_cast<void>(m.render_frame());},"BG0 3D ignoré");
     m.write32(arm9,port(0),0x40010100); m.write16(arm9,port(0)+8,0x80);
     expect_failure<ravenemu::Error>([&]{static_cast<void>(m.render_frame());},"palette BG étendue absente ignorée");
-    m.write32(arm9,port(0),0x00011010); sprite(m,0,0,0x0400,0,0);
-    expect_failure<ravenemu::Error>([&]{static_cast<void>(m.render_frame());},"OBJ semi-transparent ignoré");
+    m.write32(arm9,port(0),0x00011010); sprite(m,0,0,0x1000,0,0);
+    expect_failure<ravenemu::Error>([&]{static_cast<void>(m.render_frame());},"mosaïque OBJ absente ignorée");
 }
 
 void put32(std::vector<std::uint8_t>& bytes,std::size_t offset,std::uint32_t value) {

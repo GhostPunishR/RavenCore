@@ -68,6 +68,15 @@ int main() {
     nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04001000, 0x00010000);
     const auto nds_two_engines = nds.render_frame();
     if (nds_two_engines.upper[0] != 0x001f || nds_two_engines.lower[0] != 0x7c00) return 1;
+    nds.memory().write16(ravenemu::nds::Processor::arm9, 0x04001050, 0x00a0); // éclaircir le backdrop B
+    nds.memory().write16(ravenemu::nds::Processor::arm9, 0x04001054, 16);
+    nds.memory().write16(ravenemu::nds::Processor::arm9, 0x04001040, 0x0008);
+    nds.memory().write16(ravenemu::nds::Processor::arm9, 0x04001044, 0x0008);
+    nds.memory().write16(ravenemu::nds::Processor::arm9, 0x04001048, 0x0020);
+    nds.memory().write16(ravenemu::nds::Processor::arm9, 0x0400104a, 0);
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04001000, 0x00012000);
+    const auto nds_window = nds.render_frame();
+    if (nds_window.lower[0] != 0x7fff || nds_window.lower[8] != 0x7c00 || nds_window.upper[0] != 0x001f) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

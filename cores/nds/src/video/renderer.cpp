@@ -95,7 +95,7 @@ std::optional<std::uint16_t> Renderer::background_pixel(unsigned bg, Background 
     return tile_pixel(false, char_base + (entry & 0x3ffU) * (depth8 ? 64 : 32), depth8, u, v, entry >> 12U);
 }
 
-void Renderer::backgrounds(std::span<Pixel> pixels) const {
+void Renderer::backgrounds(std::span<Sample> pixels) const {
     using B = Background;
     constexpr std::array<std::array<B, 4>, 7> modes{{
         {B::text,B::text,B::text,B::text}, {B::text,B::text,B::text,B::affine},
@@ -122,56 +122,8 @@ void Renderer::backgrounds(std::span<Pixel> pixels) const {
         const auto rank = (cnt & 3U) * 1024 + 128 + bg;
         for (unsigned y = 0; y < VideoFrame::height; ++y) for (unsigned x = 0; x < VideoFrame::width; ++x) {
             auto& pixel = pixels[y * VideoFrame::width + x];
-            if (rank >= pixel.rank) continue;
-            if (const auto color = background_pixel(bg, kind, x, y)) pixel = {*color, rank};
-        }
-    }
-}
-
-void Renderer::objects(std::span<Pixel> pixels) const {
-    if (!(control_ & 0x1000U)) return;
-    const bool one_d = (control_ & 0x10U) != 0;
-    const auto boundary = (control_ >> 20U) & 3U;
-    if (engine_ && one_d && boundary == 3) throw Error("NDS : frontière OBJ 256 Kio réservée au moteur A");
-    constexpr unsigned widths[3][4]{{8,16,32,64},{16,32,32,64},{8,8,16,32}};
-    constexpr unsigned heights[3][4]{{8,16,32,64},{8,8,16,32},{16,32,32,64}};
-    for (unsigned obj = 0; obj < 128; ++obj) {
-        const auto attr0 = oam16(obj * 8), attr1 = oam16(obj * 8 + 2), attr2 = oam16(obj * 8 + 4);
-        const bool affine = (attr0 & 0x100U) != 0;
-        if (!affine && (attr0 & 0x200U)) continue;
-        if ((attr0 & 0xc00U) || (attr0 & 0x1000U)) throw Error("NDS : OBJ semi-transparent, fenêtre, bitmap ou mosaïque non implémenté");
-        const auto shape = attr0 >> 14U, size = attr1 >> 14U;
-        if (shape == 3) throw Error("NDS : forme OBJ réservée");
-        const bool depth8 = (attr0 & 0x2000U) != 0;
-        if (depth8 && (control_ & 0x80000000U)) throw Error("NDS : palette OBJ étendue non implémentée");
-        const auto width = widths[shape][size], height = heights[shape][size];
-        const auto bound_width = width * (affine && (attr0 & 0x200U) ? 2U : 1U);
-        const auto bound_height = height * (affine && (attr0 & 0x200U) ? 2U : 1U);
-        const auto matrix = ((attr1 >> 9U) & 31U) * 32;
-        auto tile = attr2 & 0x3ffU;
-        if (!one_d && depth8) tile &= ~1U;
-        const auto base = tile * (one_d ? 32U << boundary : 32U);
-        const auto rank = ((attr2 >> 10U) & 3U) * 1024 + obj;
-        for (unsigned v = 0; v < bound_height; ++v) for (unsigned u = 0; u < bound_width; ++u) {
-            const auto x = ((attr1 & 0x1ffU) + u) & 0x1ffU, y = ((attr0 & 0xffU) + v) & 0xffU;
-            if (x >= VideoFrame::width || y >= VideoFrame::height) continue;
-            int sx, sy;
-            if (affine) {
-                const auto dx = static_cast<int>(u) - static_cast<int>(bound_width / 2), dy = static_cast<int>(v) - static_cast<int>(bound_height / 2);
-                sx = floor256(signed16(oam16(matrix + 6)) * dx + signed16(oam16(matrix + 14)) * dy) + static_cast<int>(width / 2);
-                sy = floor256(signed16(oam16(matrix + 22)) * dx + signed16(oam16(matrix + 30)) * dy) + static_cast<int>(height / 2);
-            } else {
-                sx = static_cast<int>((attr1 & 0x1000U) ? width - 1 - u : u);
-                sy = static_cast<int>((attr1 & 0x2000U) ? height - 1 - v : v);
-            }
-            if (sx < 0 || sy < 0 || sx >= static_cast<int>(width) || sy >= static_cast<int>(height)) continue;
-            auto& pixel = pixels[y * VideoFrame::width + x];
-            if (rank >= pixel.rank) continue;
-            const auto tile_bytes = depth8 ? 64U : 32U;
-            const auto address = base + (static_cast<unsigned>(sy) / 8) * (one_d ? width / 8 * tile_bytes : 1024U) +
-                (static_cast<unsigned>(sx) / 8) * tile_bytes;
-            if (const auto color = tile_pixel(true, address, depth8, static_cast<unsigned>(sx) & 7U, static_cast<unsigned>(sy) & 7U, attr2 >> 12U))
-                pixel = {*color, rank};
+            if (!(pixel.mask & (1U << bg)) || rank >= pixel.below.rank) continue;
+            if (const auto color = background_pixel(bg, kind, x, y)) pixel.insert({*color, rank, bg, 0});
         }
     }
 }
@@ -191,11 +143,15 @@ void Renderer::render(std::span<std::uint16_t> output, std::uint16_t power) cons
     }
     if (mode != 1) throw Error("NDS : mode d'affichage FIFO ou réservé non implémenté");
     if (!(power & (engine_ ? 0x200U : 2U))) return;
-    if (control_ & 0xe000U) throw Error("NDS : fenêtres 2D non implémentées");
-    std::vector<Pixel> pixels(output.size(), Pixel{palette(false, 0), 0xffffU});
-    backgrounds(pixels);
+    std::vector<Sample> pixels(output.size());
+    for (auto& pixel : pixels) pixel.top = {palette(false, 0), 0xffffU, 5, 0};
     objects(pixels);
-    for (std::size_t i = 0; i < output.size(); ++i) output[i] = pixels[i].color;
+    windows(pixels);
+    backgrounds(pixels);
+    for (std::size_t i = 0; i < output.size(); ++i) {
+        if (pixels[i].mask & 0x10U) pixels[i].insert(pixels[i].object);
+        output[i] = composite(pixels[i]);
+    }
 }
 
 } // namespace ravenemu::nds::detail

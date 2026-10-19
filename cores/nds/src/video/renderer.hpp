@@ -14,7 +14,19 @@ public:
 
 private:
     enum class Background { none, text, affine, extended, large, three_d };
-    struct Pixel { std::uint16_t color; unsigned rank; };
+    struct Pixel {
+        std::uint16_t color{};
+        unsigned rank{0x10000U}, layer{6}, alpha{}; // alpha : 0=normal, 1..16=bitmap, 17=semi-transparent
+    };
+    struct Sample {
+        Pixel top, below, object;
+        bool object_window{};
+        std::uint8_t mask{0x3f};
+        void insert(Pixel pixel) {
+            if (pixel.rank < top.rank) { below = top; top = pixel; }
+            else if (pixel.rank < below.rank) below = pixel;
+        }
+    };
     const VideoMemory& memory_;
     unsigned engine_;
     std::uint32_t control_;
@@ -27,8 +39,10 @@ private:
     [[nodiscard]] std::optional<std::uint16_t> tile_pixel(bool object, std::uint32_t address, bool depth8,
                                                        unsigned x, unsigned y, unsigned bank) const;
     [[nodiscard]] std::optional<std::uint16_t> background_pixel(unsigned bg, Background kind, unsigned x, unsigned y) const;
-    void backgrounds(std::span<Pixel> pixels) const;
-    void objects(std::span<Pixel> pixels) const;
+    void backgrounds(std::span<Sample> pixels) const;
+    void objects(std::span<Sample> pixels) const;
+    void windows(std::span<Sample> pixels) const;
+    [[nodiscard]] std::uint16_t composite(const Sample& sample) const;
 };
 
 } // namespace ravenemu::nds::detail
