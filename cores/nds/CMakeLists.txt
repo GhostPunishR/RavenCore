@@ -3,6 +3,7 @@ add_library(nds_raven_core STATIC
     src/memory/bus.cpp
     src/memory/io.cpp
     src/interrupts/interrupt_controller.cpp
+    src/timers/timers.cpp
     src/bios/boot_rom.cpp
     src/machine/machine.cpp
     src/cpu/cpu.cpp
@@ -50,4 +51,8 @@ if(BUILD_TESTING)
     target_include_directories(nds_interrupts_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_interrupts_tests PRIVATE nds_raven_core)
     add_test(NAME nds_interrupts COMMAND nds_interrupts_tests)
+    add_executable(nds_timers_tests tests/timers_test.cpp)
+    target_include_directories(nds_timers_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_timers_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_timers COMMAND nds_timers_tests)
 endif()

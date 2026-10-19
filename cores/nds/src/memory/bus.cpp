@@ -18,6 +18,8 @@ void Memory::clear_ram() noexcept {
     wram_control_ = 0;
     arm9_interrupts_.reset();
     arm7_interrupts_.reset();
+    arm9_timers_ = {};
+    arm7_timers_ = {};
 }
 
 std::size_t Memory::index(Processor cpu, std::uint32_t address) const {

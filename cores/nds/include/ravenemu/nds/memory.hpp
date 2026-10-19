@@ -4,6 +4,7 @@
 #include <ravenemu/nds/interrupts.hpp>
 
 #include <cstddef>
+#include <array>
 #include <cstdint>
 #include <span>
 #include <optional>
@@ -20,7 +21,10 @@ public:
     Memory();
     // ARM7 : 16 Kio aux vecteurs bas ; ARM9 : 4 Kio aux vecteurs hauts NDS.
     void load_bios(Processor cpu, std::span<const std::uint8_t> bytes);
-    void clear_ram() noexcept; // remet aussi WRAMCNT et les IRQ à zéro ; conserve les BIOS
+    void clear_ram() noexcept; // remet aussi WRAMCNT, timers et IRQ à zéro ; conserve les BIOS
+    // Avance les huit timers d'autant de cycles de timer_clock_hz, sans exécuter les CPU.
+    // Les débordements alimentent IF même si IME/IE sont désactivés.
+    void advance_cycles(std::uint64_t cycles) noexcept;
     // Sources : masque de bits IF, pas un numéro de source.
     void request_interrupt(Processor cpu, std::uint32_t sources) noexcept;
     [[nodiscard]] bool irq_pending(Processor cpu) const noexcept;
@@ -36,6 +40,16 @@ public:
     void write_words(Processor cpu, std::uint32_t address, std::span<const std::uint32_t> values);
 
 private:
+    struct Timer {
+        std::uint16_t counter{}, reload{}, phase{};
+        std::uint8_t control{};
+    };
+    using TimerBank = std::array<Timer, 4>;
+    [[nodiscard]] TimerBank& timers(Processor cpu) noexcept;
+    [[nodiscard]] const TimerBank& timers(Processor cpu) const noexcept;
+    [[nodiscard]] std::uint8_t timer_byte(Processor cpu, unsigned offset) const noexcept;
+    void write_timer_byte(Processor cpu, unsigned offset, std::uint8_t value) noexcept;
+    [[nodiscard]] static std::uint32_t advance_timers(TimerBank& bank, std::uint64_t cycles) noexcept;
     [[nodiscard]] std::size_t index(Processor cpu, std::uint32_t address) const;
     [[nodiscard]] std::optional<std::uint8_t> bios_byte(Processor cpu, std::uint32_t address) const;
     [[nodiscard]] std::optional<std::uint8_t> io_byte(Processor cpu, std::uint32_t address) const noexcept;
@@ -49,6 +63,8 @@ private:
     std::vector<std::uint8_t> arm7_bios_;
     InterruptController arm9_interrupts_{Processor::arm9};
     InterruptController arm7_interrupts_{Processor::arm7};
+    TimerBank arm9_timers_{};
+    TimerBank arm7_timers_{};
     std::uint8_t wram_control_{};
 };
 

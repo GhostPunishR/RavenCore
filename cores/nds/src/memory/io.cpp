@@ -14,6 +14,8 @@ void Memory::request_interrupt(Processor cpu, std::uint32_t sources) noexcept { 
 bool Memory::irq_pending(Processor cpu) const noexcept { return controller(cpu).pending(); }
 
 std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address) const noexcept {
+    if (address >= 0x04000100 && address <= 0x0400010f)
+        return timer_byte(cpu, address - 0x04000100U);
     const auto& irq = controller(cpu);
     if (address >= 0x04000208 && address <= 0x0400020b)
         return static_cast<std::uint8_t>(address == 0x04000208 && irq.master_enable());
@@ -27,6 +29,10 @@ std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address
 }
 
 void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t value) noexcept {
+    if (address >= 0x04000100 && address <= 0x0400010f) {
+        write_timer_byte(cpu, address - 0x04000100U, value);
+        return;
+    }
     auto& irq = controller(cpu);
     if (address == 0x04000208) irq.set_master_enable((value & 1U) != 0);
     else if (address >= 0x04000210 && address <= 0x04000213) {

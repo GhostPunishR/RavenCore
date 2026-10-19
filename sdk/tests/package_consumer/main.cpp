@@ -29,6 +29,11 @@ int main() {
     if (!nds.memory().irq_pending(ravenemu::nds::Processor::arm9)) return 1;
     nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04000214, 8);
     if (nds.memory().irq_pending(ravenemu::nds::Processor::arm9)) return 1;
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04000100, 0x00c0fffe);
+    nds.advance_cycles(2);
+    if (ravenemu::nds::timer_clock_hz != 33513982 ||
+        nds.memory().read16(ravenemu::nds::Processor::arm9, 0x04000100) != 0xfffe ||
+        !nds.memory().irq_pending(ravenemu::nds::Processor::arm9)) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

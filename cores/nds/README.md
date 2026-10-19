@@ -16,7 +16,8 @@ nds/
 │   ├── cpu/              # ARM, Thumb, état, PSR et exceptions
 │   ├── interrupts/       # contrôleurs IME/IE/IF indépendants
 │   ├── machine/          # assemblage des deux CPU et chargement
-│   └── memory/           # bus RAM, miroirs et WRAM
+│   ├── memory/           # bus RAM, miroirs et WRAM
+│   └── timers/           # compteurs, préscalers et cascade
 └── tests/                # programmes et BIOS synthétiques
 ```
 
@@ -83,7 +84,7 @@ CPU démarrent en System avec I/F masqués. Les images BIOS déjà fournies sont
 Ce chargement est une préparation expérimentale, pas une séquence de démarrage
 BIOS : pas de firmware, de déchiffrement, de paramètres de démarrage, de copie
 de l'en-tête dans la RAM ni d'initialisation complète des registres CPU. Seuls les
-MMIO d'interruption et WRAMCNT/WRAMSTAT sont présents. TCM, VRAM, autres MMIO et
+MMIO d'interruption, timers et WRAMCNT/WRAMSTAT sont présents. TCM, VRAM, autres MMIO et
 comportements open-bus restent absents ; les accès non mappés lèvent `ravenemu::Error`. Les lectures ARM
 non alignées et leurs rotations ne sont pas encore prises en charge par le CPU.
 
@@ -107,7 +108,8 @@ sans faire avancer l'autre. Le budget est borné même sur une boucle infinie.
 Un pas exécute une instruction ou entre en IRQ/FIQ. Le compteur `instructions`
 compte uniquement les instructions terminées, dont SWI, UDF et les conditions
 ARM fausses. Une entrée IRQ/FIQ ne l'incrémente pas. Il n'y a pas
-encore d'ordonnanceur, de compteur de cycles ou de rapport de fréquence ARM9/ARM7.
+encore d'ordonnanceur, de calcul des cycles CPU ou de rapport de fréquence ARM9/ARM7.
+Les timers disposent d'une horloge explicite indépendante, décrite ci-dessous.
 
 | Mode | Instructions actuellement prises en charge |
 | --- | --- |
@@ -190,12 +192,58 @@ dans IF lorsque IME ou IE sont désactivés. La ligne IRQ est active si
 sur ARM9 et `0x019f3fff` sur ARM7 : géométrie sur ARM9, RTC/capot/SPI/Wi-Fi sur
 ARM7 ; les sources DSi ne sont pas implémentées.
 
-Les futurs périphériques émettront leurs événements par
+Les périphériques émettent leurs événements par
 `Memory::request_interrupt(cpu, sources)`, où `sources` est un masque IF.
-Cette méthode sert aussi aux tests ; aucun timer, PPU ou DMA ne génère encore
-automatiquement d'événement. Le CPU consulte la ligne du bus à chaque pas :
+Cette méthode sert aussi aux tests ; les timers alimentent IF lors de leur
+avancement explicite. PPU et DMA restent absents. Le CPU consulte la ligne du bus à chaque pas :
 un gestionnaire qui acquitte IF supprime la demande avant le retour. Référence :
 [GBATEK, DS Interrupts](https://mgba-emu.github.io/gbatek/ds.html#dsinterrupts).
+
+## Timers
+
+Chaque processeur possède quatre timers 16 bits indépendants. Pour le timer `n`
+(0 à 3), `0x04000100 + 4*n` lit le compteur courant et reçoit la valeur de
+rechargement à l'écriture ; `0x04000102 + 4*n` contient le contrôle :
+
+| Bits | Fonction |
+| --- | --- |
+| 0–1 | Diviseur de l'horloge : 1, 64, 256 ou 1024 |
+| 2 | Cascade : compter les débordements du timer précédent ; ignoré sur timer0 |
+| 6 | Demande IRQ au débordement, bit IF `3+n` |
+| 7 | Marche ; le passage de 0 à 1 charge le compteur depuis reload |
+
+Les autres bits se lisent zéro et leurs écritures sont ignorées. Les accès
+8/16/32 bits respectent les voies little-endian. Écrire reload conserve le
+compteur courant, même à l'arrêt ; il est chargé au prochain débordement ou
+démarrage. Une écriture 32 bits de reload et contrôle utilise la nouvelle
+valeur si elle démarre le timer. Réécrire start déjà actif ne recharge rien.
+Un timer arrêté reste figé ; une cascade arrêtée coupe la propagation.
+La cascade ignore le préscaler et fonctionne même sans IRQ sur le timer amont.
+
+```cpp
+using ravenemu::nds::Processor;
+machine.memory().write32(Processor::arm9, 0x04000100, 0x00c0fffc);
+machine.advance_cycles(4); // quatre cycles de l'horloge des timers, commune aux deux CPU
+// IF ARM9 bit 3 est levé ; le prochain step pourra entrer en IRQ si IME/IE/CPSR le permettent.
+```
+
+`Machine::advance_cycles()` (ou `Memory::advance_cycles()`) avance les huit
+timers sans exécuter d'instructions. Leur fréquence de référence commune est
+`timer_clock_hz = 33513982` Hz, distincte de la fréquence du CPU ARM9.
+`step()` et `run_steps()` n'avancent pas cette horloge. Les préscalers conservent
+leur reste entre appels ; les grands intervalles et cascades sont calculés
+sans boucle par cycle ni par débordement. Les IRQ restent mémorisées dans IF
+même avec IME/IE masqués. Copier une machine copie aussi les phases des timers ;
+`clear_ram()` et un chargement de cartouche réussi les réinitialisent.
+
+Ce modèle reste sans précision matérielle des transitions : le démarrage et
+le rechargement sont immédiats, sans latence de bus. Changer marche, source ou
+diviseur remet la phase du préscaler à zéro ; changer seulement l'autorisation
+IRQ conserve la phase. Ces règles déterministes ne constituent pas une validation
+des latences NDS. L'intégration à un ordonnanceur et les timings CPU restent à faire.
+Référence : [GBATEK, DS Timers](https://mgba-emu.github.io/gbatek/ds.html#dstimers).
+
+## BIOS et diagnostics
 
 `Memory::load_bios(processor, bytes)` accepte exactement 16 Kio sur ARM7
 (`0x00000000`) ou 4 Kio sur ARM9 (`0xffff0000`). Ces fenêtres sont en lecture seule.
@@ -237,9 +285,14 @@ d'octets, WRAMCNT/WRAMSTAT et les transferts refusés sans acquittement partiel.
 Un programme ARM configure IME/IE, démasque le CPSR, traite une demande injectée,
 acquitte IF depuis un gestionnaire synthétique et reprend son exécution sur
 chacun des deux processeurs.
+`nds_timers` vérifie les huit canaux, rechargements, voies d'octets, préscalers,
+cascades, changements de contrôle, copies, resets et intervalles jusqu'à
+`UINT64_MAX`. Il compare aussi les avances groupées à des cycles individuels.
+Un programme ARM démarre timer0 sur chaque CPU, traite son débordement réel
+via un BIOS synthétique, acquitte IF et reprend le programme interrompu.
 
 Prochains jalons : compléter le jeu d'instructions, définir les timings et la
-synchronisation des deux CPU, puis timers, DMA, IPC, vidéo
+synchronisation des deux CPU et des timers, puis DMA, IPC, vidéo
 2D à deux écrans, entrées et audio.
 
 Aucun jeu ne tourne à ce stade. Le cœur n'est pas encore exposé par `Core`,
