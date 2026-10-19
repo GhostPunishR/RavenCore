@@ -21,10 +21,10 @@ void Interpreter::multiple(unsigned rn, std::uint32_t list, bool load, bool pre,
     unsigned index{};
     // Lectures et écritures sont préparées avant toute modification : pas
     // de pile à moitié écrite ni de registres à moitié chargés sur erreur.
-    for (unsigned r = 0; r < 16; ++r) {
+    if (load) ram.read_words(cpu, start, std::span<std::uint32_t>{values}.first(count));
+    else for (unsigned r = 0; r < 16; ++r) {
         if ((list & (1U << r)) == 0) continue;
-        values[index] = load ? ram.read32(cpu, start + index * 4U) : reg(r);
-        ++index;
+        values[index++] = reg(r);
     }
     if (load) {
         index = 0;

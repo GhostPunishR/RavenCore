@@ -13,9 +13,18 @@ const InterruptController& Memory::controller(Processor cpu) const noexcept {
 void Memory::request_interrupt(Processor cpu, std::uint32_t sources) noexcept { controller(cpu).request(sources); }
 bool Memory::irq_pending(Processor cpu) const noexcept { return controller(cpu).pending(); }
 
+void Memory::apply_ipc_interrupts(Ipc::Interrupts sources) noexcept {
+    arm9_interrupts_.request(sources.arm9);
+    arm7_interrupts_.request(sources.arm7);
+}
+
 std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address) const noexcept {
     if (address >= 0x04000100 && address <= 0x0400010f)
         return timer_byte(cpu, address - 0x04000100U);
+    if (address >= 0x04000180 && address <= 0x04000183)
+        return static_cast<std::uint8_t>(static_cast<std::uint32_t>(ipc_.sync(cpu)) >> ((address - 0x04000180U) * 8U));
+    if (address >= 0x04000184 && address <= 0x04000187)
+        return static_cast<std::uint8_t>(static_cast<std::uint32_t>(ipc_.control(cpu)) >> ((address - 0x04000184U) * 8U));
     const auto& irq = controller(cpu);
     if (address >= 0x04000208 && address <= 0x0400020b)
         return static_cast<std::uint8_t>(address == 0x04000208 && irq.master_enable());
@@ -31,6 +40,15 @@ std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address
 void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t value) noexcept {
     if (address >= 0x04000100 && address <= 0x0400010f) {
         write_timer_byte(cpu, address - 0x04000100U, value);
+        return;
+    }
+    if (address >= 0x04000180 && address <= 0x04000187) {
+        const auto shift = (address & 3U) * 8U;
+        if (shift < 16) {
+            const auto bits = static_cast<std::uint16_t>(static_cast<unsigned>(value) << shift);
+            const auto mask = static_cast<std::uint16_t>(0xffU << shift);
+            apply_ipc_interrupts(address < 0x04000184 ? ipc_.write_sync(cpu, bits, mask) : ipc_.write_control(cpu, bits, mask));
+        }
         return;
     }
     auto& irq = controller(cpu);

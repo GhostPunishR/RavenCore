@@ -2,6 +2,7 @@
 
 #include <ravenemu/nds/hardware.hpp>
 #include <ravenemu/nds/interrupts.hpp>
+#include <ravenemu/nds/ipc.hpp>
 
 #include <cstddef>
 #include <array>
@@ -21,7 +22,7 @@ public:
     Memory();
     // ARM7 : 16 Kio aux vecteurs bas ; ARM9 : 4 Kio aux vecteurs hauts NDS.
     void load_bios(Processor cpu, std::span<const std::uint8_t> bytes);
-    void clear_ram() noexcept; // remet aussi WRAMCNT, timers et IRQ à zéro ; conserve les BIOS
+    void clear_ram() noexcept; // remet aussi WRAMCNT, timers, IPC et IRQ à zéro ; conserve les BIOS
     // Avance les huit timers d'autant de cycles de timer_clock_hz, sans exécuter les CPU.
     // Les débordements alimentent IF même si IME/IE sont désactivés.
     void advance_cycles(std::uint64_t cycles) noexcept;
@@ -30,14 +31,21 @@ public:
     [[nodiscard]] bool irq_pending(Processor cpu) const noexcept;
     [[nodiscard]] std::uint8_t wram_control() const noexcept { return wram_control_; }
     void set_wram_control(std::uint8_t value) noexcept { wram_control_ = value & 3U; }
-    [[nodiscard]] std::uint8_t read8(Processor cpu, std::uint32_t address) const;
-    [[nodiscard]] std::uint16_t read16(Processor cpu, std::uint32_t address) const;
-    [[nodiscard]] std::uint32_t read32(Processor cpu, std::uint32_t address) const;
+    // Lectures bus : peuvent retirer un mot de la FIFO IPC et lever des IRQ.
+    [[nodiscard]] std::uint8_t read8(Processor cpu, std::uint32_t address);
+    [[nodiscard]] std::uint16_t read16(Processor cpu, std::uint32_t address);
+    [[nodiscard]] std::uint32_t read32(Processor cpu, std::uint32_t address);
+    // Inspection sans effets de bord, y compris sur une FIFO vide.
+    [[nodiscard]] std::uint8_t peek8(Processor cpu, std::uint32_t address) const;
+    [[nodiscard]] std::uint16_t peek16(Processor cpu, std::uint32_t address) const;
+    [[nodiscard]] std::uint32_t peek32(Processor cpu, std::uint32_t address) const;
     void write8(Processor cpu, std::uint32_t address, std::uint8_t value);
     void write16(Processor cpu, std::uint32_t address, std::uint16_t value);
     void write32(Processor cpu, std::uint32_t address, std::uint32_t value);
     // Valide toute la plage avant d'écrire : une erreur ne modifie aucun octet.
     void write_words(Processor cpu, std::uint32_t address, std::span<const std::uint32_t> values);
+    // Valide toutes les lectures avant leurs effets MMIO ou l'écriture du résultat.
+    void read_words(Processor cpu, std::uint32_t address, std::span<std::uint32_t> values);
 
 private:
     struct Timer {
@@ -56,7 +64,10 @@ private:
     void write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t value) noexcept;
     [[nodiscard]] InterruptController& controller(Processor cpu) noexcept;
     [[nodiscard]] const InterruptController& controller(Processor cpu) const noexcept;
-    [[nodiscard]] std::uint32_t read(Processor cpu, std::uint32_t address, unsigned width) const;
+    void apply_ipc_interrupts(Ipc::Interrupts sources) noexcept;
+    [[nodiscard]] std::uint32_t peek(Processor cpu, std::uint32_t address, unsigned width) const;
+    [[nodiscard]] std::uint32_t read(Processor cpu, std::uint32_t address, unsigned width);
+    void validate_write(Processor cpu, std::uint32_t address, unsigned width) const;
     void write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width);
     std::vector<std::uint8_t> ram_;
     std::vector<std::uint8_t> arm9_bios_;
@@ -65,6 +76,7 @@ private:
     InterruptController arm7_interrupts_{Processor::arm7};
     TimerBank arm9_timers_{};
     TimerBank arm7_timers_{};
+    Ipc ipc_;
     std::uint8_t wram_control_{};
 };
 

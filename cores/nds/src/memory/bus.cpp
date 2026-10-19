@@ -20,6 +20,7 @@ void Memory::clear_ram() noexcept {
     arm7_interrupts_.reset();
     arm9_timers_ = {};
     arm7_timers_ = {};
+    ipc_.reset();
 }
 
 std::size_t Memory::index(Processor cpu, std::uint32_t address) const {
@@ -41,8 +42,12 @@ std::size_t Memory::index(Processor cpu, std::uint32_t address) const {
     throw Error("NDS : accès RAM non mappé");
 }
 
-std::uint32_t Memory::read(Processor cpu, std::uint32_t address, unsigned width) const {
+std::uint32_t Memory::peek(Processor cpu, std::uint32_t address, unsigned width) const {
     if ((address & (width - 1U)) != 0) throw Error("NDS : accès RAM non aligné");
+    if (address >= 0x04100000 && address <= 0x04100003) {
+        if (width != 4) throw Error("NDS : FIFO IPC limitée aux accès 32 bits");
+        return ipc_.peek(cpu);
+    }
     std::uint32_t value{};
     for (unsigned i = 0; i < width; ++i) {
         const auto io = io_byte(cpu, address + i);
@@ -54,28 +59,50 @@ std::uint32_t Memory::read(Processor cpu, std::uint32_t address, unsigned width)
     return value;
 }
 
-void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width) {
+std::uint32_t Memory::read(Processor cpu, std::uint32_t address, unsigned width) {
+    const auto value = peek(cpu, address, width); // valider avant tout effet
+    if (address == 0x04100000) {
+        const auto received = ipc_.receive(cpu);
+        apply_ipc_interrupts(received.interrupts);
+        return received.value;
+    }
+    return value;
+}
+
+void Memory::validate_write(Processor cpu, std::uint32_t address, unsigned width) const {
     if ((address & (width - 1U)) != 0) throw Error("NDS : accès RAM non aligné");
-    std::array<std::size_t, 4> destinations{};
-    std::array<bool, 4> io{};
-    for (unsigned i = 0; i < width; ++i) {
-        io[i] = io_byte(cpu, address + i).has_value();
-        if (!io[i]) destinations[i] = index(cpu, address + i);
+    if (address == 0x04000188 && width == 4) return;
+    for (unsigned i = 0; i < width; ++i)
+        if (!io_byte(cpu, address + i)) static_cast<void>(index(cpu, address + i));
+}
+
+void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width) {
+    validate_write(cpu, address, width);
+    if (address == 0x04000188) {
+        apply_ipc_interrupts(ipc_.send(cpu, value));
+        return;
     }
     for (unsigned i = 0; i < width; ++i) {
         const auto byte = static_cast<std::uint8_t>(value >> (8U * i));
-        if (io[i]) write_io_byte(cpu, address + i, byte);
-        else ram_[destinations[i]] = byte;
+        if (io_byte(cpu, address + i)) write_io_byte(cpu, address + i, byte);
+        else ram_[index(cpu, address + i)] = byte;
     }
 }
 
-std::uint8_t Memory::read8(Processor cpu, std::uint32_t address) const {
+std::uint8_t Memory::read8(Processor cpu, std::uint32_t address) {
     return static_cast<std::uint8_t>(read(cpu, address, 1));
 }
-std::uint16_t Memory::read16(Processor cpu, std::uint32_t address) const {
+std::uint16_t Memory::read16(Processor cpu, std::uint32_t address) {
     return static_cast<std::uint16_t>(read(cpu, address, 2));
 }
-std::uint32_t Memory::read32(Processor cpu, std::uint32_t address) const { return read(cpu, address, 4); }
+std::uint32_t Memory::read32(Processor cpu, std::uint32_t address) { return read(cpu, address, 4); }
+std::uint8_t Memory::peek8(Processor cpu, std::uint32_t address) const {
+    return static_cast<std::uint8_t>(peek(cpu, address, 1));
+}
+std::uint16_t Memory::peek16(Processor cpu, std::uint32_t address) const {
+    return static_cast<std::uint16_t>(peek(cpu, address, 2));
+}
+std::uint32_t Memory::peek32(Processor cpu, std::uint32_t address) const { return peek(cpu, address, 4); }
 void Memory::write8(Processor cpu, std::uint32_t address, std::uint8_t value) { write(cpu, address, value, 1); }
 void Memory::write16(Processor cpu, std::uint32_t address, std::uint16_t value) { write(cpu, address, value, 2); }
 void Memory::write32(Processor cpu, std::uint32_t address, std::uint32_t value) { write(cpu, address, value, 4); }
@@ -86,11 +113,20 @@ void Memory::write_words(Processor cpu, std::uint32_t address, std::span<const s
     if (values.size() > available) throw Error("NDS : plage RAM débordante");
     for (std::size_t i = 0; i < values.size(); ++i) {
         const auto current = address + static_cast<std::uint32_t>(i * 4);
-        for (unsigned byte = 0; byte < 4; ++byte)
-            if (!io_byte(cpu, current + byte)) static_cast<void>(index(cpu, current + byte));
+        validate_write(cpu, current, 4);
     }
     for (std::size_t i = 0; i < values.size(); ++i)
         write32(cpu, address + static_cast<std::uint32_t>(i * 4), values[i]);
+}
+
+void Memory::read_words(Processor cpu, std::uint32_t address, std::span<std::uint32_t> values) {
+    if ((address & 3U) != 0) throw Error("NDS : accès RAM non aligné");
+    const auto available = (std::uint64_t{0x100000000} - address) / 4U;
+    if (values.size() > available) throw Error("NDS : plage RAM débordante");
+    for (std::size_t i = 0; i < values.size(); ++i)
+        static_cast<void>(peek32(cpu, address + static_cast<std::uint32_t>(i * 4)));
+    for (std::size_t i = 0; i < values.size(); ++i)
+        values[i] = read32(cpu, address + static_cast<std::uint32_t>(i * 4));
 }
 
 } // namespace ravenemu::nds

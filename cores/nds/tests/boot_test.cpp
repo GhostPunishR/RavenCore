@@ -40,22 +40,22 @@ void load_test() {
     check(!machine.entries(), "machine initiale déjà chargée");
     machine.load_cartridge(Cartridge{image()});
     const auto& ram = machine.memory();
-    check(ram.read32(arm9, 0x02000000) == 0xeafffffe, "copie ARM9");
-    check(ram.read32(arm7, 0x02400000) == 0xeafffffe, "programme ARM9 visible par ARM7");
-    check(ram.read16(arm7, 0x03800000) == 0xe7fe, "copie ARM7");
+    check(ram.peek32(arm9, 0x02000000) == 0xeafffffe, "copie ARM9");
+    check(ram.peek32(arm7, 0x02400000) == 0xeafffffe, "programme ARM9 visible par ARM7");
+    check(ram.peek16(arm7, 0x03800000) == 0xe7fe, "copie ARM7");
     check(machine.entries()->arm9.address == 0x02000000 && !machine.entries()->arm9.thumb, "entrée ARM9");
     check(machine.entries()->arm7.address == 0x03800000 && machine.entries()->arm7.thumb, "entrée ARM7");
     check(ram.wram_control() == 3, "répartition WRAM au chargement");
     machine.memory().write8(arm9, 0x02000100, 0x55);
     machine.memory().write8(arm7, 0x03800100, 0x55);
     machine.load_cartridge(Cartridge{image(0x023ffffc, 0x03007ffc)});
-    check(ram.read32(arm9, 0x023ffffc) == 0xeafffffe, "dernier mot RAM principale");
-    check(ram.read16(arm7, 0x03007ffc) == 0xe7fe, "chargement en WRAM partagée");
-    check(ram.read8(arm9, 0x02000100) == 0 && ram.read8(arm7, 0x03800100) == 0, "RAM remise à zéro");
+    check(ram.peek32(arm9, 0x023ffffc) == 0xeafffffe, "dernier mot RAM principale");
+    check(ram.peek16(arm7, 0x03007ffc) == 0xe7fe, "chargement en WRAM partagée");
+    check(ram.peek8(arm9, 0x02000100) == 0 && ram.peek8(arm7, 0x03800100) == 0, "RAM remise à zéro");
     machine.load_cartridge(Cartridge{image(0x02000000, 0x02000004)});
-    check(ram.read32(arm9, 0x02000004) == 0x46c0e7fe, "ARM7 en RAM principale, plages adjacentes");
+    check(ram.peek32(arm9, 0x02000004) == 0x46c0e7fe, "ARM7 en RAM principale, plages adjacentes");
     machine.load_cartridge(Cartridge{image(0x02000000, 0x0380fffc)});
-    check(ram.read32(arm7, 0x0380fffc) == 0x46c0e7fe, "dernier mot RAM privée ARM7");
+    check(ram.peek32(arm7, 0x0380fffc) == 0x46c0e7fe, "dernier mot RAM privée ARM7");
     auto rom = image();
     put32(rom, 0x24, 0x02000003); // entrée Thumb à +2
     put32(rom, 0x34, 0x03800000); // entrée ARM

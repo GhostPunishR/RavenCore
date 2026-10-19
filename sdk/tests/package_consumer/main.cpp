@@ -11,6 +11,7 @@
 #include <ravenemu/nds/cpu_state.hpp>
 #include <ravenemu/nds/hardware.hpp>
 #include <ravenemu/nds/interrupts.hpp>
+#include <ravenemu/nds/ipc.hpp>
 
 #include <cstdio>
 
@@ -34,6 +35,13 @@ int main() {
     if (ravenemu::nds::timer_clock_hz != 33513982 ||
         nds.memory().read16(ravenemu::nds::Processor::arm9, 0x04000100) != 0xfffe ||
         !nds.memory().irq_pending(ravenemu::nds::Processor::arm9)) return 1;
+    nds.memory().write16(ravenemu::nds::Processor::arm9, 0x04000184, 0x8000);
+    nds.memory().write16(ravenemu::nds::Processor::arm7, 0x04000184, 0x8000);
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04000188, 0x12345678);
+    const auto& nds_view = nds.memory();
+    if (nds_view.peek32(ravenemu::nds::Processor::arm7, 0x04100000) != 0x12345678 ||
+        nds.memory().read32(ravenemu::nds::Processor::arm7, 0x04100000) != 0x12345678 ||
+        nds_view.peek16(ravenemu::nds::Processor::arm7, 0x04000184) != 0x8101) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

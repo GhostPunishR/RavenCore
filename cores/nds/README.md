@@ -15,6 +15,7 @@ nds/
 │   ├── cartridge/        # cartouches .nds
 │   ├── cpu/              # ARM, Thumb, état, PSR et exceptions
 │   ├── interrupts/       # contrôleurs IME/IE/IF indépendants
+│   ├── ipc/              # synchronisation et FIFO ARM9/ARM7
 │   ├── machine/          # assemblage des deux CPU et chargement
 │   ├── memory/           # bus RAM, miroirs et WRAM
 │   └── timers/           # compteurs, préscalers et cascade
@@ -84,7 +85,7 @@ CPU démarrent en System avec I/F masqués. Les images BIOS déjà fournies sont
 Ce chargement est une préparation expérimentale, pas une séquence de démarrage
 BIOS : pas de firmware, de déchiffrement, de paramètres de démarrage, de copie
 de l'en-tête dans la RAM ni d'initialisation complète des registres CPU. Seuls les
-MMIO d'interruption, timers et WRAMCNT/WRAMSTAT sont présents. TCM, VRAM, autres MMIO et
+MMIO d'interruption, timers, IPC et WRAMCNT/WRAMSTAT sont présents. TCM, VRAM, autres MMIO et
 comportements open-bus restent absents ; les accès non mappés lèvent `ravenemu::Error`. Les lectures ARM
 non alignées et leurs rotations ne sont pas encore prises en charge par le CPU.
 
@@ -195,7 +196,8 @@ ARM7 ; les sources DSi ne sont pas implémentées.
 Les périphériques émettent leurs événements par
 `Memory::request_interrupt(cpu, sources)`, où `sources` est un masque IF.
 Cette méthode sert aussi aux tests ; les timers alimentent IF lors de leur
-avancement explicite. PPU et DMA restent absents. Le CPU consulte la ligne du bus à chaque pas :
+avancement explicite et l'IPC lors des échanges. PPU et DMA restent absents.
+Le CPU consulte la ligne du bus à chaque pas :
 un gestionnaire qui acquitte IF supprime la demande avant le retour. Référence :
 [GBATEK, DS Interrupts](https://mgba-emu.github.io/gbatek/ds.html#dsinterrupts).
 
@@ -242,6 +244,72 @@ diviseur remet la phase du préscaler à zéro ; changer seulement l'autorisatio
 IRQ conserve la phase. Ces règles déterministes ne constituent pas une validation
 des latences NDS. L'intégration à un ordonnanceur et les timings CPU restent à faire.
 Référence : [GBATEK, DS Timers](https://mgba-emu.github.io/gbatek/ds.html#dstimers).
+
+## Communication ARM9/ARM7
+
+Le composant `Ipc`, déclaré dans `<ravenemu/nds/ipc.hpp>`, conserve les deux
+extrémités de communication dans le bus. Il ne conserve aucune référence aux
+CPU ni aux contrôleurs d'interruptions.
+
+| Registre | Adresse | Comportement |
+| --- | --- | --- |
+| IPCSYNC | `0x04000180` | Bits 8–11 : sortie locale ; bits 0–3 : sortie distante ; bit 14 : autoriser l'IRQ distante ; écrire le bit 13 émet un pulse vers l'autre CPU |
+| IPCFIFOCNT | `0x04000184` | Statuts plein/vide des deux directions, autorisations IRQ, activation locale et erreur W1C |
+| IPCFIFOSEND | `0x04000188` | Écriture d'un mot dans la file sortante, jusqu'à 16 mots |
+| IPCFIFORECV | `0x04100000` | Lecture du premier mot de la file entrante, avec retrait si la réception locale est activée |
+
+IPCSYNC transmet une IRQ IF bit 16 uniquement si le CPU distant l'autorise
+au moment du pulse. Le pulse ne reste pas mémorisé dans IPCSYNC. Les données
+de synchronisation restent lisibles indépendamment des autorisations IRQ.
+
+Dans IPCFIFOCNT, les bits 0/1 indiquent sortie vide/pleine, 8/9 entrée
+vide/pleine. Le bit 2 autorise l'IRQ de sortie vide (IF bit 17), le bit 10
+l'IRQ d'entrée non vide (IF bit 18) et le bit 15 active les envois/retraits
+locaux. Écrire le bit 3 vide uniquement la file sortante et efface sa dernière
+valeur reçue à distance. Le bit 14 mémorise les erreurs locales ; écrire 1
+l'acquitte, écrire 0 le conserve. Les bits réservés se lisent zéro.
+
+Envoyer avec la FIFO désactivée ne stocke rien et ne produit pas d'erreur.
+Lire avec la réception désactivée retourne le premier mot sans le retirer.
+Envoyer dans une file pleine conserve les 16 mots et lève l'erreur locale.
+Lire une file vide lève l'erreur du lecteur et répète le dernier mot reçu,
+ou zéro après reset/vidage, même si la réception est désactivée.
+
+Les IRQ FIFO sont des fronts sur les conditions `autorisation && sortie vide`
+et `autorisation && entrée non vide`, indépendamment du bit 15. Les acquitter
+dans IF ne les réaffirme pas tant que leur condition reste vraie. Autoriser
+une IRQ dont la condition de statut est déjà vraie produit un nouveau front.
+Les autorisations IME/IE et le masque CPSR.I conservent leur rôle habituel.
+
+```cpp
+using ravenemu::nds::Processor;
+auto& bus = machine.memory();
+bus.write16(Processor::arm9, 0x04000184, 0x8000);
+bus.write16(Processor::arm7, 0x04000184, 0x8000);
+bus.write32(Processor::arm9, 0x04000188, 0x12345678);
+auto message = bus.read32(Processor::arm7, 0x04100000); // retire exactement un mot
+```
+
+Les accès à SEND/RECV sont limités aux mots 32 bits alignés dans ce modèle.
+Les accès 8/16 bits, lire SEND et écrire RECV sont explicitement refusés ;
+leurs éventuels comportements matériels restent à développer. IPCSYNC et
+IPCFIFOCNT acceptent les accès 8/16/32 bits par voies little-endian ; leurs
+demi-mots hauts réservés se lisent zéro et ignorent les écritures.
+
+`Memory::read8/16/32()` sont désormais des lectures bus sur une mémoire
+mutable : une lecture de RECV peut retirer un mot, lever une erreur ou
+demander une IRQ à l'émetteur. Pour inspecter une mémoire constante ou une
+FIFO sans effet de bord, utiliser `peek8/16/32()` ; une inspection vide ne
+lève aucune erreur. `read_words()` valide toute la plage avant les effets
+MMIO, ce qui protège notamment LDM/POP d'un retrait partiel si une adresse
+suivante est refusée. Les écritures multiples conservent la même validation
+préalable, y compris avec SEND et les pulses IPCSYNC.
+
+Les échanges prennent effet immédiatement selon l'ordre des appels à
+`step()`/`run_steps()` ; aucune exécution simultanée ni latence matérielle
+n'est encore modélisée. Copier une machine copie les files, erreurs et
+registres IPC ; un chargement réussi les réinitialise, un échec les préserve.
+Référence : [GBATEK, DS Inter Process Communication](https://mgba-emu.github.io/gbatek/ds.html#dsinterprocesscommunicationipc).
 
 ## BIOS et diagnostics
 
@@ -290,9 +358,14 @@ cascades, changements de contrôle, copies, resets et intervalles jusqu'à
 `UINT64_MAX`. Il compare aussi les avances groupées à des cycles individuels.
 Un programme ARM démarre timer0 sur chaque CPU, traite son débordement réel
 via un BIOS synthétique, acquitte IF et reprend le programme interrompu.
+`nds_ipc` vérifie la synchronisation, les deux directions FIFO, le bouclage
+de l'anneau, les erreurs, le vidage, les autorisations et les fronts IRQ.
+Il contrôle aussi les inspections sans effet, les transferts refusés avant
+tout effet MMIO, LDM ARM et LDR Thumb. Deux programmes ARM réalisent un
+aller-retour complet avec réponse calculée et gestionnaires IRQ synthétiques.
 
 Prochains jalons : compléter le jeu d'instructions, définir les timings et la
-synchronisation des deux CPU et des timers, puis DMA, IPC, vidéo
+synchronisation des deux CPU et des timers, puis DMA, vidéo
 2D à deux écrans, entrées et audio.
 
 Aucun jeu ne tourne à ce stade. Le cœur n'est pas encore exposé par `Core`,
