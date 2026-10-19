@@ -11,6 +11,7 @@ public:
     Renderer(const VideoMemory& memory, unsigned engine, std::uint32_t control)
         : memory_(memory), engine_(engine), control_(control) {}
     void render(std::span<std::uint16_t> output, std::uint16_t power) const;
+    void apply_master_brightness(std::span<std::uint16_t> output) const;
 
 private:
     enum class Background { none, text, affine, extended, large, three_d };
@@ -35,9 +36,10 @@ private:
     [[nodiscard]] std::uint8_t gpu8(bool object, std::uint32_t offset) const;
     [[nodiscard]] std::uint16_t gpu16(bool object, std::uint32_t offset) const;
     [[nodiscard]] std::uint16_t palette(bool object, unsigned index) const;
+    [[nodiscard]] std::uint16_t extended_palette(bool object, unsigned slot, unsigned bank, unsigned index) const;
     [[nodiscard]] std::uint16_t oam16(unsigned offset) const;
     [[nodiscard]] std::optional<std::uint16_t> tile_pixel(bool object, std::uint32_t address, bool depth8,
-                                                       unsigned x, unsigned y, unsigned bank) const;
+                                                       unsigned x, unsigned y, unsigned bank, int extended_slot = -1) const;
     [[nodiscard]] std::optional<std::uint16_t> background_pixel(unsigned bg, Background kind, unsigned x, unsigned y) const;
     void backgrounds(std::span<Sample> pixels) const;
     void objects(std::span<Sample> pixels) const;

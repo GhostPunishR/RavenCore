@@ -1,14 +1,9 @@
 #include <ravenemu/nds/video.hpp>
 
 #include <algorithm>
+#include "vram_layout.hpp"
 
 namespace ravenemu::nds {
-namespace {
-constexpr std::array<std::uint32_t, 9> starts{0, 0x20000, 0x40000, 0x60000, 0x80000, 0x90000, 0x94000, 0x98000, 0xa0000};
-constexpr std::array<std::uint32_t, 9> sizes{0x20000, 0x20000, 0x20000, 0x20000, 0x10000, 0x4000, 0x4000, 0x8000, 0x4000};
-constexpr std::array<std::uint8_t, 9> masks{0x9b, 0x9b, 0x9f, 0x9f, 0x87, 0x9f, 0x9f, 0x83, 0x83};
-} // namespace
-
 VideoMemory::VideoMemory() : bytes_(0xa4000) {}
 void VideoMemory::reset() noexcept {
     std::fill(bytes_.begin(), bytes_.end(), 0);
@@ -16,7 +11,10 @@ void VideoMemory::reset() noexcept {
 }
 
 void VideoMemory::write_register(unsigned engine, unsigned offset, std::uint8_t value) noexcept {
-    if (!(power_ & (engine == 0 ? 2U : 0x200U))) return;
+    if (offset == 0x6c) value &= 0x1fU;
+    else if (offset == 0x6d) value &= 0xc0U;
+    else if (offset == 0x6e || offset == 0x6f) value = 0;
+    else if (!(power_ & (engine == 0 ? 2U : 0x200U))) return;
     if (offset >= 0x10 && offset < 0x20 && (offset & 1U)) value &= 1U;
     if (offset == 0x2b || offset == 0x2f || offset == 0x3b || offset == 0x3f) value &= 15U;
     if (offset == 0x48 || offset == 0x49 || offset == 0x4a || offset == 0x4b || offset == 0x51) value &= 0x3fU;
@@ -32,7 +30,7 @@ std::uint8_t VideoMemory::control(VramBank bank) const noexcept {
 
 void VideoMemory::set_control(VramBank bank, std::uint8_t value) noexcept {
     const auto number = static_cast<unsigned>(bank);
-    if (number < controls_.size()) controls_[number] = value & masks[number];
+    if (number < controls_.size()) controls_[number] = value & detail::vram_masks[number];
 }
 
 std::uint8_t VideoMemory::arm7_status() const noexcept {
@@ -48,7 +46,7 @@ std::optional<std::uint32_t> VideoMemory::index(unsigned bank, Processor cpu, st
     std::optional<std::uint32_t> base;
     if (cpu == Processor::arm7) {
         if ((bank == 2 || bank == 3) && mode == 2 && offset < 2) base = 0x06000000U + offset * 0x20000U;
-    } else if (mode == 0) base = 0x06800000U + starts[bank];
+    } else if (mode == 0) base = 0x06800000U + detail::vram_starts[bank];
     else if (mode == 1) {
         if (bank < 4) base = 0x06000000U + offset * 0x20000U;
         else if (bank == 4) base = 0x06000000U;
@@ -64,8 +62,8 @@ std::optional<std::uint32_t> VideoMemory::index(unsigned bank, Processor cpu, st
         if (bank == 2) base = 0x06200000U;
         else if (bank == 3) base = 0x06600000U;
     }
-    if (!base || address < *base || address - *base >= sizes[bank]) return std::nullopt;
-    return starts[bank] + address - *base;
+    if (!base || address < *base || address - *base >= detail::vram_sizes[bank]) return std::nullopt;
+    return detail::vram_starts[bank] + address - *base;
 }
 
 std::optional<std::uint8_t> VideoMemory::read_byte(Processor cpu, std::uint32_t address) const noexcept {

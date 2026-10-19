@@ -1,0 +1,12 @@
+#pragma once
+
+#include <array>
+#include <cstdint>
+
+namespace ravenemu::nds::detail {
+inline constexpr std::array<std::uint32_t, 9> vram_starts{
+    0, 0x20000, 0x40000, 0x60000, 0x80000, 0x90000, 0x94000, 0x98000, 0xa0000};
+inline constexpr std::array<std::uint32_t, 9> vram_sizes{
+    0x20000, 0x20000, 0x20000, 0x20000, 0x10000, 0x4000, 0x4000, 0x8000, 0x4000};
+inline constexpr std::array<std::uint8_t, 9> vram_masks{0x9b, 0x9b, 0x9f, 0x9f, 0x87, 0x9f, 0x9f, 0x83, 0x83};
+} // namespace ravenemu::nds::detail

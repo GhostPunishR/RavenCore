@@ -77,6 +77,11 @@ int main() {
     nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04001000, 0x00012000);
     const auto nds_window = nds.render_frame();
     if (nds_window.lower[0] != 0x7fff || nds_window.lower[8] != 0x7c00 || nds_window.upper[0] != 0x001f) return 1;
+    nds.memory().write16(ravenemu::nds::Processor::arm9, 0x04000304, 0x8201); // A 2D éteint, VRAM directe active
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x0400006c, 0x8010);
+    const auto nds_master = nds.render_frame();
+    if (nds.memory().read32(ravenemu::nds::Processor::arm9, 0x0400006c) != 0x8010 ||
+        nds_master.upper[0] != 0 || nds_master.lower[0] != 0x7fff || nds_master.lower[8] != 0x7c00) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

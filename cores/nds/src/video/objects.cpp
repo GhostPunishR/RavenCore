@@ -28,7 +28,7 @@ void Renderer::objects(std::span<Sample> pixels) const {
         const auto shape = attr0 >> 14U, size = attr1 >> 14U;
         if (shape == 3) throw Error("NDS : forme OBJ réservée");
         const bool depth8 = (attr0 & 0x2000U) != 0;
-        if (!bitmap && !window && depth8 && (control_ & 0x80000000U)) throw Error("NDS : palette OBJ étendue non implémentée");
+        const int extended_slot = !window && (control_ & 0x80000000U) ? 0 : -1;
         const auto width = widths[shape][size], height = heights[shape][size];
         const auto bound_width = width * (affine && (attr0 & 0x200U) ? 2U : 1U);
         const auto bound_height = height * (affine && (attr0 & 0x200U) ? 2U : 1U);
@@ -64,7 +64,7 @@ void Renderer::objects(std::span<Sample> pixels) const {
             const auto tile_bytes = depth8 ? 64U : 32U;
             const auto address = base + (static_cast<unsigned>(sy) / 8) * (one_d ? width / 8 * tile_bytes : 1024U) +
                 (static_cast<unsigned>(sx) / 8) * tile_bytes;
-            if (const auto color = tile_pixel(true, address, depth8, static_cast<unsigned>(sx) & 7U, static_cast<unsigned>(sy) & 7U, attr2 >> 12U)) {
+            if (const auto color = tile_pixel(true, address, depth8, static_cast<unsigned>(sx) & 7U, static_cast<unsigned>(sy) & 7U, attr2 >> 12U, extended_slot)) {
                 if (window) pixel.object_window = true;
                 else pixel.object = {*color, rank, 4, mode == 1 ? 17U : 0U};
             }

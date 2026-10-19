@@ -38,7 +38,7 @@ private:
     std::vector<std::uint8_t> bytes_;
     std::array<std::uint8_t, 9> controls_{};
     std::array<std::uint8_t, 0x800> palettes_{}, oam_{};
-    std::array<std::array<std::uint8_t, 0x58>, 2> registers_{};
+    std::array<std::array<std::uint8_t, 0x70>, 2> registers_{};
     std::uint16_t power_{};
     void write_register(unsigned engine, unsigned offset, std::uint8_t value) noexcept;
     [[nodiscard]] std::optional<std::uint32_t> index(unsigned bank, Processor cpu, std::uint32_t address) const noexcept;

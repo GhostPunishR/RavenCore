@@ -40,10 +40,12 @@ std::uint16_t Renderer::oam16(unsigned offset) const {
 }
 
 std::optional<std::uint16_t> Renderer::tile_pixel(bool object, std::uint32_t address, bool depth8,
-                                                unsigned x, unsigned y, unsigned bank) const {
+                                                unsigned x, unsigned y, unsigned bank, int extended_slot) const {
     const auto byte = gpu8(object, address + y * (depth8 ? 8U : 4U) + (depth8 ? x : x / 2));
     const auto index = depth8 ? byte : (byte >> ((x & 1U) * 4U)) & 15U;
     if (index == 0) return std::nullopt;
+    if (depth8 && extended_slot >= 0)
+        return extended_palette(object, static_cast<unsigned>(extended_slot), bank, index);
     return palette(object, index + (depth8 ? 0 : bank * 16));
 }
 
@@ -92,7 +94,9 @@ std::optional<std::uint16_t> Renderer::background_pixel(unsigned bg, Background 
     const auto u = (entry & 0x400U) ? 7 - (sx & 7U) : sx & 7U;
     const auto v = (entry & 0x800U) ? 7 - (sy & 7U) : sy & 7U;
     const bool depth8 = kind == Background::extended || (cnt & 0x80U);
-    return tile_pixel(false, char_base + (entry & 0x3ffU) * (depth8 ? 64 : 32), depth8, u, v, entry >> 12U);
+    const auto slot = bg + (bg < 2 && (cnt & 0x2000U) ? 2U : 0U);
+    const auto extended_slot = (control_ & 0x40000000U) ? static_cast<int>(slot) : -1;
+    return tile_pixel(false, char_base + (entry & 0x3ffU) * (depth8 ? 64 : 32), depth8, u, v, entry >> 12U, extended_slot);
 }
 
 void Renderer::backgrounds(std::span<Sample> pixels) const {
@@ -111,8 +115,6 @@ void Renderer::backgrounds(std::span<Sample> pixels) const {
         if (kind == B::three_d || (bg == 0 && !engine_ && (control_ & 8U))) throw Error("NDS : couche BG0 3D non implémentée");
         const auto cnt = reg16(8 + bg * 2);
         if (cnt & 0x40U) throw Error("NDS : mosaïque BG non implémentée");
-        if ((control_ & 0x40000000U) && ((kind == B::text && (cnt & 0x80U)) || (kind == B::extended && !(cnt & 0x80U))))
-            throw Error("NDS : palette BG étendue non implémentée");
         if (kind == B::large && (cnt >> 14U) > 1) throw Error("NDS : taille de grand bitmap réservée");
         if (engine_ && kind == B::extended && (cnt & 0x80U)) {
             const auto size = cnt >> 14U;

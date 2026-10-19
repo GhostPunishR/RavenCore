@@ -11,8 +11,11 @@ VideoFrame VideoMemory::render_frame(std::uint32_t display_control, std::uint16_
     if (!(power & 1U)) return frame;
     auto& output_a = (power & 0x8000U) ? frame.upper : frame.lower;
     auto& output_b = (power & 0x8000U) ? frame.lower : frame.upper;
-    detail::Renderer{*this, 0, display_control}.render(output_a, power);
-    detail::Renderer{*this, 1, display_control_b}.render(output_b, power);
+    const detail::Renderer engine_a{*this, 0, display_control}, engine_b{*this, 1, display_control_b};
+    engine_a.render(output_a, power);
+    engine_b.render(output_b, power);
+    engine_a.apply_master_brightness(output_a);
+    engine_b.apply_master_brightness(output_b);
     return frame;
 }
 

@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include <ravenemu/core.hpp>
 
 #include <algorithm>
 
@@ -40,6 +41,15 @@ void Renderer::windows(std::span<Sample> pixels) const {
         if ((control_ & 0x2000U) && inside(x, reg16(0x40)) && inside(y, reg16(0x44))) mask = winin;
         pixel.mask = static_cast<std::uint8_t>(mask & 0x3fU);
     }
+}
+
+void Renderer::apply_master_brightness(std::span<std::uint16_t> output) const {
+    const auto control = reg16(0x6c);
+    const auto mode = control >> 14U;
+    if (mode == 3) throw Error("NDS : mode de luminosité maître réservé");
+    const auto factor = std::min(16U, control & 31U);
+    if (mode == 0 || factor == 0) return;
+    for (auto& color : output) color = brightness(color, factor, mode == 1);
 }
 
 std::uint16_t Renderer::composite(const Sample& sample) const {

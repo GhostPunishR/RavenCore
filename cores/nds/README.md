@@ -403,7 +403,8 @@ DISPCNT A à `0x04000000`, DISPCNT B à `0x04001000`. Le mode 0 et forced blank
 (POWCNT1 bit 0 nul) produit deux écrans blancs dans ce modèle.
 
 Le mode graphique 1 compose les fonds et sprites décrits ci-dessous ; le
-mode FIFO 3 reste refusé. Luminosité maître, capture et 3D restent absentes.
+mode FIFO 3 reste refusé. La luminosité maître est décrite plus bas ; capture et
+3D restent absentes.
 L'instantané lit toute l'image au
 moment de l'appel : il n'émule pas les changements de pixels pendant le
 balayage ni la présentation automatique à VBlank. Une copie de machine possède
@@ -474,9 +475,9 @@ priorité OBJ plus haute peut donc passer devant un OBJ de plus petit indice.
 L'indice de couleur zéro est transparent ; la couleur BG standard zéro sert
 de backdrop. Un noir provenant d'un indice non nul reste opaque.
 
-Mosaïque et palettes étendues restent à développer. Les variantes actives
-non prises en charge lèvent une erreur plutôt que de produire une image
-partiellement correcte ; le port MOSAIC n'est pas encore mappé. Le moteur ne
+La mosaïque reste à développer. Son activation lève une erreur plutôt que
+de produire une image partiellement correcte ; le port MOSAIC n'est pas encore
+mappé. Les palettes étendues sont décrites plus bas. Le moteur ne
 reproduit pas les limites de pixels OBJ par ligne ni les modifications de registres au cours du balayage. Copies et chargements
 conservent ou réinitialisent palettes, OAM et registres comme les autres états
 NDS. Références : [GBATEK, DS Video BG Modes](https://mgba-emu.github.io/gbatek/ds.html#dsvideobgmodescontrol)
@@ -525,11 +526,58 @@ réservée et refusée.
 
 Les calculs de couleur sont effectués directement en RGB555 avec division
 entière. Le chemin interne RGB666 du matériel DS et ses arrondis ne sont pas
-encore reproduits. La luminosité maître reste distincte et non implémentée.
+encore reproduits. La luminosité maître utilise la même approximation RGB555.
 Le rendu conserve son fonctionnement par instantané, sans effets de balayage.
 Références : [GBATEK, fenêtres LCD](https://mgba-emu.github.io/gbatek/gba.html#lcdiowindowfeature),
 [effets de couleur](https://mgba-emu.github.io/gbatek/gba.html#lcdiocolorspecialeffects)
 et [OBJ DS](https://mgba-emu.github.io/gbatek/ds.html#dsvideoobjs).
+
+## Palettes étendues et luminosité maître
+
+DISPCNT bit 30 active les palettes BG étendues, bit 31 celles des OBJ, pour
+chaque moteur indépendamment. Les tuiles 8 bpp avec carte BG sur 16 bits
+(texte et affine étendu) utilisent le numéro de palette de la carte :
+16 palettes de 256 couleurs par slot BG de 8 Kio. BG0..3 utilisent les slots
+0..3 ; BG0CNT/BG1CNT bit 13 peut sélectionner le slot 2/3 à la place de 0/1.
+Les OBJ 8 bpp sélectionnent l'une des 16 palettes par OAM, dans 8 Kio au total.
+Les tuiles 4 bpp, l'affine à carte 8 bits et les bitmaps indexés conservent les
+palettes standard ; les bitmaps directs BG/OBJ n'utilisent aucune palette.
+L'indice zéro reste transparent et le backdrop vient de la palette standard.
+
+| Usage GPU | Banques et mode VRAMCNT | Emplacement utilisé |
+| --- | --- | --- |
+| BG A | E, mode 4 | 32 Kio bas, slots 0..3 |
+| BG A | F/G, mode 4, OFS 0 ou 1 | 16 Kio, slots 0/1 ou 2/3 |
+| OBJ A | F/G, mode 5 | 8 Kio bas, OFS ignoré |
+| BG B | H, mode 2 | 32 Kio, slots 0..3 |
+| OBJ B | I, mode 3 | 8 Kio bas |
+
+Les banques affectées aux palettes étendues n'ont pas de fenêtre CPU. Il faut
+les réaffecter temporairement, par exemple en LCDC, pour charger leurs couleurs,
+puis les réallouer au GPU. La réaffectation conserve les octets. Les banques
+superposées sont combinées en OU, comme les vues VRAM existantes ; une palette
+non allouée se lit à zéro. OFS 2/3 de F/G en mode BG étendu reste réservé et ne
+fournit aucune couleur. Les entrées sont RGB555, bit 15 ignoré.
+
+`MASTER_BRIGHT` est mappé sur ARM9 à `0x0400006c` et `0x0400106c` pour A et B.
+Le masque est `0xc01f` : facteur sur 5 bits, saturé à 16, et mode sur les bits
+14–15 (0 sans effet, 1 éclaircissement, 2 assombrissement). Le mode 3 réservé
+lève une erreur au rendu ; les bits inutilisés, y compris les 16 bits hauts,
+se lisent à zéro. Les accès 8/16/32 bits sont pris en charge. Ces registres
+restent accessibles quand le moteur 2D correspondant est éteint : contrairement
+aux ports BG/BLD, ils sont hors de la plage protégée par POWCNT1.
+
+La luminosité maître s'applique après la composition et les effets BLDCNT,
+indépendamment des masques de fenêtres. Elle traite aussi l'affichage VRAM
+direct et suit le moteur lors de la permutation des écrans. Dans ce modèle
+par instantané, les sorties blanches du mode 0, de forced blank et d'un moteur
+2D éteint passent par cette étape ; LCD éteint conserve deux images blanches.
+Les calculs restent en RGB555, sans les arrondis internes RGB666 ni les
+changements en cours de balayage. Copies et chargements conservent ou remettent
+à zéro registres et octets de palette comme le reste de la mémoire vidéo.
+Références : [GBATEK, palettes étendues DS](https://mgba-emu.github.io/gbatek/ds.html#dsvideoextendedpalettes),
+[contrôle VRAM](https://mgba-emu.github.io/gbatek/ds.html#dsmemorycontrolvram)
+et [luminosité maître](https://mgba-emu.github.io/gbatek/ds.html#400006chnds9masterbright16bitmasterbrightnessupdown).
 
 ## Timers
 
@@ -718,9 +766,17 @@ et bitmaps 1D/2D, transparence, flips et matrices sur les deux moteurs. Des STR 
 configurent deux scènes avec mélanges différents, vérifiées pixel par pixel ;
 la copie des effets et la permutation des écrans sont aussi contrôlées.
 
+`nds_palettes` vérifie les slots BG0..3, leurs sélecteurs, les seize palettes,
+les limites de banque, la transparence et les modes conservant les palettes
+standard sur A/B. Il couvre les allocations E/F/G/H/I, superpositions en OU,
+réaffectations CPU/GPU, les masques MASTER_BRIGHT, facteurs, ordre des effets,
+fenêtres, VRAM directe et extinction. Une ROM synthétique exécute des STRH ARM9
+pour configurer les deux images complètes ; permutation, copies et chargements
+réussis/refusés sont aussi vérifiés.
+
 Prochains jalons : compléter le jeu d'instructions, définir les timings et la
-synchronisation des deux CPU, DMA et timers, puis mosaïque, palettes étendues,
-luminosité maître, entrées et audio.
+synchronisation des deux CPU, DMA et timers, puis mosaïque, capture, 3D,
+entrées et audio.
 
 Aucun jeu ne tourne à ce stade. Le cœur n'est pas encore exposé par `Core`,
 le SDK ou Libretro : ces interfaces viendront avec une exécution fonctionnelle.
