@@ -24,6 +24,7 @@ void Memory::clear_ram() noexcept {
     arm9_dma_.reset();
     arm7_dma_.reset();
     dma_fill_ = {};
+    lcd_.reset();
 }
 
 std::size_t Memory::index(Processor cpu, std::uint32_t address) const {

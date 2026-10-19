@@ -12,6 +12,7 @@ namespace ravenemu::nds {
 // Quatre canaux par CPU ; registres programmés et compteurs internes séparés.
 class DmaController {
 public:
+    enum class Event { vblank, hblank };
     struct Transfer {
         unsigned channel{};
         std::uint32_t source{}, destination{}, remaining{}, control{};
@@ -24,6 +25,7 @@ public:
     [[nodiscard]] std::uint8_t read_byte(unsigned offset) const noexcept;
     void write_byte(unsigned offset, std::uint8_t value) noexcept;
     [[nodiscard]] std::optional<Transfer> next() const noexcept;
+    void trigger(Event event) noexcept;
     // Après une unité réussie : avance les pointeurs et retourne le masque IF de fin.
     [[nodiscard]] std::uint32_t complete_unit() noexcept;
 
@@ -32,11 +34,13 @@ private:
         std::array<std::uint32_t, 3> registers{};
         Transfer transfer;
         bool pending{};
+        bool reload{}; // bloc répété terminé, en attente du prochain événement
     };
     Processor processor_;
     std::array<Channel, 4> channels_{};
     [[nodiscard]] std::uint32_t address_mask(unsigned channel, bool source) const noexcept;
     [[nodiscard]] std::uint32_t count_mask(unsigned channel) const noexcept;
+    [[nodiscard]] unsigned timing(std::uint32_t control) const noexcept;
 };
 
 class DmaTransferError final : public Error {

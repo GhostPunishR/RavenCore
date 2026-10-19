@@ -13,6 +13,7 @@
 #include <ravenemu/nds/interrupts.hpp>
 #include <ravenemu/nds/ipc.hpp>
 #include <ravenemu/nds/dma.hpp>
+#include <ravenemu/nds/lcd_timing.hpp>
 
 #include <cstdio>
 
@@ -49,6 +50,12 @@ int main() {
     nds_cpu.step(nds.memory()); // transfert DMA, CPU suspendu
     if (nds_cpu.state().instructions != 1 || nds.memory().dma_pending(ravenemu::nds::Processor::arm9) ||
         nds_view.peek32(ravenemu::nds::Processor::arm9, 0x02000004) != 0xeafffffe) return 1;
+    nds.memory().write16(ravenemu::nds::Processor::arm9, 0x04000004, 0x10);
+    nds.advance_cycles(1534); // LCD déjà avancé de deux cycles par le test timer
+    if (ravenemu::nds::LcdTiming::line_cycles != 2130 ||
+        !(nds_view.peek32(ravenemu::nds::Processor::arm9, 0x04000214) & 2U)) return 1;
+    nds.advance_cycles(70);
+    if (!(nds_view.peek16(ravenemu::nds::Processor::arm9, 0x04000004) & 2U)) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

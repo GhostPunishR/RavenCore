@@ -14,12 +14,13 @@ nds/
 │   ├── bios/             # images et fenêtres BIOS
 │   ├── cartridge/        # cartouches .nds
 │   ├── cpu/              # ARM, Thumb, état, PSR et exceptions
-│   ├── dma/              # canaux, compteurs internes et transferts immédiats
+│   ├── dma/              # canaux, transferts immédiats et VBlank/HBlank
 │   ├── interrupts/       # contrôleurs IME/IE/IF indépendants
 │   ├── ipc/              # synchronisation et FIFO ARM9/ARM7
 │   ├── machine/          # assemblage des deux CPU et chargement
 │   ├── memory/           # bus RAM, miroirs et WRAM
-│   └── timers/           # compteurs, préscalers et cascade
+│   ├── timers/           # compteurs, préscalers et cascade
+│   └── video/            # horloge LCD, DISPSTAT et VCOUNT ; pas de rendu
 └── tests/                # programmes et BIOS synthétiques
 ```
 
@@ -86,7 +87,7 @@ CPU démarrent en System avec I/F masqués. Les images BIOS déjà fournies sont
 Ce chargement est une préparation expérimentale, pas une séquence de démarrage
 BIOS : pas de firmware, de déchiffrement, de paramètres de démarrage, de copie
 de l'en-tête dans la RAM ni d'initialisation complète des registres CPU. Seuls les
-MMIO d'interruption, DMA, timers, IPC et WRAMCNT/WRAMSTAT sont présents. TCM, VRAM, autres MMIO et
+MMIO LCD, interruption, DMA, timers, IPC et WRAMCNT/WRAMSTAT sont présents. TCM, VRAM, autres MMIO et
 comportements open-bus restent absents ; les accès non mappés lèvent `ravenemu::Error`. Les lectures ARM
 non alignées et leurs rotations ne sont pas encore prises en charge par le CPU.
 
@@ -108,13 +109,13 @@ const auto& arm7 = machine.cpu_state(ravenemu::nds::Processor::arm7);
 Ces appels exécutent le nombre demandé de pas sur le CPU sélectionné,
 sans faire avancer l'autre. Le budget est borné même sur une boucle infinie.
 Un pas transfère une unité DMA, entre en IRQ/FIQ ou exécute une instruction.
-Un DMA immédiat en attente est prioritaire sur les interruptions et suspend
+Un DMA déclenché en attente est prioritaire sur les interruptions et suspend
 uniquement le CPU associé ; l'autre CPU n'avance que par ses propres appels.
 Le compteur `instructions`
 compte uniquement les instructions terminées, dont SWI, UDF et les conditions
 ARM fausses. Une unité DMA ou entrée IRQ/FIQ ne l'incrémente pas. Il n'y a pas
 encore d'ordonnanceur, de calcul des cycles CPU ou de rapport de fréquence ARM9/ARM7.
-Les timers disposent d'une horloge explicite indépendante, décrite ci-dessous.
+Les timers et le balayage LCD disposent d'une horloge explicite commune, décrite ci-dessous.
 
 | Mode | Instructions actuellement prises en charge |
 | --- | --- |
@@ -201,11 +202,12 @@ Les périphériques émettent leurs événements par
 `Memory::request_interrupt(cpu, sources)`, où `sources` est un masque IF.
 Cette méthode sert aussi aux tests ; les timers alimentent IF lors de leur
 avancement explicite, l'IPC lors des échanges et les DMA à leur fin de transfert.
-Le PPU reste absent. Le CPU consulte la ligne du bus à chaque pas hors DMA :
+Le LCD fournit les IRQ de balayage ; le rendu reste absent.
+Le CPU consulte la ligne du bus à chaque pas hors DMA :
 un gestionnaire qui acquitte IF supprime la demande avant le retour. Référence :
 [GBATEK, DS Interrupts](https://mgba-emu.github.io/gbatek/ds.html#dsinterrupts).
 
-## DMA immédiats
+## DMA
 
 Chaque CPU possède quatre canaux, décrits par `DmaController` dans
 `<ravenemu/nds/dma.hpp>`. Pour le canal `n` (0 à 3), les registres 32 bits
@@ -229,7 +231,8 @@ pour SAD du canal 0 et DAD des canaux 0–2, 28 bits ailleurs. Le bit d'adresse
 0 est ignoré ; les pointeurs internes 32 bits ignorent aussi le bit 1.
 Les compteurs et adresses internes évoluent séparément : SAD, DAD et la
 longueur programmée restent lisibles sans modification pendant le transfert.
-La dernière unité efface enable et demande l'IRQ si elle est autorisée.
+La dernière unité demande l'IRQ si elle est autorisée et efface enable,
+sauf pour les blocs répétés VBlank/HBlank qui restent armés.
 Un arrêt logiciel annule le reste sans IRQ de fin.
 
 ```cpp
@@ -241,7 +244,7 @@ bus.write32(Processor::arm9, 0x040000b8, 0xc4000003); // trois mots, immédiat, 
 machine.run_steps(Processor::arm9, 3); // trois unités DMA, aucune instruction CPU
 ```
 
-`Memory::dma_pending(cpu)` indique un transfert immédiat en attente.
+`Memory::dma_pending(cpu)` indique un transfert déclenché en attente.
 `Memory::step_dma(cpu)` transfère une unité ou renvoie false sans effet.
 `Cpu::step()` et `Machine::step()` le font automatiquement avant l'exécution
 CPU. Le canal 0 est prioritaire, puis 1, 2 et 3 ; un canal prioritaire activé
@@ -261,12 +264,75 @@ précédemment terminées restent appliquées.
 Le modèle reste sans cycles ni arbitrage temporel du bus. Les écritures aux
 registres d'un canal déjà actif sont conservées pour sa prochaine activation ;
 elles ne rechargent pas le transfert en cours. Une destination incrément/rechargement
-agit comme incrément en immédiat. Les modes vidéo, cartouche et géométrie
-restent armés sans déclencheur ; leurs répétitions restent à développer.
-Les pas DMA n'avancent pas l'horloge explicite des timers. Copier une machine
+agit comme incrément en immédiat. VBlank (mode 1 sur les deux CPU) et HBlank
+(mode 2 ARM9, lignes visibles uniquement) sont déclenchés par l'horloge LCD.
+Les modes cartouche, géométrie et autres modes vidéo restent armés sans déclencheur.
+
+Avec repeat en VBlank/HBlank, chaque événement démarre un bloc de la longueur
+programmée. La source continue d'un bloc à l'autre ; la destination continue
+aussi, sauf en mode incrément/rechargement où elle reprend DAD. La longueur et
+le DAD de rechargement sont relus au prochain déclenchement. Un événement reçu
+pendant qu'un bloc est en attente ou en cours est ignoré, sans file de reprises.
+Repeat en immédiat conserve le comportement ponctuel.
+
+Les pas DMA n'avancent pas l'horloge explicite timers/LCD. Copier une machine
 copie aussi les canaux suspendus ; un chargement réussi ou `clear_ram()` remet
 canaux et DMAFILL à zéro. Référence :
 [GBATEK, DS DMA Transfers](https://mgba-emu.github.io/gbatek/ds.html#dsdmatransfers).
+
+## Horloge LCD
+
+`LcdTiming`, dans `<ravenemu/nds/lcd_timing.hpp>`, suit le balayage commun aux
+deux écrans : 256 pixels visibles par ligne, 192 lignes visibles, 355 périodes
+de pixel par ligne et 263 lignes par image. Un pixel dure six cycles de
+l'horloge à `timer_clock_hz`, soit 2130 cycles par ligne et 560190 par image.
+Le modèle démarre à la ligne zéro, cycle zéro ; il ne produit pas encore de pixels.
+
+| Registre | Adresse | Comportement |
+| --- | --- | --- |
+| DISPSTAT | `0x04000004` | Contrôles indépendants ARM9/ARM7, drapeaux issus du balayage commun |
+| VCOUNT | `0x04000006` | Ligne courante, 9 bits, de 0 à 262 |
+
+Dans DISPSTAT, les bits 0/1/2 sont les drapeaux VBlank, HBlank et égalité
+VCOUNT/LYC. Les bits 3/4/5 autorisent les IRQ correspondantes (IF bits 0/1/2).
+LYC utilise les bits 8–15 pour ses huit bits bas et le bit 7 pour son bit haut ;
+le bit 6 reste zéro. Une comparaison supérieure à 262 ne correspond à aucune
+ligne. Les drapeaux sont en lecture seule. Les accès 8/16/32 bits alignés à
+DISPSTAT/VCOUNT respectent les voies little-endian.
+
+VBlank commence à la ligne 192 et son drapeau reste actif jusqu'à la ligne 261 ;
+il est déjà retombé à la ligne 262. Les drapeaux HBlank deviennent visibles à
+1606 cycles sur ARM9 et 1613 sur ARM7, puis retombent à la ligne suivante.
+Pour ce premier modèle, l'événement HBlank IRQ/DMA arrive à la fin des 1536
+cycles de zone visible, distincte des drapeaux retardés. L'IRQ HBlank existe
+sur toutes les lignes, tandis que le DMA HBlank ARM9 ne reçoit que les lignes
+0 à 191. Les IRQ VBlank et VCOUNT sont émises à l'entrée de leur ligne ;
+acquitter IF pendant un drapeau actif ne réaffirme pas la demande.
+Modifier LYC recalcule immédiatement le drapeau, sans créer d'entrée de ligne.
+
+```cpp
+using ravenemu::nds::Processor;
+machine.memory().write16(Processor::arm9, 0x04000004, 8); // autoriser IRQ VBlank
+machine.advance_cycles(192 * ravenemu::nds::LcdTiming::line_cycles);
+// VCOUNT vaut 192, IF bit 0 est mémorisé et les DMA VBlank armés sont déclenchés.
+```
+
+`Memory::advance_cycles()` et `Machine::advance_cycles()` avancent ensemble
+LCD et timers, sans exécuter de CPU ni d'unité DMA. Les événements sont coalescés
+sur l'intervalle demandé : un grand appel peut traverser plusieurs images,
+sans boucle par cycle ni par ligne, mais il n'exécute pas les répétitions DMA.
+Pour traiter un bloc à chaque HBlank/VBlank, alterner les avances jusqu'aux
+événements et les pas CPU/DMA. `step()` et `run_steps()` conservent leur budget
+de pas sans durée matérielle ; les latences fines IRQ/DMA et l'ordonnanceur
+CPU restent à développer.
+
+Les écritures VCOUNT sont ignorées dans ce modèle : la resynchronisation
+par écriture disponible sur NDS n'est pas encore prise en charge. Les ports
+de statut du moteur B ne sont pas des registres séparés. VRAM, palettes,
+moteurs 2D, affichage et rendu des deux écrans restent absents. Un chargement
+réussi ou `clear_ram()` remet le balayage et les contrôles à zéro ; une copie
+de machine conserve une horloge LCD indépendante. Référence :
+[GBATEK, DS Video Stuff](https://mgba-emu.github.io/gbatek/ds.html#dsvideostuff).
 
 ## Timers
 
@@ -297,7 +363,7 @@ machine.advance_cycles(4); // quatre cycles de l'horloge des timers, commune aux
 ```
 
 `Machine::advance_cycles()` (ou `Memory::advance_cycles()`) avance les huit
-timers sans exécuter d'instructions. Leur fréquence de référence commune est
+timers et le LCD sans exécuter d'instructions. Leur fréquence de référence commune est
 `timer_clock_hz = 33513982` Hz, distincte de la fréquence du CPU ARM9.
 `step()` et `run_steps()` n'avancent pas cette horloge. Les préscalers conservent
 leur reste entre appels ; les grands intervalles et cascades sont calculés
@@ -435,9 +501,13 @@ longueurs nulles, les copies 16/32 bits, les modes d'adressage, les priorités,
 le remplissage, les copies chevauchantes, les erreurs et les copies de machine.
 Deux programmes ARM configurent leur DMA, restent suspendus pendant la copie,
 traitent l'IRQ de fin depuis un BIOS synthétique et reprennent leur exécution.
+`nds_lcd` vérifie les frontières de balayage, LYC sur 9 bits, les IRQ propres
+à chaque CPU, les grands intervalles et les DMA VBlank/HBlank répétés avec
+rechargement de destination. Deux programmes ARM configurent LCD et DMA,
+traitent un VBlank réel, exécutent la copie avant l'IRQ et reprennent après acquittement.
 
 Prochains jalons : compléter le jeu d'instructions, définir les timings et la
-synchronisation des deux CPU, DMA et timers, puis vidéo
+synchronisation des deux CPU, DMA et timers, puis mémoire vidéo et rendu
 2D à deux écrans, entrées et audio.
 
 Aucun jeu ne tourne à ce stade. Le cœur n'est pas encore exposé par `Core`,

@@ -31,7 +31,7 @@ public:
     [[nodiscard]] const CpuState& cpu_state(Processor cpu) const noexcept;
     void set_interrupt_lines(Processor cpu, bool irq, bool fiq = false) noexcept;
     void step(Processor cpu);
-    // Horloge explicite des timers des deux CPU ; step/run_steps restent sans timings.
+    // Horloge explicite timers/LCD ; step/run_steps restent sans timings.
     void advance_cycles(std::uint64_t cycles) noexcept { memory_.advance_cycles(cycles); }
     // Budget de pas (une unité DMA ou entrée IRQ/FIQ consomme un pas sans
     // instruction), pas de cycles. Un échec laisse les instructions/transferts

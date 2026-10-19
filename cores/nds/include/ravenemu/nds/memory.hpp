@@ -4,6 +4,7 @@
 #include <ravenemu/nds/interrupts.hpp>
 #include <ravenemu/nds/ipc.hpp>
 #include <ravenemu/nds/dma.hpp>
+#include <ravenemu/nds/lcd_timing.hpp>
 
 #include <cstddef>
 #include <array>
@@ -25,11 +26,11 @@ public:
     void load_bios(Processor cpu, std::span<const std::uint8_t> bytes);
     void clear_ram() noexcept; // remet aussi les périphériques à zéro ; conserve les BIOS
     [[nodiscard]] bool dma_pending(Processor cpu) const noexcept;
-    // Une unité 16/32 bits, sans cycles. Renvoie false si aucun DMA immédiat en attente.
+    // Une unité 16/32 bits, sans cycles. Renvoie false si aucun DMA déclenché en attente.
     // Un échec préserve l'unité fautive ; les unités déjà terminées restent appliquées.
     bool step_dma(Processor cpu);
-    // Avance les huit timers d'autant de cycles de timer_clock_hz, sans exécuter les CPU.
-    // Les débordements alimentent IF même si IME/IE sont désactivés.
+    // Avance timers et LCD à timer_clock_hz, sans exécuter CPU ni unités DMA.
+    // Les événements LCD peuvent déclencher les DMA VBlank/HBlank.
     void advance_cycles(std::uint64_t cycles) noexcept;
     // Sources : masque de bits IF, pas un numéro de source.
     void request_interrupt(Processor cpu, std::uint32_t sources) noexcept;
@@ -87,6 +88,7 @@ private:
     DmaController arm9_dma_{Processor::arm9};
     DmaController arm7_dma_{Processor::arm7};
     std::array<std::uint8_t, 16> dma_fill_{};
+    LcdTiming lcd_;
     std::uint8_t wram_control_{};
 };
 

@@ -2,6 +2,8 @@ add_library(nds_raven_core STATIC
     src/cartridge/cartridge.cpp
     src/memory/bus.cpp
     src/memory/io.cpp
+    src/memory/clock.cpp
+    src/video/lcd_timing.cpp
     src/interrupts/interrupt_controller.cpp
     src/ipc/ipc.cpp
     src/dma/dma_controller.cpp
@@ -66,4 +68,8 @@ if(BUILD_TESTING)
     target_include_directories(nds_dma_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_dma_tests PRIVATE nds_raven_core)
     add_test(NAME nds_dma COMMAND nds_dma_tests)
+    add_executable(nds_lcd_tests tests/lcd_test.cpp)
+    target_include_directories(nds_lcd_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_lcd_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_lcd COMMAND nds_lcd_tests)
 endif()

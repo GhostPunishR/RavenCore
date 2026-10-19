@@ -19,6 +19,10 @@ void Memory::apply_ipc_interrupts(Ipc::Interrupts sources) noexcept {
 }
 
 std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address) const noexcept {
+    if (address == 0x04000004 || address == 0x04000005)
+        return static_cast<std::uint8_t>(lcd_.status(cpu) >> ((address & 1U) * 8U));
+    if (address == 0x04000006 || address == 0x04000007)
+        return static_cast<std::uint8_t>(lcd_.vcount() >> ((address & 1U) * 8U));
     if (address >= 0x040000b0 && address <= 0x040000df)
         return dma(cpu).read_byte(address - 0x040000b0U);
     if (cpu == Processor::arm9 && address >= 0x040000e0 && address <= 0x040000ef)
@@ -42,6 +46,14 @@ std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address
 }
 
 void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t value) noexcept {
+    if (address >= 0x04000004 && address <= 0x04000007) {
+        if (address <= 0x04000005) {
+            const auto shift = (address & 1U) * 8U;
+            lcd_.write_status(cpu, static_cast<std::uint16_t>(static_cast<unsigned>(value) << shift),
+                              static_cast<std::uint16_t>(0xffU << shift));
+        }
+        return; // VCOUNT : inspection seule dans ce premier modèle LCD
+    }
     if (address >= 0x040000b0 && address <= 0x040000df) {
         dma(cpu).write_byte(address - 0x040000b0U, value);
         return;

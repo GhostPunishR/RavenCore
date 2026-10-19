@@ -73,9 +73,4 @@ std::uint32_t Memory::advance_timers(TimerBank& bank, std::uint64_t cycles) noex
     return sources;
 }
 
-void Memory::advance_cycles(std::uint64_t cycles) noexcept {
-    arm9_interrupts_.request(advance_timers(arm9_timers_, cycles));
-    arm7_interrupts_.request(advance_timers(arm7_timers_, cycles));
-}
-
 } // namespace ravenemu::nds

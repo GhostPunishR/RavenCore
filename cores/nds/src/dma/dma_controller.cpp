@@ -13,6 +13,10 @@ std::uint32_t DmaController::count_mask(unsigned channel) const noexcept {
     return processor_ == Processor::arm9 ? 0x1fffffU : (channel == 3 ? 0xffffU : 0x3fffU);
 }
 
+unsigned DmaController::timing(std::uint32_t control) const noexcept {
+    return processor_ == Processor::arm9 ? (control >> 27U) & 7U : (control >> 28U) & 3U;
+}
+
 std::uint8_t DmaController::read_byte(unsigned offset) const noexcept {
     if (offset >= 0x30) return 0;
     return static_cast<std::uint8_t>(channels_[offset / 12U].registers[(offset % 12U) / 4U] >> ((offset & 3U) * 8U));
@@ -31,14 +35,33 @@ void DmaController::write_byte(unsigned offset, std::uint8_t value) noexcept {
         (static_cast<std::uint32_t>(value) << shift)) & mask;
     if (reg != 2) return;
     const auto control = channel.registers[2];
-    if (!(control & 0x80000000U)) { channel.pending = false; return; }
+    if (!(control & 0x80000000U)) { channel.pending = channel.reload = false; return; }
     if (before & 0x80000000U) return; // pas de rechargement si déjà activé
     const auto width = (control & 0x04000000U) ? 4U : 2U;
     const auto count = control & count_mask(number);
     channel.transfer = {number, channel.registers[0] & ~(width - 1U), channel.registers[1] & ~(width - 1U),
                         count == 0 ? count_mask(number) + 1U : count, control};
-    // Les autres déclenchements restent armés, sans événement vidéo/cartouche.
-    channel.pending = (control & (processor_ == Processor::arm9 ? 0x38000000U : 0x30000000U)) == 0;
+    channel.reload = false;
+    channel.pending = timing(control) == 0;
+}
+
+void DmaController::trigger(Event event) noexcept {
+    if (event == Event::hblank && processor_ == Processor::arm7) return;
+    const auto mode = event == Event::vblank ? 1U : 2U;
+    for (unsigned i = 0; i < channels_.size(); ++i) {
+        auto& channel = channels_[i];
+        if (!(channel.registers[2] & 0x80000000U) || channel.pending || timing(channel.transfer.control) != mode) continue;
+        if (channel.reload) {
+            const auto count = channel.registers[2] & count_mask(i);
+            channel.transfer.remaining = count == 0 ? count_mask(i) + 1U : count;
+            if (((channel.transfer.control >> 21U) & 3U) == 3U) {
+                const auto width = (channel.transfer.control & 0x04000000U) ? 4U : 2U;
+                channel.transfer.destination = channel.registers[1] & ~(width - 1U);
+            }
+            channel.reload = false;
+        }
+        channel.pending = true;
+    }
 }
 
 std::optional<DmaController::Transfer> DmaController::next() const noexcept {
@@ -58,8 +81,8 @@ std::uint32_t DmaController::complete_unit() noexcept {
         if (destination_mode != 2) transfer.destination = (destination_mode == 1 ? transfer.destination - width : transfer.destination + width) & address_mask(i, false);
         if (--transfer.remaining != 0) return 0;
         channel.pending = false;
-        // Immédiat : repeat ne relance pas le canal ; DAD reload n'a pas de répétition.
-        channel.registers[2] &= ~0x80000000U;
+        channel.reload = (transfer.control & 0x02000000U) && timing(transfer.control) != 0;
+        if (!channel.reload) channel.registers[2] &= ~0x80000000U;
         return (transfer.control & 0x40000000U) ? 1U << (8U + i) : 0U;
     }
     return 0;
