@@ -40,7 +40,8 @@ void Cpu::set_register(std::size_t index, std::uint32_t value) {
 }
 
 void Cpu::step(Memory& memory) {
-    if ((fiq_line_ && !state_.fiq_disabled) || (irq_line_ && !state_.irq_disabled)) {
+    const bool irq = irq_line_ || memory.irq_pending(processor_);
+    if ((fiq_line_ && !state_.fiq_disabled) || (irq && !state_.irq_disabled)) {
         const auto exception = fiq_line_ && !state_.fiq_disabled ? detail::Exception::fiq : detail::Exception::irq;
         auto prepared = state_;
         detail::enter_exception(prepared, processor_, exception, state_.registers[15] + 4U);

@@ -16,6 +16,8 @@ Memory::Memory() : ram_(main_size + shared_size + private_size) {}
 void Memory::clear_ram() noexcept {
     std::fill(ram_.begin(), ram_.end(), 0);
     wram_control_ = 0;
+    arm9_interrupts_.reset();
+    arm7_interrupts_.reset();
 }
 
 std::size_t Memory::index(Processor cpu, std::uint32_t address) const {
@@ -41,6 +43,8 @@ std::uint32_t Memory::read(Processor cpu, std::uint32_t address, unsigned width)
     if ((address & (width - 1U)) != 0) throw Error("NDS : accès RAM non aligné");
     std::uint32_t value{};
     for (unsigned i = 0; i < width; ++i) {
+        const auto io = io_byte(cpu, address + i);
+        if (io) { value |= static_cast<std::uint32_t>(*io) << (8U * i); continue; }
         const auto bios = bios_byte(cpu, address + i);
         const auto byte = bios ? *bios : ram_[index(cpu, address + i)];
         value |= static_cast<std::uint32_t>(byte) << (8U * i);
@@ -51,9 +55,16 @@ std::uint32_t Memory::read(Processor cpu, std::uint32_t address, unsigned width)
 void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width) {
     if ((address & (width - 1U)) != 0) throw Error("NDS : accès RAM non aligné");
     std::array<std::size_t, 4> destinations{};
-    for (unsigned i = 0; i < width; ++i) destinations[i] = index(cpu, address + i);
-    for (unsigned i = 0; i < width; ++i)
-        ram_[destinations[i]] = static_cast<std::uint8_t>(value >> (8U * i));
+    std::array<bool, 4> io{};
+    for (unsigned i = 0; i < width; ++i) {
+        io[i] = io_byte(cpu, address + i).has_value();
+        if (!io[i]) destinations[i] = index(cpu, address + i);
+    }
+    for (unsigned i = 0; i < width; ++i) {
+        const auto byte = static_cast<std::uint8_t>(value >> (8U * i));
+        if (io[i]) write_io_byte(cpu, address + i, byte);
+        else ram_[destinations[i]] = byte;
+    }
 }
 
 std::uint8_t Memory::read8(Processor cpu, std::uint32_t address) const {
@@ -73,7 +84,8 @@ void Memory::write_words(Processor cpu, std::uint32_t address, std::span<const s
     if (values.size() > available) throw Error("NDS : plage RAM débordante");
     for (std::size_t i = 0; i < values.size(); ++i) {
         const auto current = address + static_cast<std::uint32_t>(i * 4);
-        for (unsigned byte = 0; byte < 4; ++byte) static_cast<void>(index(cpu, current + byte));
+        for (unsigned byte = 0; byte < 4; ++byte)
+            if (!io_byte(cpu, current + byte)) static_cast<void>(index(cpu, current + byte));
     }
     for (std::size_t i = 0; i < values.size(); ++i)
         write32(cpu, address + static_cast<std::uint32_t>(i * 4), values[i]);

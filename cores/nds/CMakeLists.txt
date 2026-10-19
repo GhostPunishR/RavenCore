@@ -1,6 +1,8 @@
 add_library(nds_raven_core STATIC
     src/cartridge/cartridge.cpp
     src/memory/bus.cpp
+    src/memory/io.cpp
+    src/interrupts/interrupt_controller.cpp
     src/bios/boot_rom.cpp
     src/machine/machine.cpp
     src/cpu/cpu.cpp
@@ -44,4 +46,8 @@ if(BUILD_TESTING)
     target_include_directories(nds_exceptions_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_exceptions_tests PRIVATE nds_raven_core)
     add_test(NAME nds_exceptions COMMAND nds_exceptions_tests)
+    add_executable(nds_interrupts_tests tests/interrupts_test.cpp)
+    target_include_directories(nds_interrupts_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_interrupts_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_interrupts COMMAND nds_interrupts_tests)
 endif()

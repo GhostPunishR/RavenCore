@@ -14,12 +14,14 @@ nds/
 │   ├── bios/             # images et fenêtres BIOS
 │   ├── cartridge/        # cartouches .nds
 │   ├── cpu/              # ARM, Thumb, état, PSR et exceptions
+│   ├── interrupts/       # contrôleurs IME/IE/IF indépendants
 │   ├── machine/          # assemblage des deux CPU et chargement
 │   └── memory/           # bus RAM, miroirs et WRAM
 └── tests/                # programmes et BIOS synthétiques
 ```
 
-Voir les [frontières des composants](src/README.md) et la [description des tests](tests/README.md).
+Les en-têtes installés restent dans `include/ravenemu/nds/` ; les helpers des
+décodeurs CPU restent privés. Cette page centralise la documentation NDS.
 
 ## Cartouches et tests
 
@@ -80,9 +82,9 @@ CPU démarrent en System avec I/F masqués. Les images BIOS déjà fournies sont
 
 Ce chargement est une préparation expérimentale, pas une séquence de démarrage
 BIOS : pas de firmware, de déchiffrement, de paramètres de démarrage, de copie
-de l'en-tête dans la RAM ni d'initialisation complète des registres CPU. Les TCM,
-MMIO (y compris le registre WRAMCNT), VRAM et comportements open-bus ne sont pas
-implémentés ; les accès non mappés lèvent `ravenemu::Error`. Les lectures ARM
+de l'en-tête dans la RAM ni d'initialisation complète des registres CPU. Seuls les
+MMIO d'interruption et WRAMCNT/WRAMSTAT sont présents. TCM, VRAM, autres MMIO et
+comportements open-bus restent absents ; les accès non mappés lèvent `ravenemu::Error`. Les lectures ARM
 non alignées et leurs rotations ne sont pas encore prises en charge par le CPU.
 
 ## Interpréteur ARM/Thumb
@@ -169,8 +171,31 @@ machine.step(ravenemu::nds::Processor::arm9);
 
 IRQ/FIQ sont des entrées externes de niveau, échantillonnées à chaque pas :
 FIQ démasquée est prioritaire sur IRQ. I/F masquent leur prise en compte, et une
-ligne restée active peut provoquer une nouvelle entrée après le retour. Le futur
-contrôleur MMIO devra piloter ces lignes ; IME/IE/IF ne sont pas encore implémentés.
+ligne restée active peut provoquer une nouvelle entrée après le retour. L'IRQ
+du contrôleur MMIO est combinée à la ligne IRQ externe ; FIQ reste une entrée
+externe. Le masque I du CPSR est indépendant d'IME et IE.
+
+| MMIO | Accès | Comportement |
+| --- | --- | --- |
+| `0x04000208` IME | 32 bits | Seul bit 0 actif : autorisation globale des IRQ |
+| `0x04000210` IE | 32 bits | Masque des sources autorisées, indépendant pour chaque CPU |
+| `0x04000214` IF | 32 bits | Demandes mémorisées ; écrire 1 acquitte le bit, écrire 0 le conserve |
+| `0x04000247` WRAMCNT | 8 bits ARM9 | Attribution des deux banques WRAM, bits 0–1 |
+| `0x04000241` WRAMSTAT | 8 bits ARM7 | Lecture de l'attribution WRAM ; écritures ignorées |
+
+Les accès alignés par octet ou demi-mot aux registres IRQ respectent les voies
+little-endian ; les octets réservés d'IME se lisent zéro. Les demandes restent
+dans IF lorsque IME ou IE sont désactivés. La ligne IRQ est active si
+`IME && (IE & IF) != 0`. Les masques de sources NDS du modèle sont `0x003f3f7f`
+sur ARM9 et `0x019f3fff` sur ARM7 : géométrie sur ARM9, RTC/capot/SPI/Wi-Fi sur
+ARM7 ; les sources DSi ne sont pas implémentées.
+
+Les futurs périphériques émettront leurs événements par
+`Memory::request_interrupt(cpu, sources)`, où `sources` est un masque IF.
+Cette méthode sert aussi aux tests ; aucun timer, PPU ou DMA ne génère encore
+automatiquement d'événement. Le CPU consulte la ligne du bus à chaque pas :
+un gestionnaire qui acquitte IF supprime la demande avant le retour. Référence :
+[GBATEK, DS Interrupts](https://mgba-emu.github.io/gbatek/ds.html#dsinterrupts).
 
 `Memory::load_bios(processor, bytes)` accepte exactement 16 Kio sur ARM7
 (`0x00000000`) ou 4 Kio sur ARM9 (`0xffff0000`). Ces fenêtres sont en lecture seule.
@@ -179,13 +204,12 @@ gestionnaires synthétiques ; aucun BIOS Nintendo ni firmware n'est inclus.
 Il n'y a pas de remplacement haut niveau des services SWI, de démarrage firmware,
 de protection de lecture BIOS selon PC, de relocation des vecteurs par CP15 ou
 d'exceptions Data/Prefetch Abort. Les accès mémoire refusés restent des diagnostics.
-Voir [BIOS](src/bios/README.md) et [CPU](src/cpu/README.md).
 
 Une instruction non implémentée ou une erreur de lecture/écriture lève
 `CpuExecutionError` avec processeur, adresse, mode et opcode (absent si la
 lecture de l'instruction a échoué). Le CPU reste sur l'instruction fautive,
 ses registres et son compteur sont préservés. Les écritures multiples vérifient
-toutes les destinations RAM avant de modifier le premier mot ; une erreur de
+toutes les destinations du bus avant de modifier le premier mot ; une erreur de
 chargement multiple ne valide aucun des registres chargés. Cette atomicité est
 un contrat de diagnostic de ce modèle, pas une émulation des exceptions d'abandon
 matérielles. Les instructions déjà terminées
@@ -208,9 +232,14 @@ les erreurs d'alignement doivent préserver registres, writeback et mémoire.
 `nds_exceptions` vérifie les banques, privilèges, CPSR/SPSR, les gestionnaires
 synthétiques SWI/UND/IRQ/FIQ, la priorité des lignes, les retours ARM/Thumb et
 la conservation des images BIOS au chargement d'une cartouche.
+`nds_interrupts` couvre IME/IE/IF, les sources propres à chaque CPU, les voies
+d'octets, WRAMCNT/WRAMSTAT et les transferts refusés sans acquittement partiel.
+Un programme ARM configure IME/IE, démasque le CPSR, traite une demande injectée,
+acquitte IF depuis un gestionnaire synthétique et reprend son exécution sur
+chacun des deux processeurs.
 
 Prochains jalons : compléter le jeu d'instructions, définir les timings et la
-synchronisation des deux CPU, puis contrôleur d'interruptions MMIO, IPC, vidéo
+synchronisation des deux CPU, puis timers, DMA, IPC, vidéo
 2D à deux écrans, entrées et audio.
 
 Aucun jeu ne tourne à ce stade. Le cœur n'est pas encore exposé par `Core`,

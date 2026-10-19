@@ -9,6 +9,8 @@
 #include <ravenemu/nds/machine.hpp>
 #include <ravenemu/nds/cpu.hpp>
 #include <ravenemu/nds/cpu_state.hpp>
+#include <ravenemu/nds/hardware.hpp>
+#include <ravenemu/nds/interrupts.hpp>
 
 #include <cstdio>
 
@@ -21,6 +23,12 @@ int main() {
     nds_cpu.step(nds.memory());
     if (nds_cpu.state().registers[15] != 0x02000000 || nds_cpu.state().instructions != 1) return 1;
     if (nds_cpu.state().mode != ravenemu::nds::CpuMode::system || nds_cpu.state().cpsr() != 0xdf) return 1;
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04000210, 8);
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04000208, 1);
+    nds.memory().request_interrupt(ravenemu::nds::Processor::arm9, 8);
+    if (!nds.memory().irq_pending(ravenemu::nds::Processor::arm9)) return 1;
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04000214, 8);
+    if (nds.memory().irq_pending(ravenemu::nds::Processor::arm9)) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};
