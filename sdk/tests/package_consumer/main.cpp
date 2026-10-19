@@ -63,6 +63,11 @@ int main() {
     nds.memory().write16(ravenemu::nds::Processor::arm9, 0x04000304, 0x8001);
     const auto nds_frame = nds.render_frame();
     if (nds_frame.upper.size() != 256 * 192 || nds_frame.upper[0] != 0x001f || nds_frame.lower[0] != 0x7fff) return 1;
+    nds.memory().write16(ravenemu::nds::Processor::arm9, 0x04000304, 0x8203);
+    nds.memory().write16(ravenemu::nds::Processor::arm9, 0x05000400, 0x7c00);
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04001000, 0x00010000);
+    const auto nds_two_engines = nds.render_frame();
+    if (nds_two_engines.upper[0] != 0x001f || nds_two_engines.lower[0] != 0x7c00) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

@@ -26,7 +26,7 @@ public:
     // ARM7 : 16 Kio aux vecteurs bas ; ARM9 : 4 Kio aux vecteurs hauts NDS.
     void load_bios(Processor cpu, std::span<const std::uint8_t> bytes);
     void clear_ram() noexcept; // remet aussi les périphériques à zéro ; conserve les BIOS
-    [[nodiscard]] VideoFrame render_frame() const { return video_.render_frame(display_control_, graphics_power_); }
+    [[nodiscard]] VideoFrame render_frame() const { return video_.render_frame(display_control_, graphics_power_, display_control_b_); }
     [[nodiscard]] bool dma_pending(Processor cpu) const noexcept;
     // Une unité 16/32 bits, sans cycles. Renvoie false si aucun DMA déclenché en attente.
     // Un échec préserve l'unité fautive ; les unités déjà terminées restent appliquées.
@@ -93,6 +93,7 @@ private:
     LcdTiming lcd_;
     VideoMemory video_;
     std::uint32_t display_control_{};
+    std::uint32_t display_control_b_{};
     std::uint16_t graphics_power_{};
     std::uint8_t wram_control_{};
 };

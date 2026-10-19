@@ -27,6 +27,7 @@ void Memory::clear_ram() noexcept {
     lcd_.reset();
     video_.reset();
     display_control_ = 0;
+    display_control_b_ = 0;
     graphics_power_ = 0;
 }
 
@@ -86,7 +87,7 @@ void Memory::validate_write(Processor cpu, std::uint32_t address, unsigned width
 
 void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width) {
     validate_write(cpu, address, width);
-    // STRB ARM9 vers VRAM est ignoré ; la VRAM de travail ARM7 accepte les octets.
+    // STRB ARM9 vers VRAM/palettes/OAM est ignoré ; la VRAM ARM7 accepte les octets.
     if (width == 1 && cpu == Processor::arm9 && video_.read_byte(cpu, address)) return;
     if (address == 0x04000188) {
         apply_ipc_interrupts(ipc_.send(cpu, value));

@@ -6,6 +6,7 @@ add_library(nds_raven_core STATIC
     src/video/lcd_timing.cpp
     src/video/vram.cpp
     src/video/frame.cpp
+    src/video/renderer.cpp
     src/interrupts/interrupt_controller.cpp
     src/ipc/ipc.cpp
     src/dma/dma_controller.cpp
@@ -78,4 +79,8 @@ if(BUILD_TESTING)
     target_include_directories(nds_video_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_video_tests PRIVATE nds_raven_core)
     add_test(NAME nds_video COMMAND nds_video_tests)
+    add_executable(nds_2d_tests tests/graphics_test.cpp)
+    target_include_directories(nds_2d_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_2d_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_2d COMMAND nds_2d_tests)
 endif()

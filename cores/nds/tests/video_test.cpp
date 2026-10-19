@@ -187,8 +187,9 @@ void frame_test() {
     memory.write8(arm9, dispcnt, 0x80);
     const auto blank = memory.render_frame();
     check(white(blank.upper) && white(blank.lower), "forced blank doit produire du blanc");
-    memory.write32(arm9, dispcnt, 0x00010000);
-    expect_failure<ravenemu::Error>([&] { static_cast<void>(memory.render_frame()); }, "couches 2D absentes affichées silencieusement");
+    memory.write16(arm9, power, 0x8003);
+    memory.write32(arm9, dispcnt, 0x00010007);
+    expect_failure<ravenemu::Error>([&] { static_cast<void>(memory.render_frame()); }, "mode BG réservé affiché silencieusement");
     memory.write32(arm9, dispcnt, 0x00030000);
     expect_failure<ravenemu::Error>([&] { static_cast<void>(memory.render_frame()); }, "affichage FIFO absent accepté");
     memory.write16(arm9, power, 0);

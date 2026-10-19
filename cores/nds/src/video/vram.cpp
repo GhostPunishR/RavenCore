@@ -10,7 +10,17 @@ constexpr std::array<std::uint8_t, 9> masks{0x9b, 0x9b, 0x9f, 0x9f, 0x87, 0x9f, 
 } // namespace
 
 VideoMemory::VideoMemory() : bytes_(0xa4000) {}
-void VideoMemory::reset() noexcept { std::fill(bytes_.begin(), bytes_.end(), 0); controls_ = {}; }
+void VideoMemory::reset() noexcept {
+    std::fill(bytes_.begin(), bytes_.end(), 0);
+    controls_ = {}; palettes_ = {}; oam_ = {}; registers_ = {}; power_ = 0;
+}
+
+void VideoMemory::write_register(unsigned engine, unsigned offset, std::uint8_t value) noexcept {
+    if (!(power_ & (engine == 0 ? 2U : 0x200U))) return;
+    if (offset >= 0x10 && offset < 0x20 && (offset & 1U)) value &= 1U;
+    if (offset == 0x2b || offset == 0x2f || offset == 0x3b || offset == 0x3f) value &= 15U;
+    registers_[engine][offset] = value;
+}
 
 std::uint8_t VideoMemory::control(VramBank bank) const noexcept {
     const auto number = static_cast<unsigned>(bank);
@@ -56,6 +66,13 @@ std::optional<std::uint32_t> VideoMemory::index(unsigned bank, Processor cpu, st
 }
 
 std::optional<std::uint8_t> VideoMemory::read_byte(Processor cpu, std::uint32_t address) const noexcept {
+    if (cpu == Processor::arm9) {
+        if (address >= 0x05000000 && address < 0x05000800) {
+            const auto offset = address - 0x05000000U;
+            return (power_ & (offset < 0x400 ? 2U : 0x200U)) ? palettes_[offset] : 0;
+        }
+        if (address >= 0x07000000 && address < 0x07000800) return oam_[address - 0x07000000U];
+    }
     if (address < 0x06000000 || address >= 0x068a4000) return std::nullopt;
     std::optional<std::uint8_t> value;
     for (unsigned bank = 0; bank < controls_.size(); ++bank)
@@ -64,6 +81,14 @@ std::optional<std::uint8_t> VideoMemory::read_byte(Processor cpu, std::uint32_t 
 }
 
 void VideoMemory::write_byte(Processor cpu, std::uint32_t address, std::uint8_t value) noexcept {
+    if (cpu == Processor::arm9) {
+        if (address >= 0x05000000 && address < 0x05000800) {
+            const auto offset = address - 0x05000000U;
+            if (power_ & (offset < 0x400 ? 2U : 0x200U)) palettes_[offset] = value;
+            return;
+        }
+        if (address >= 0x07000000 && address < 0x07000800) { oam_[address - 0x07000000U] = value; return; }
+    }
     for (unsigned bank = 0; bank < controls_.size(); ++bank)
         if (const auto physical = index(bank, cpu, address)) bytes_[*physical] = value;
 }

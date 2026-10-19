@@ -21,7 +21,7 @@ nds/
 │   ├── machine/          # assemblage des deux CPU et chargement
 │   ├── memory/           # bus RAM, miroirs et WRAM
 │   ├── timers/           # compteurs, préscalers et cascade
-│   └── video/            # horloge LCD, banques VRAM et affichage direct RGB555
+│   └── video/            # horloge LCD, VRAM, fonds et sprites des moteurs A/B
 └── tests/                # programmes et BIOS synthétiques
 ```
 
@@ -89,7 +89,8 @@ Ce chargement est une préparation expérimentale, pas une séquence de démarra
 BIOS : pas de firmware, de déchiffrement, de paramètres de démarrage, de copie
 de l'en-tête dans la RAM ni d'initialisation complète des registres CPU. Seuls les
 MMIO LCD, interruption, DMA, timers, IPC, VRAMCNT et WRAMCNT/WRAMSTAT sont présents.
-Les neuf banques VRAM ont des fenêtres CPU réaffectables. TCM, palettes, OAM, autres MMIO et
+Les neuf banques VRAM ont des fenêtres CPU réaffectables ; palettes et OAM
+standard des deux moteurs sont présentes. TCM, autres MMIO et
 comportements open-bus restent absents ; les accès non mappés lèvent `ravenemu::Error`. Les lectures ARM
 non alignées et leurs rotations ne sont pas encore prises en charge par le CPU.
 
@@ -204,8 +205,8 @@ Les périphériques émettent leurs événements par
 `Memory::request_interrupt(cpu, sources)`, où `sources` est un masque IF.
 Cette méthode sert aussi aux tests ; les timers alimentent IF lors de leur
 avancement explicite, l'IPC lors des échanges et les DMA à leur fin de transfert.
-Le LCD fournit les IRQ de balayage ; l'affichage direct VRAM est disponible
-sous forme d'instantané, sans moteur de couches 2D.
+Le LCD fournit les IRQ de balayage ; les moteurs A/B composent leurs fonds
+et sprites sous forme d'instantanés RGB555.
 Le CPU consulte la ligne du bus à chaque pas hors DMA :
 un gestionnaire qui acquitte IF supprime la demande avant le retour. Référence :
 [GBATEK, DS Interrupts](https://mgba-emu.github.io/gbatek/ds.html#dsinterrupts).
@@ -255,7 +256,7 @@ entre deux unités suspend le canal inférieur, qui conserve sa progression.
 Les copies chevauchantes lisent la RAM à chaque unité, sans copie préalable
 du bloc source. Les masques et miroirs RAM propres à chaque CPU s'appliquent.
 
-Le moteur accepte RAM et VRAM affectée au CPU comme sources ou destinations,
+Le moteur accepte RAM, VRAM affectée au CPU, palettes et OAM comme sources ou destinations,
 ainsi que DMAFILL ARM9 en source. Les quatre registres
 DMAFILL à `0x040000e0–0x040000ef` fournissent 16 octets lisibles et modifiables
 sur ARM9, utilisables comme source fixe. Les autres MMIO, BIOS, TCM et
@@ -291,7 +292,7 @@ deux écrans : 256 pixels visibles par ligne, 192 lignes visibles, 355 périodes
 de pixel par ligne et 263 lignes par image. Un pixel dure six cycles de
 l'horloge à `timer_clock_hz`, soit 2130 cycles par ligne et 560190 par image.
 Le modèle démarre à la ligne zéro, cycle zéro. Cette horloge n'effectue pas
-le rendu : `render_frame()` fournit séparément un instantané de l'affichage direct.
+le rendu : `render_frame()` fournit séparément un instantané des moteurs A/B.
 
 | Registre | Adresse | Comportement |
 | --- | --- | --- |
@@ -333,13 +334,12 @@ CPU restent à développer.
 
 Les écritures VCOUNT sont ignorées dans ce modèle : la resynchronisation
 par écriture disponible sur NDS n'est pas encore prise en charge. Les ports
-de statut du moteur B ne sont pas des registres séparés. Palettes, OAM et
-moteurs de couches 2D restent absents. Un chargement
+de statut du moteur B ne sont pas des registres séparés. Un chargement
 réussi ou `clear_ram()` remet le balayage et les contrôles à zéro ; une copie
 de machine conserve une horloge LCD indépendante. Référence :
 [GBATEK, DS Video Stuff](https://mgba-emu.github.io/gbatek/ds.html#dsvideostuff).
 
-## VRAM et premier affichage
+## VRAM et sortie vidéo
 
 `VideoMemory` possède les 656 Kio des neuf banques, conservés lors des
 changements d'affectation. Les registres VRAMCNT ARM9 sont accessibles par
@@ -396,20 +396,93 @@ bits 16–17 = 2) lit les 256×192 pixels contigus de la banque A–D sélection
 par les bits 18–19 ; cette banque doit être activée en LCDC, sinon le modèle
 lève une erreur. Le bit 15 des données VRAM est ignoré à l'affichage.
 
-POWCNT1 bit 15 route A vers le haut lorsqu'il vaut 1, vers le bas lorsqu'il
-vaut 0. L'autre écran reste blanc en attendant le moteur B. Le mode d'affichage
-0, forced blank (DISPCNT bit 7) et LCD désactivé (POWCNT1 bit 0 nul) produisent
-deux écrans blancs dans ce modèle. Les autres bits POWCNT1 sont stockés avec
-le masque `0x820f`, sans émulation complète de l'alimentation des moteurs.
+POWCNT1 bit 15 route A vers le haut et B vers le bas lorsqu'il vaut 1, et
+inverse les deux lorsqu'il vaut 0. Chaque moteur possède son mode d'affichage :
+DISPCNT A à `0x04000000`, DISPCNT B à `0x04001000`. Le mode 0 et forced blank
+(DISPCNT bit 7) produisent du blanc sur l'écran associé ; LCD désactivé
+(POWCNT1 bit 0 nul) produit deux écrans blancs dans ce modèle.
 
-Les modes graphiques 1 et FIFO 3 lèvent une erreur lors du rendu, sauf pendant
-le blanc ou l'extinction. Couches, sprites, palettes, OAM, moteur B, luminosité
-maître, capture et 3D restent à développer. L'instantané lit toute l'image au
+Le mode graphique 1 compose les fonds et sprites décrits ci-dessous ; le
+mode FIFO 3 reste refusé. Luminosité maître, capture et 3D restent absentes.
+L'instantané lit toute l'image au
 moment de l'appel : il n'émule pas les changements de pixels pendant le
 balayage ni la présentation automatique à VBlank. Une copie de machine possède
 ses propres octets et contrôles VRAM ; un chargement réussi les remet à zéro,
 un échec les conserve. Référence :
 [GBATEK, DS Memory Control — VRAM](https://mgba-emu.github.io/gbatek/ds.html#dsmemorycontrolvram).
+
+## Fonds 2D, sprites et moteur B
+
+Les deux moteurs rendent des images indépendantes de 256×192 pixels. Leurs
+registres BG se trouvent à `0x04000008–0x0400003f` pour A et
+`0x04001008–0x0400103f` pour B : BG0CNT à BG3CNT, défilements HOFS/VOFS et
+matrices/références affines BG2/BG3. Les valeurs du modèle sont relisibles ;
+les défilements sont masqués sur 9 bits et les références sur 28 bits signés.
+DISPCNT B masque les fonctions réservées à A, avec `0xc0b1fff7`.
+
+POWCNT1 bits 1 et 9 activent les moteurs A et B. Désactiver un moteur ignore
+les écritures à ses ports BG et à sa palette ; les ports restent lisibles et
+la palette se lit zéro. Réactiver le moteur retrouve les valeurs conservées.
+Un moteur graphique éteint produit du blanc dans ce modèle ; l'affichage
+direct VRAM A conserve son chemin distinct. Les autres bits POWCNT1 sont
+stockés avec le masque `0x820f`, sans simulation des circuits 3D.
+
+| Mémoire ARM9 | Moteur A | Moteur B |
+| --- | --- | --- |
+| Palette BG, 256 couleurs | `0x05000000` | `0x05000400` |
+| Palette OBJ, 256 couleurs | `0x05000200` | `0x05000600` |
+| OAM, 128 entrées de 8 octets | `0x07000000` | `0x07000400` |
+
+Ces fenêtres canoniques acceptent les accès CPU/DMA 16 et 32 bits ; STRB est
+ignoré et ARM7 n'y accède pas. L'OAM est conservée indépendamment de
+l'activation du moteur. Les miroirs supplémentaires ne sont pas modélisés.
+
+| Mode BG | BG0 | BG1 | BG2 | BG3 |
+| --- | --- | --- | --- | --- |
+| 0 | Texte | Texte | Texte | Texte |
+| 1 | Texte | Texte | Texte | Affine |
+| 2 | Texte | Texte | Affine | Affine |
+| 3 | Texte | Texte | Texte | Étendu |
+| 4 | Texte | Texte | Affine | Étendu |
+| 5 | Texte | Texte | Étendu | Étendu |
+| 6, A uniquement | 3D absente | — | Grand bitmap indexé | — |
+
+Les fonds texte prennent en charge les tuiles 4/8 bpp, les banques de palette
+4 bpp, les flips H/V, le défilement avec bouclage et les cartes 256×256,
+512×256, 256×512 ou 512×512 organisées par blocs. A combine les bases de
+caractères/cartes de DISPCNT avec BGxCNT ; B utilise BGxCNT seul.
+
+Les fonds affines classiques utilisent des cartes à entrées 8 bits et des
+tuiles 8 bpp. Les fonds étendus proposent cartes affines 16 bits à tuiles
+8 bpp, bitmaps indexés 8 bpp ou bitmaps RGB555 avec transparence par bit 15.
+Les matrices signées 8.8, références signées 20.8, clipping et bouclage sont
+appliqués à l'instantané. Les grands bitmaps A atteignent 512 Kio ; les
+bitmaps B dépassant ses 128 Kio sont refusés. Le mode 6 B et le mode 7 sont
+réservés. Une couche BG0 sélectionnée en 3D reste refusée.
+
+Les OBJ tuilés utilisent les palettes standard 4/8 bpp, les trois formes et
+quatre tailles OAM, les flips H/V et les positions avec wrap horizontal/vertical.
+Le mapping 2D utilise des rangées de 1024 octets ; le mapping 1D utilise les
+frontières NDS de 32/64/128 octets, ou 256 octets sur A. Les 32 matrices OAM
+permettent rotation/échelle et boîtes doubles avec clipping de la source.
+Le wrap NDS peut afficher un grand OBJ affine à la fois en haut et en bas.
+
+La composition compare d'abord les priorités BG/OBJ (0 est la plus haute).
+À égalité, OBJ précède BG, BG0 précède BG1 à BG3 et le plus petit indice OAM
+précède les autres OBJ. Contrairement au comportement GBA historique, une
+priorité OBJ plus haute peut donc passer devant un OBJ de plus petit indice.
+L'indice de couleur zéro est transparent ; la couleur BG standard zéro sert
+de backdrop. Un noir provenant d'un indice non nul reste opaque.
+
+Fenêtres, mosaïque, mélanges/effets de couleur, palettes étendues et OBJ
+semi-transparents/fenêtre/bitmap restent à développer. Les variantes actives
+non prises en charge lèvent une erreur plutôt que de produire une image
+partiellement correcte ; leurs registres supplémentaires ne sont pas encore
+mappés. Le moteur ne reproduit pas les limites de pixels OBJ par ligne ni
+les modifications de registres au cours du balayage. Copies et chargements
+conservent ou réinitialisent palettes, OAM et registres comme les autres états
+NDS. Références : [GBATEK, DS Video BG Modes](https://mgba-emu.github.io/gbatek/ds.html#dsvideobgmodescontrol)
+et [DS Video OBJs](https://mgba-emu.github.io/gbatek/ds.html#dsvideoobjs).
 
 ## Timers
 
@@ -586,10 +659,15 @@ traitent un VBlank réel, exécutent la copie avant l'IRQ et reprennent après a
 réaffectations ARM9/ARM7, les superpositions, les accès DMA et les erreurs
 sans écriture partielle. Un programme ARM configure VRAMCNT/DISPCNT/POWCNT1
 et copie par DMA une image RGB555 de 256×192 pixels, vérifiée pixel par pixel.
+`nds_2d` couvre les registres A/B, palettes/OAM, l'extinction, les cartes
+texte, transparences et priorités, références affines négatives, bitmaps,
+sprites 1D/2D, flips, matrices et wrap NDS. Un programme ARM construit deux
+scènes BG/OBJ indépendantes, vérifiées sur les deux images complètes, puis
+permute les écrans ; copies et échecs de chargement doivent les préserver.
 
 Prochains jalons : compléter le jeu d'instructions, définir les timings et la
-synchronisation des deux CPU, DMA et timers, puis couches 2D, palettes,
-sprites et moteur B, entrées et audio.
+synchronisation des deux CPU, DMA et timers, puis fenêtres, effets et palettes
+étendues, entrées et audio.
 
 Aucun jeu ne tourne à ce stade. Le cœur n'est pas encore exposé par `Core`,
 le SDK ou Libretro : ces interfaces viendront avec une exécution fonctionnelle.

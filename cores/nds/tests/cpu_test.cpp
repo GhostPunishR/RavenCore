@@ -373,16 +373,16 @@ void fault_test(Processor processor) {
         expect_failure<CpuExecutionError>([&] { cpu.step(memory); }, "instruction Thumb absente ignorée");
         check(cpu.state() == before, "instruction Thumb refusée a modifié le CPU");
     }
-    cpu.reset(0x04000008, false);
+    cpu.reset(0x04000060, false);
     try {
         cpu.step(memory);
         check(false, "fetch hors RAM accepté");
     } catch (const CpuExecutionError& error) {
-        check(!error.instruction() && error.address() == 0x04000008, "erreur fetch : opcode doit être absent");
+        check(!error.instruction() && error.address() == 0x04000060, "erreur fetch : opcode doit être absent");
     }
     memory.set_wram_control(3);
     cpu.reset(base, false);
-    cpu.set_register(0, 0x04000004);
+    cpu.set_register(0, 0x0400005c);
     cpu.set_register(1, 0x12345678);
     memory.write32(processor, base, 0xe5a01004); // STR r1,[r0,#4]! vers MMIO
     {

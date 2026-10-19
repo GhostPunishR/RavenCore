@@ -20,6 +20,11 @@ void Memory::apply_ipc_interrupts(Ipc::Interrupts sources) noexcept {
 
 std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address) const noexcept {
     if (cpu == Processor::arm9) {
+        if (address >= 0x04001000 && address <= 0x04001003)
+            return static_cast<std::uint8_t>(display_control_b_ >> ((address & 3U) * 8U));
+        if ((address >= 0x04000008 && address <= 0x0400003f) ||
+            (address >= 0x04001008 && address <= 0x0400103f))
+            return video_.registers_[(address >> 12U) & 1U][address & 0x3fU];
         if (address >= 0x04000000 && address <= 0x04000003)
             return static_cast<std::uint8_t>(display_control_ >> ((address & 3U) * 8U));
         if (address >= 0x04000240 && address <= 0x04000249 && address != 0x04000247)
@@ -55,6 +60,17 @@ std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address
 
 void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t value) noexcept {
     if (cpu == Processor::arm9) {
+        if (address >= 0x04001000 && address <= 0x04001003) {
+            const auto shift = (address & 3U) * 8U;
+            display_control_b_ = ((display_control_b_ & ~(0xffU << shift)) |
+                (static_cast<std::uint32_t>(value) << shift)) & 0xc0b1fff7U;
+            return;
+        }
+        if ((address >= 0x04000008 && address <= 0x0400003f) ||
+            (address >= 0x04001008 && address <= 0x0400103f)) {
+            video_.write_register((address >> 12U) & 1U, address & 0x3fU, value);
+            return;
+        }
         if (address >= 0x04000000 && address <= 0x04000003) {
             const auto shift = (address & 3U) * 8U;
             display_control_ = (display_control_ & ~(0xffU << shift)) | (static_cast<std::uint32_t>(value) << shift);
@@ -69,6 +85,7 @@ void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t va
             const auto bits = (static_cast<std::uint32_t>(graphics_power_) & ~(0xffU << shift)) |
                 (static_cast<std::uint32_t>(value) << shift);
             graphics_power_ = static_cast<std::uint16_t>(bits & 0x820fU);
+            video_.power_ = graphics_power_;
             return;
         }
     }

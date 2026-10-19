@@ -55,7 +55,7 @@ void wram_test() {
 
 void rejected_access_test() {
     Memory ram;
-    for (const auto address : {0U, 0x01ffffffU, 0x04000008U, 0x0400024cU, 0xffffffffU}) {
+    for (const auto address : {0U, 0x01ffffffU, 0x04000060U, 0x0400024cU, 0xffffffffU}) {
         expect_failure<ravenemu::Error>([&] { static_cast<void>(ram.read8(arm9, address)); },
                                        "lecture hors RAM acceptée");
         expect_failure<ravenemu::Error>([&] { ram.write8(arm7, address, 1); },
