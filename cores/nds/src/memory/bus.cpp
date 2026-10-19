@@ -25,6 +25,9 @@ void Memory::clear_ram() noexcept {
     arm7_dma_.reset();
     dma_fill_ = {};
     lcd_.reset();
+    video_.reset();
+    display_control_ = 0;
+    graphics_power_ = 0;
 }
 
 std::size_t Memory::index(Processor cpu, std::uint32_t address) const {
@@ -57,7 +60,8 @@ std::uint32_t Memory::peek(Processor cpu, std::uint32_t address, unsigned width)
         const auto io = io_byte(cpu, address + i);
         if (io) { value |= static_cast<std::uint32_t>(*io) << (8U * i); continue; }
         const auto bios = bios_byte(cpu, address + i);
-        const auto byte = bios ? *bios : ram_[index(cpu, address + i)];
+        const auto video = video_.read_byte(cpu, address + i);
+        const auto byte = bios ? *bios : (video ? *video : ram_[index(cpu, address + i)]);
         value |= static_cast<std::uint32_t>(byte) << (8U * i);
     }
     return value;
@@ -77,11 +81,13 @@ void Memory::validate_write(Processor cpu, std::uint32_t address, unsigned width
     if ((address & (width - 1U)) != 0) throw Error("NDS : accès RAM non aligné");
     if (address == 0x04000188 && width == 4) return;
     for (unsigned i = 0; i < width; ++i)
-        if (!io_byte(cpu, address + i)) static_cast<void>(index(cpu, address + i));
+        if (!io_byte(cpu, address + i) && !video_.read_byte(cpu, address + i)) static_cast<void>(index(cpu, address + i));
 }
 
 void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width) {
     validate_write(cpu, address, width);
+    // STRB ARM9 vers VRAM est ignoré ; la VRAM de travail ARM7 accepte les octets.
+    if (width == 1 && cpu == Processor::arm9 && video_.read_byte(cpu, address)) return;
     if (address == 0x04000188) {
         apply_ipc_interrupts(ipc_.send(cpu, value));
         return;
@@ -89,6 +95,7 @@ void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, un
     for (unsigned i = 0; i < width; ++i) {
         const auto byte = static_cast<std::uint8_t>(value >> (8U * i));
         if (io_byte(cpu, address + i)) write_io_byte(cpu, address + i, byte);
+        else if (video_.read_byte(cpu, address + i)) video_.write_byte(cpu, address + i, byte);
         else ram_[index(cpu, address + i)] = byte;
     }
 }

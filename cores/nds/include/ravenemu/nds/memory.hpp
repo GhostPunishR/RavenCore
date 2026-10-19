@@ -5,6 +5,7 @@
 #include <ravenemu/nds/ipc.hpp>
 #include <ravenemu/nds/dma.hpp>
 #include <ravenemu/nds/lcd_timing.hpp>
+#include <ravenemu/nds/video.hpp>
 
 #include <cstddef>
 #include <array>
@@ -25,6 +26,7 @@ public:
     // ARM7 : 16 Kio aux vecteurs bas ; ARM9 : 4 Kio aux vecteurs hauts NDS.
     void load_bios(Processor cpu, std::span<const std::uint8_t> bytes);
     void clear_ram() noexcept; // remet aussi les périphériques à zéro ; conserve les BIOS
+    [[nodiscard]] VideoFrame render_frame() const { return video_.render_frame(display_control_, graphics_power_); }
     [[nodiscard]] bool dma_pending(Processor cpu) const noexcept;
     // Une unité 16/32 bits, sans cycles. Renvoie false si aucun DMA déclenché en attente.
     // Un échec préserve l'unité fautive ; les unités déjà terminées restent appliquées.
@@ -89,6 +91,9 @@ private:
     DmaController arm7_dma_{Processor::arm7};
     std::array<std::uint8_t, 16> dma_fill_{};
     LcdTiming lcd_;
+    VideoMemory video_;
+    std::uint32_t display_control_{};
+    std::uint16_t graphics_power_{};
     std::uint8_t wram_control_{};
 };
 

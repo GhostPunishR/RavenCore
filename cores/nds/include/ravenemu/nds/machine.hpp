@@ -27,6 +27,7 @@ public:
     void load_cartridge(const Cartridge& cartridge);
     [[nodiscard]] Memory& memory() noexcept { return memory_; }
     [[nodiscard]] const Memory& memory() const noexcept { return memory_; }
+    [[nodiscard]] VideoFrame render_frame() const { return memory_.render_frame(); }
     [[nodiscard]] const std::optional<BootEntries>& entries() const noexcept { return entries_; }
     [[nodiscard]] const CpuState& cpu_state(Processor cpu) const noexcept;
     void set_interrupt_lines(Processor cpu, bool irq, bool fiq = false) noexcept;

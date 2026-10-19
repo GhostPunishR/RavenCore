@@ -14,6 +14,7 @@
 #include <ravenemu/nds/ipc.hpp>
 #include <ravenemu/nds/dma.hpp>
 #include <ravenemu/nds/lcd_timing.hpp>
+#include <ravenemu/nds/video.hpp>
 
 #include <cstdio>
 
@@ -56,6 +57,12 @@ int main() {
         !(nds_view.peek32(ravenemu::nds::Processor::arm9, 0x04000214) & 2U)) return 1;
     nds.advance_cycles(70);
     if (!(nds_view.peek16(ravenemu::nds::Processor::arm9, 0x04000004) & 2U)) return 1;
+    nds.memory().write8(ravenemu::nds::Processor::arm9, 0x04000240, 0x80);
+    nds.memory().write16(ravenemu::nds::Processor::arm9, 0x06800000, 0x801f);
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04000000, 0x00020000);
+    nds.memory().write16(ravenemu::nds::Processor::arm9, 0x04000304, 0x8001);
+    const auto nds_frame = nds.render_frame();
+    if (nds_frame.upper.size() != 256 * 192 || nds_frame.upper[0] != 0x001f || nds_frame.lower[0] != 0x7fff) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

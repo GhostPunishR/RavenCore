@@ -1,0 +1,71 @@
+#include <ravenemu/nds/video.hpp>
+
+#include <algorithm>
+
+namespace ravenemu::nds {
+namespace {
+constexpr std::array<std::uint32_t, 9> starts{0, 0x20000, 0x40000, 0x60000, 0x80000, 0x90000, 0x94000, 0x98000, 0xa0000};
+constexpr std::array<std::uint32_t, 9> sizes{0x20000, 0x20000, 0x20000, 0x20000, 0x10000, 0x4000, 0x4000, 0x8000, 0x4000};
+constexpr std::array<std::uint8_t, 9> masks{0x9b, 0x9b, 0x9f, 0x9f, 0x87, 0x9f, 0x9f, 0x83, 0x83};
+} // namespace
+
+VideoMemory::VideoMemory() : bytes_(0xa4000) {}
+void VideoMemory::reset() noexcept { std::fill(bytes_.begin(), bytes_.end(), 0); controls_ = {}; }
+
+std::uint8_t VideoMemory::control(VramBank bank) const noexcept {
+    const auto number = static_cast<unsigned>(bank);
+    return number < controls_.size() ? controls_[number] : 0;
+}
+
+void VideoMemory::set_control(VramBank bank, std::uint8_t value) noexcept {
+    const auto number = static_cast<unsigned>(bank);
+    if (number < controls_.size()) controls_[number] = value & masks[number];
+}
+
+std::uint8_t VideoMemory::arm7_status() const noexcept {
+    return static_cast<std::uint8_t>(((controls_[2] & 0x87U) == 0x82U ? 1U : 0U) |
+                                     ((controls_[3] & 0x87U) == 0x82U ? 2U : 0U));
+}
+
+std::optional<std::uint32_t> VideoMemory::index(unsigned bank, Processor cpu, std::uint32_t address) const noexcept {
+    const auto control = controls_[bank];
+    if (!(control & 0x80U)) return std::nullopt;
+    const auto mode = control & 7U;
+    const auto offset = (control >> 3U) & 3U;
+    std::optional<std::uint32_t> base;
+    if (cpu == Processor::arm7) {
+        if ((bank == 2 || bank == 3) && mode == 2 && offset < 2) base = 0x06000000U + offset * 0x20000U;
+    } else if (mode == 0) base = 0x06800000U + starts[bank];
+    else if (mode == 1) {
+        if (bank < 4) base = 0x06000000U + offset * 0x20000U;
+        else if (bank == 4) base = 0x06000000U;
+        else if (bank == 5 || bank == 6) base = 0x06000000U + (offset & 1U) * 0x4000U + (offset & 2U) * 0x8000U;
+        else if (bank == 7) base = 0x06200000U;
+        else base = 0x06208000U;
+    } else if (mode == 2) {
+        if (bank < 2 && offset < 2) base = 0x06400000U + offset * 0x20000U;
+        else if (bank == 4) base = 0x06400000U;
+        else if (bank == 5 || bank == 6) base = 0x06400000U + (offset & 1U) * 0x4000U + (offset & 2U) * 0x8000U;
+        else if (bank == 8) base = 0x06600000U;
+    } else if (mode == 4) {
+        if (bank == 2) base = 0x06200000U;
+        else if (bank == 3) base = 0x06600000U;
+    }
+    if (!base || address < *base || address - *base >= sizes[bank]) return std::nullopt;
+    return starts[bank] + address - *base;
+}
+
+std::optional<std::uint8_t> VideoMemory::read_byte(Processor cpu, std::uint32_t address) const noexcept {
+    if (address < 0x06000000 || address >= 0x068a4000) return std::nullopt;
+    std::optional<std::uint8_t> value;
+    for (unsigned bank = 0; bank < controls_.size(); ++bank)
+        if (const auto physical = index(bank, cpu, address)) value = static_cast<std::uint8_t>(value.value_or(0) | bytes_[*physical]);
+    return value;
+}
+
+void VideoMemory::write_byte(Processor cpu, std::uint32_t address, std::uint8_t value) noexcept {
+    for (unsigned bank = 0; bank < controls_.size(); ++bank)
+        if (const auto physical = index(bank, cpu, address)) bytes_[*physical] = value;
+}
+
+} // namespace ravenemu::nds

@@ -27,11 +27,11 @@ bool Memory::step_dma(Processor cpu) {
         if (((transfer->control >> 23U) & 3U) == 3U) throw Error("mode source DMA réservé");
         const auto width = (transfer->control & 0x04000000U) ? 4U : 2U;
         const bool fill = cpu == Processor::arm9 && transfer->source >= 0x040000e0 && transfer->source < 0x040000f0;
-        // Ce premier moteur accepte RAM -> RAM et DMAFILL ARM9 -> RAM.
+        // RAM, VRAM affectée au CPU, et DMAFILL ARM9 en source.
         // Valider les deux extrémités avant toute écriture ou avancée de canal.
         for (unsigned i = 0; i < width; ++i) {
-            if (!fill) static_cast<void>(index(cpu, transfer->source + i));
-            static_cast<void>(index(cpu, transfer->destination + i));
+            if (!fill && !video_.read_byte(cpu, transfer->source + i)) static_cast<void>(index(cpu, transfer->source + i));
+            if (!video_.read_byte(cpu, transfer->destination + i)) static_cast<void>(index(cpu, transfer->destination + i));
         }
         const auto value = peek(cpu, transfer->source, width);
         write(cpu, transfer->destination, value, width);

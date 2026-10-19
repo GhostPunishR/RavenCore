@@ -4,6 +4,7 @@ La cible C++20 `nds_raven_core` prépare le futur moteur Nintendo DS.
 Elle expose `ravenemu::nds::Cartridge`, `Memory`, `Cpu`, `CpuState` et `Machine`, dans
 `<ravenemu/nds/{cartridge,memory,cpu,machine}.hpp>` ; elle est aussi liée par `RavenCore::ravencore`.
 L'état et les modes CPU sont déclarés dans `<ravenemu/nds/cpu_state.hpp>`.
+Les premiers instantanés vidéo RGB555 sont déclarés dans `<ravenemu/nds/video.hpp>`.
 
 ## Organisation
 
@@ -20,7 +21,7 @@ nds/
 │   ├── machine/          # assemblage des deux CPU et chargement
 │   ├── memory/           # bus RAM, miroirs et WRAM
 │   ├── timers/           # compteurs, préscalers et cascade
-│   └── video/            # horloge LCD, DISPSTAT et VCOUNT ; pas de rendu
+│   └── video/            # horloge LCD, banques VRAM et affichage direct RGB555
 └── tests/                # programmes et BIOS synthétiques
 ```
 
@@ -87,7 +88,8 @@ CPU démarrent en System avec I/F masqués. Les images BIOS déjà fournies sont
 Ce chargement est une préparation expérimentale, pas une séquence de démarrage
 BIOS : pas de firmware, de déchiffrement, de paramètres de démarrage, de copie
 de l'en-tête dans la RAM ni d'initialisation complète des registres CPU. Seuls les
-MMIO LCD, interruption, DMA, timers, IPC et WRAMCNT/WRAMSTAT sont présents. TCM, VRAM, autres MMIO et
+MMIO LCD, interruption, DMA, timers, IPC, VRAMCNT et WRAMCNT/WRAMSTAT sont présents.
+Les neuf banques VRAM ont des fenêtres CPU réaffectables. TCM, palettes, OAM, autres MMIO et
 comportements open-bus restent absents ; les accès non mappés lèvent `ravenemu::Error`. Les lectures ARM
 non alignées et leurs rotations ne sont pas encore prises en charge par le CPU.
 
@@ -202,7 +204,8 @@ Les périphériques émettent leurs événements par
 `Memory::request_interrupt(cpu, sources)`, où `sources` est un masque IF.
 Cette méthode sert aussi aux tests ; les timers alimentent IF lors de leur
 avancement explicite, l'IPC lors des échanges et les DMA à leur fin de transfert.
-Le LCD fournit les IRQ de balayage ; le rendu reste absent.
+Le LCD fournit les IRQ de balayage ; l'affichage direct VRAM est disponible
+sous forme d'instantané, sans moteur de couches 2D.
 Le CPU consulte la ligne du bus à chaque pas hors DMA :
 un gestionnaire qui acquitte IF supprime la demande avant le retour. Référence :
 [GBATEK, DS Interrupts](https://mgba-emu.github.io/gbatek/ds.html#dsinterrupts).
@@ -252,9 +255,10 @@ entre deux unités suspend le canal inférieur, qui conserve sa progression.
 Les copies chevauchantes lisent la RAM à chaque unité, sans copie préalable
 du bloc source. Les masques et miroirs RAM propres à chaque CPU s'appliquent.
 
-Ce jalon accepte RAM vers RAM et DMAFILL ARM9 vers RAM. Les quatre registres
+Le moteur accepte RAM et VRAM affectée au CPU comme sources ou destinations,
+ainsi que DMAFILL ARM9 en source. Les quatre registres
 DMAFILL à `0x040000e0–0x040000ef` fournissent 16 octets lisibles et modifiables
-sur ARM9, utilisables comme source fixe. Les autres MMIO, BIOS, TCM, VRAM et
+sur ARM9, utilisables comme source fixe. Les autres MMIO, BIOS, TCM et
 cartouches ne sont pas des extrémités DMA prises en charge. Un accès refusé
 ou le mode source réservé lève `DmaTransferError`, avec CPU, canal, adresses
 et compteur restant. Les deux extrémités sont validées avant chaque unité :
@@ -286,7 +290,8 @@ canaux et DMAFILL à zéro. Référence :
 deux écrans : 256 pixels visibles par ligne, 192 lignes visibles, 355 périodes
 de pixel par ligne et 263 lignes par image. Un pixel dure six cycles de
 l'horloge à `timer_clock_hz`, soit 2130 cycles par ligne et 560190 par image.
-Le modèle démarre à la ligne zéro, cycle zéro ; il ne produit pas encore de pixels.
+Le modèle démarre à la ligne zéro, cycle zéro. Cette horloge n'effectue pas
+le rendu : `render_frame()` fournit séparément un instantané de l'affichage direct.
 
 | Registre | Adresse | Comportement |
 | --- | --- | --- |
@@ -328,11 +333,83 @@ CPU restent à développer.
 
 Les écritures VCOUNT sont ignorées dans ce modèle : la resynchronisation
 par écriture disponible sur NDS n'est pas encore prise en charge. Les ports
-de statut du moteur B ne sont pas des registres séparés. VRAM, palettes,
-moteurs 2D, affichage et rendu des deux écrans restent absents. Un chargement
+de statut du moteur B ne sont pas des registres séparés. Palettes, OAM et
+moteurs de couches 2D restent absents. Un chargement
 réussi ou `clear_ram()` remet le balayage et les contrôles à zéro ; une copie
 de machine conserve une horloge LCD indépendante. Référence :
 [GBATEK, DS Video Stuff](https://mgba-emu.github.io/gbatek/ds.html#dsvideostuff).
+
+## VRAM et premier affichage
+
+`VideoMemory` possède les 656 Kio des neuf banques, conservés lors des
+changements d'affectation. Les registres VRAMCNT ARM9 sont accessibles par
+octet, avec masques propres aux banques ; les accès alignés 16/32 bits suivent
+les voies consécutives, y compris WRAMCNT intercalé à `0x04000247`.
+
+| Banque | Taille | VRAMCNT | Adresse en mode LCDC ARM9 |
+| --- | --- | --- | --- |
+| A | 128 Kio | `0x04000240` | `0x06800000` |
+| B | 128 Kio | `0x04000241` | `0x06820000` |
+| C | 128 Kio | `0x04000242` | `0x06840000` |
+| D | 128 Kio | `0x04000243` | `0x06860000` |
+| E | 64 Kio | `0x04000244` | `0x06880000` |
+| F | 16 Kio | `0x04000245` | `0x06890000` |
+| G | 16 Kio | `0x04000246` | `0x06894000` |
+| H | 32 Kio | `0x04000248` | `0x06898000` |
+| I | 16 Kio | `0x04000249` | `0x068a0000` |
+
+VRAMCNT bit 7 active la banque ; MST et OFS choisissent son affectation.
+Le mode LCDC (MST 0) utilise les adresses du tableau. Les affectations BG/OBJ
+ARM9 suivent GBATEK : fenêtres principales `0x06000000`/`0x06400000`, secondaires
+`0x06200000`/`0x06600000`, avec offsets propres aux banques. Les textures et
+palettes étendues conservent leurs octets mais n'ont pas de fenêtre CPU.
+Les miroirs supplémentaires de VRAM ne sont pas encore modélisés.
+
+C/D peuvent être allouées comme RAM de travail ARM7 (MST 2), à `0x06000000`
+ou `0x06020000` selon OFS. `VRAMSTAT` ARM7 à `0x04000240` rapporte leur
+allocation dans les bits 0/1, indépendamment d'OFS ; ses écritures sont ignorées.
+Une banque affectée à ARM7 n'est plus lisible par ARM9. Les configurations
+réservées n'exposent aucune fenêtre CPU. Un accès sans banque mappée lève une
+erreur, sans simulation d'open-bus.
+
+Des banques superposées combinent leurs octets par OU à la lecture et reçoivent
+toutes les écritures. Les écritures 16/32 bits fonctionnent sur les fenêtres
+CPU et par DMA. STRB ARM9 est ignoré ; STRB ARM7 fonctionne sur C/D en RAM de
+travail. Les transferts multiples valident leurs destinations avant écriture ;
+les DMA conservent leur garantie par unité en cas de banque suivante non mappée.
+
+```cpp
+using ravenemu::nds::Processor;
+auto& bus = machine.memory();
+bus.write8(Processor::arm9, 0x04000240, 0x80); // banque A en LCDC
+bus.write16(Processor::arm9, 0x06800000, 0x001f); // premier pixel rouge
+bus.write32(Processor::arm9, 0x04000000, 0x00020000); // DISPCNT A, affichage VRAM
+bus.write16(Processor::arm9, 0x04000304, 0x8001); // LCD actif, A vers écran supérieur
+const auto frame = machine.render_frame();
+// frame.upper et frame.lower : chacun 256*192 valeurs RGB555 indépendantes
+```
+
+`Memory::render_frame()` et `Machine::render_frame()` retournent un `VideoFrame`
+sans avancer le LCD, les CPU ou les DMA. Chaque pixel est un entier 16 bits :
+rouge bits 0–4, vert 5–9, bleu 10–14, bit 15 nul. L'affichage direct (DISPCNT A
+bits 16–17 = 2) lit les 256×192 pixels contigus de la banque A–D sélectionnée
+par les bits 18–19 ; cette banque doit être activée en LCDC, sinon le modèle
+lève une erreur. Le bit 15 des données VRAM est ignoré à l'affichage.
+
+POWCNT1 bit 15 route A vers le haut lorsqu'il vaut 1, vers le bas lorsqu'il
+vaut 0. L'autre écran reste blanc en attendant le moteur B. Le mode d'affichage
+0, forced blank (DISPCNT bit 7) et LCD désactivé (POWCNT1 bit 0 nul) produisent
+deux écrans blancs dans ce modèle. Les autres bits POWCNT1 sont stockés avec
+le masque `0x820f`, sans émulation complète de l'alimentation des moteurs.
+
+Les modes graphiques 1 et FIFO 3 lèvent une erreur lors du rendu, sauf pendant
+le blanc ou l'extinction. Couches, sprites, palettes, OAM, moteur B, luminosité
+maître, capture et 3D restent à développer. L'instantané lit toute l'image au
+moment de l'appel : il n'émule pas les changements de pixels pendant le
+balayage ni la présentation automatique à VBlank. Une copie de machine possède
+ses propres octets et contrôles VRAM ; un chargement réussi les remet à zéro,
+un échec les conserve. Référence :
+[GBATEK, DS Memory Control — VRAM](https://mgba-emu.github.io/gbatek/ds.html#dsmemorycontrolvram).
 
 ## Timers
 
@@ -505,10 +582,14 @@ traitent l'IRQ de fin depuis un BIOS synthétique et reprennent leur exécution.
 à chaque CPU, les grands intervalles et les DMA VBlank/HBlank répétés avec
 rechargement de destination. Deux programmes ARM configurent LCD et DMA,
 traitent un VBlank réel, exécutent la copie avant l'IRQ et reprennent après acquittement.
+`nds_video` vérifie les neuf banques, leurs masques et fenêtres CPU, les
+réaffectations ARM9/ARM7, les superpositions, les accès DMA et les erreurs
+sans écriture partielle. Un programme ARM configure VRAMCNT/DISPCNT/POWCNT1
+et copie par DMA une image RGB555 de 256×192 pixels, vérifiée pixel par pixel.
 
 Prochains jalons : compléter le jeu d'instructions, définir les timings et la
-synchronisation des deux CPU, DMA et timers, puis mémoire vidéo et rendu
-2D à deux écrans, entrées et audio.
+synchronisation des deux CPU, DMA et timers, puis couches 2D, palettes,
+sprites et moteur B, entrées et audio.
 
 Aucun jeu ne tourne à ce stade. Le cœur n'est pas encore exposé par `Core`,
 le SDK ou Libretro : ces interfaces viendront avec une exécution fonctionnelle.

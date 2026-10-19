@@ -19,6 +19,14 @@ void Memory::apply_ipc_interrupts(Ipc::Interrupts sources) noexcept {
 }
 
 std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address) const noexcept {
+    if (cpu == Processor::arm9) {
+        if (address >= 0x04000000 && address <= 0x04000003)
+            return static_cast<std::uint8_t>(display_control_ >> ((address & 3U) * 8U));
+        if (address >= 0x04000240 && address <= 0x04000249 && address != 0x04000247)
+            return video_.control(static_cast<VramBank>(address - 0x04000240U - (address >= 0x04000248 ? 1U : 0U)));
+        if (address >= 0x04000304 && address <= 0x04000307)
+            return static_cast<std::uint8_t>(static_cast<std::uint32_t>(graphics_power_) >> ((address & 3U) * 8U));
+    } else if (address == 0x04000240) return video_.arm7_status();
     if (address == 0x04000004 || address == 0x04000005)
         return static_cast<std::uint8_t>(lcd_.status(cpu) >> ((address & 1U) * 8U));
     if (address == 0x04000006 || address == 0x04000007)
@@ -46,6 +54,24 @@ std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address
 }
 
 void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t value) noexcept {
+    if (cpu == Processor::arm9) {
+        if (address >= 0x04000000 && address <= 0x04000003) {
+            const auto shift = (address & 3U) * 8U;
+            display_control_ = (display_control_ & ~(0xffU << shift)) | (static_cast<std::uint32_t>(value) << shift);
+            return;
+        }
+        if (address >= 0x04000240 && address <= 0x04000249 && address != 0x04000247) {
+            video_.set_control(static_cast<VramBank>(address - 0x04000240U - (address >= 0x04000248 ? 1U : 0U)), value);
+            return;
+        }
+        if (address >= 0x04000304 && address <= 0x04000307) {
+            const auto shift = (address & 3U) * 8U;
+            const auto bits = (static_cast<std::uint32_t>(graphics_power_) & ~(0xffU << shift)) |
+                (static_cast<std::uint32_t>(value) << shift);
+            graphics_power_ = static_cast<std::uint16_t>(bits & 0x820fU);
+            return;
+        }
+    }
     if (address >= 0x04000004 && address <= 0x04000007) {
         if (address <= 0x04000005) {
             const auto shift = (address & 1U) * 8U;
