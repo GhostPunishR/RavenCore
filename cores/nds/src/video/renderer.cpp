@@ -1,6 +1,8 @@
 #include "renderer.hpp"
 #include <ravenemu/core.hpp>
 
+#include <algorithm>
+
 namespace ravenemu::nds::detail {
 namespace {
 int signed16(std::uint16_t value) { return value < 0x8000 ? value : static_cast<int>(value) - 0x10000; }
@@ -99,7 +101,7 @@ std::optional<std::uint16_t> Renderer::background_pixel(unsigned bg, Background 
     return tile_pixel(false, char_base + (entry & 0x3ffU) * (depth8 ? 64 : 32), depth8, u, v, entry >> 12U, extended_slot);
 }
 
-void Renderer::backgrounds(std::span<Sample> pixels) const {
+void Renderer::backgrounds(std::span<Sample> pixels, unsigned first_line) const {
     using B = Background;
     constexpr std::array<std::array<B, 4>, 7> modes{{
         {B::text,B::text,B::text,B::text}, {B::text,B::text,B::text,B::affine},
@@ -124,8 +126,9 @@ void Renderer::backgrounds(std::span<Sample> pixels) const {
             if (bytes > 0x20000) throw Error("NDS : bitmap trop grand pour le moteur B");
         }
         const auto rank = (cnt & 3U) * 1024 + 128 + bg;
-        for (unsigned y = 0; y < VideoFrame::height; ++y) for (unsigned x = 0; x < VideoFrame::width; ++x) {
-            auto& pixel = pixels[y * VideoFrame::width + x];
+        for (unsigned row = 0; row < pixels.size() / VideoFrame::width; ++row) for (unsigned x = 0; x < VideoFrame::width; ++x) {
+            const auto y = first_line + row;
+            auto& pixel = pixels[row * VideoFrame::width + x];
             if (!(pixel.mask & (1U << bg)) || rank >= pixel.below.rank) continue;
             if (const auto color = background_pixel(bg, kind, x - x % mosaic_width, y - y % mosaic_height)) pixel.insert({*color, rank, bg, 0});
         }
@@ -146,13 +149,18 @@ void Renderer::render(std::span<std::uint16_t> output, std::uint16_t power) cons
         return;
     }
     if (mode != 1) throw Error("NDS : mode d'affichage FIFO ou réservé non implémenté");
-    if (!(power & (engine_ ? 0x200U : 2U))) return;
+    render_graphics(output, 0, power);
+}
+
+void Renderer::render_graphics(std::span<std::uint16_t> output, unsigned first_line, std::uint16_t power) const {
+    std::fill(output.begin(), output.end(), 0x7fff);
+    if ((control_ & 0x80U) || !(power & (engine_ ? 0x200U : 2U))) return;
     std::vector<Sample> pixels(output.size());
     for (auto& pixel : pixels) pixel.top = {palette(false, 0), 0xffffU, 5, 0};
-    objects(pixels);
+    objects(pixels, first_line);
     mosaic_objects(pixels);
-    windows(pixels);
-    backgrounds(pixels);
+    windows(pixels, first_line);
+    backgrounds(pixels, first_line);
     for (std::size_t i = 0; i < output.size(); ++i) {
         if (pixels[i].mask & 0x10U) pixels[i].insert(pixels[i].object);
         output[i] = composite(pixels[i]);

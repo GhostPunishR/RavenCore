@@ -20,6 +20,8 @@ void Memory::apply_ipc_interrupts(Ipc::Interrupts sources) noexcept {
 
 std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address) const noexcept {
     if (cpu == Processor::arm9) {
+        if (address >= 0x04000064 && address <= 0x04000067)
+            return static_cast<std::uint8_t>(video_.capture_control_ >> ((address & 3U) * 8U));
         if (address >= 0x04001000 && address <= 0x04001003)
             return static_cast<std::uint8_t>(display_control_b_ >> ((address & 3U) * 8U));
         if ((address >= 0x04000008 && address <= 0x0400004f) ||
@@ -65,6 +67,10 @@ std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address
 
 void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t value) noexcept {
     if (cpu == Processor::arm9) {
+        if (address >= 0x04000064 && address <= 0x04000067) {
+            video_.write_capture(address & 3U, value);
+            return;
+        }
         if (address >= 0x04001000 && address <= 0x04001003) {
             const auto shift = (address & 3U) * 8U;
             display_control_b_ = ((display_control_b_ & ~(0xffU << shift)) |

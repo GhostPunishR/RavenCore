@@ -30,11 +30,12 @@ std::uint16_t brightness(std::uint16_t color, unsigned amount, bool increase) {
 }
 } // namespace
 
-void Renderer::windows(std::span<Sample> pixels) const {
+void Renderer::windows(std::span<Sample> pixels, unsigned first_line) const {
     if (!(control_ & 0xe000U)) return;
     const auto winin = reg16(0x48), winout = reg16(0x4a);
-    for (unsigned y = 0; y < VideoFrame::height; ++y) for (unsigned x = 0; x < VideoFrame::width; ++x) {
-        auto& pixel = pixels[y * VideoFrame::width + x];
+    for (unsigned row = 0; row < pixels.size() / VideoFrame::width; ++row) for (unsigned x = 0; x < VideoFrame::width; ++x) {
+        const auto y = first_line + row;
+        auto& pixel = pixels[row * VideoFrame::width + x];
         unsigned mask = winout;
         if ((control_ & 0x8000U) && pixel.object_window) mask = winout >> 8U;
         if ((control_ & 0x4000U) && inside(x, reg16(0x42)) && inside(y, reg16(0x46))) mask = winin >> 8U;

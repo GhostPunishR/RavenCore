@@ -7,7 +7,7 @@ namespace ravenemu::nds::detail {
 void Renderer::mosaic_objects(std::span<Sample> pixels) const {
     const auto width = ((reg16(0x4c) >> 8U) & 15U) + 1;
     if (width == 1 || !(control_ & 0x1000U)) return;
-    for (unsigned y = 0; y < VideoFrame::height; ++y) {
+    for (unsigned y = 0; y < pixels.size() / VideoFrame::width; ++y) {
         auto line = pixels.subspan(y * VideoFrame::width, VideoFrame::width);
         for (unsigned block = 0; block < line.size(); block += width) {
             const auto end = std::min(block + width, VideoFrame::width);

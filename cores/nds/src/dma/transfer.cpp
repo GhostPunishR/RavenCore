@@ -32,10 +32,11 @@ bool Memory::step_dma(Processor cpu) {
         for (unsigned i = 0; i < width; ++i) {
             if (!fill && !video_.read_byte(cpu, transfer->source + i)) static_cast<void>(index(cpu, transfer->source + i));
             const auto destination = transfer->destination + i;
-            const bool mosaic = cpu == Processor::arm9 &&
+            const bool graphics_register = cpu == Processor::arm9 &&
                 ((destination >= 0x0400004c && destination <= 0x0400004f) ||
-                 (destination >= 0x0400104c && destination <= 0x0400104f));
-            if (!mosaic && !video_.read_byte(cpu, destination)) static_cast<void>(index(cpu, destination));
+                 (destination >= 0x0400104c && destination <= 0x0400104f) ||
+                 (destination >= 0x04000064 && destination <= 0x04000067));
+            if (!graphics_register && !video_.read_byte(cpu, destination)) static_cast<void>(index(cpu, destination));
         }
         const auto value = peek(cpu, transfer->source, width);
         write(cpu, transfer->destination, value, width);

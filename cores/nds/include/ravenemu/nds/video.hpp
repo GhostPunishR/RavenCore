@@ -40,6 +40,11 @@ private:
     std::array<std::uint8_t, 0x800> palettes_{}, oam_{};
     std::array<std::array<std::uint8_t, 0x70>, 2> registers_{};
     std::uint16_t power_{};
+    std::uint32_t capture_control_{};
+    bool capture_active_{};
+    void write_capture(unsigned offset, std::uint8_t value) noexcept;
+    [[nodiscard]] unsigned capture_height() const noexcept;
+    void capture_line(unsigned line, std::uint32_t display_control, std::uint16_t power);
     void write_register(unsigned engine, unsigned offset, std::uint8_t value) noexcept;
     [[nodiscard]] std::optional<std::uint32_t> index(unsigned bank, Processor cpu, std::uint32_t address) const noexcept;
     [[nodiscard]] std::optional<std::uint8_t> read_byte(Processor cpu, std::uint32_t address) const noexcept;

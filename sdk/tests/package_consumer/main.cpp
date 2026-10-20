@@ -85,6 +85,11 @@ int main() {
     nds.memory().write32(ravenemu::nds::Processor::arm9, 0x0400104c, 0xffffffff);
     if (nds.memory().read32(ravenemu::nds::Processor::arm9, 0x0400104c) != 0 ||
         nds.render_frame().lower[8] != 0x7c00) return 1; // MOSAIC en écriture seule, backdrop inchangé
+    nds.memory().write8(ravenemu::nds::Processor::arm9, 0x04000243, 0x80); // D en destination LCDC
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04000064, 0xa0030000); // capture VRAM A -> D
+    nds.advance_cycles(2 * ravenemu::nds::LcdTiming::frame_cycles);
+    if ((nds.memory().read32(ravenemu::nds::Processor::arm9, 0x04000064) & 0x80000000U) ||
+        nds.memory().read16(ravenemu::nds::Processor::arm9, 0x06860000) != 0x801f) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

@@ -11,6 +11,8 @@ public:
     Renderer(const VideoMemory& memory, unsigned engine, std::uint32_t control)
         : memory_(memory), engine_(engine), control_(control) {}
     void render(std::span<std::uint16_t> output, std::uint16_t power) const;
+    // Composition 2D avant sélection de l'affichage et luminosité maître.
+    void render_graphics(std::span<std::uint16_t> output, unsigned first_line, std::uint16_t power) const;
     void apply_master_brightness(std::span<std::uint16_t> output) const;
 
 private:
@@ -53,10 +55,10 @@ private:
     [[nodiscard]] std::optional<std::uint16_t> tile_pixel(bool object, std::uint32_t address, bool depth8,
                                                        unsigned x, unsigned y, unsigned bank, int extended_slot = -1) const;
     [[nodiscard]] std::optional<std::uint16_t> background_pixel(unsigned bg, Background kind, unsigned x, unsigned y) const;
-    void backgrounds(std::span<Sample> pixels) const;
-    void objects(std::span<Sample> pixels) const;
+    void backgrounds(std::span<Sample> pixels, unsigned first_line) const;
+    void objects(std::span<Sample> pixels, unsigned first_line) const;
     void mosaic_objects(std::span<Sample> pixels) const;
-    void windows(std::span<Sample> pixels) const;
+    void windows(std::span<Sample> pixels, unsigned first_line) const;
     [[nodiscard]] std::uint16_t composite(const Sample& sample) const;
 };
 

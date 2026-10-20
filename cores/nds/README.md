@@ -257,7 +257,7 @@ Les copies chevauchantes lisent la RAM à chaque unité, sans copie préalable
 du bloc source. Les masques et miroirs RAM propres à chaque CPU s'appliquent.
 
 Le moteur accepte RAM, VRAM affectée au CPU, palettes et OAM comme sources ou destinations,
-ainsi que DMAFILL ARM9 en source et MOSAIC A/B en destination ARM9. Les quatre registres
+ainsi que DMAFILL ARM9 en source, MOSAIC A/B et DISPCAPCNT en destination ARM9. Les quatre registres
 DMAFILL à `0x040000e0–0x040000ef` fournissent 16 octets lisibles et modifiables
 sur ARM9, utilisables comme source fixe. Les autres MMIO, BIOS, TCM et
 cartouches ne sont pas des extrémités DMA prises en charge. Un accès refusé
@@ -291,8 +291,9 @@ canaux et DMAFILL à zéro. Référence :
 deux écrans : 256 pixels visibles par ligne, 192 lignes visibles, 355 périodes
 de pixel par ligne et 263 lignes par image. Un pixel dure six cycles de
 l'horloge à `timer_clock_hz`, soit 2130 cycles par ligne et 560190 par image.
-Le modèle démarre à la ligne zéro, cycle zéro. Cette horloge n'effectue pas
-le rendu : `render_frame()` fournit séparément un instantané des moteurs A/B.
+Le modèle démarre à la ligne zéro, cycle zéro. L'horloge effectue les écritures
+VRAM d'une capture armée ; `render_frame()` fournit séparément un instantané
+des moteurs A/B sans effet sur les horloges ni la capture.
 
 | Registre | Adresse | Comportement |
 | --- | --- | --- |
@@ -324,9 +325,11 @@ machine.advance_cycles(192 * ravenemu::nds::LcdTiming::line_cycles);
 ```
 
 `Memory::advance_cycles()` et `Machine::advance_cycles()` avancent ensemble
-LCD et timers, sans exécuter de CPU ni d'unité DMA. Les événements sont coalescés
-sur l'intervalle demandé : un grand appel peut traverser plusieurs images,
-sans boucle par cycle ni par ligne, mais il n'exécute pas les répétitions DMA.
+LCD, timers et capture, sans exécuter de CPU ni d'unité DMA. Les événements
+IRQ/DMA sont coalescés sur l'intervalle demandé. Sans capture, un grand appel
+traverse plusieurs images sans boucle par cycle ni par ligne. Avec capture,
+seules ses lignes sont traitées individuellement ; le reste de l'intervalle
+conserve ce chemin rapide. Aucun appel n'exécute les répétitions DMA.
 Pour traiter un bloc à chaque HBlank/VBlank, alterner les avances jusqu'aux
 événements et les pas CPU/DMA. `step()` et `run_steps()` conservent leur budget
 de pas sans durée matérielle ; les latences fines IRQ/DMA et l'ordonnanceur
@@ -403,8 +406,8 @@ DISPCNT A à `0x04000000`, DISPCNT B à `0x04001000`. Le mode 0 et forced blank
 (POWCNT1 bit 0 nul) produit deux écrans blancs dans ce modèle.
 
 Le mode graphique 1 compose les fonds et sprites décrits ci-dessous ; le
-mode FIFO 3 reste refusé. La luminosité maître est décrite plus bas ; capture et
-3D restent absentes.
+mode FIFO 3 reste refusé. La capture 2D/VRAM et la luminosité maître sont
+décrites plus bas ; la 3D reste absente.
 L'instantané lit toute l'image au
 moment de l'appel : il n'émule pas les changements de pixels pendant le
 balayage ni la présentation automatique à VBlank. Une copie de machine possède
@@ -616,6 +619,68 @@ Références : [GBATEK, palettes étendues DS](https://mgba-emu.github.io/gbatek
 [contrôle VRAM](https://mgba-emu.github.io/gbatek/ds.html#dsmemorycontrolvram)
 et [luminosité maître](https://mgba-emu.github.io/gbatek/ds.html#400006chnds9masterbright16bitmasterbrightnessupdown).
 
+## Capture vidéo vers la VRAM
+
+`DISPCAPCNT`, à `0x04000064` sur ARM9, contrôle la capture du moteur A.
+Le registre accepte les accès 8/16/32 bits et les écritures DMA ARM9, avec
+masque `0xef3f1f1f`. Il reste accessible quand les moteurs 2D sont éteints.
+Le moteur B ne possède pas de registre de capture séparé.
+
+| Bits | Fonction |
+| --- | --- |
+| 0–4, 8–12 | Coefficients EVA/EVB, saturés à 16 lors du mélange |
+| 16–17 | Banque destination A, B, C ou D, affectée en LCDC |
+| 18–19 | Offset destination : 0, 32, 64 ou 96 Kio |
+| 20–21 | Taille : 128×128, 256×64, 256×128 ou 256×192 |
+| 24, 25 | Options source A 3D seule et source B FIFO, encore non prises en charge |
+| 26–27 | Offset source VRAM, ignoré en affichage VRAM direct |
+| 29–30 | Source A seule, B seule, ou A+B (modes 2 et 3) |
+| 31 | Activation/occupé ; effacé automatiquement à la ligne 192 |
+
+La source A prise en charge est la composition 2D du moteur A : fonds,
+sprites, fenêtres, mosaïque et effets BLDCNT, avant `MASTER_BRIGHT` et avant
+la sélection de l'affichage. Un affichage VRAM direct, une permutation des
+écrans ou les paramètres du moteur B ne remplacent donc pas cette source.
+La sortie composée est opaque, backdrop compris, et forced blank fournit du
+blanc. Un moteur 2D A éteint fournit du blanc dans ce modèle.
+
+La source B lit la banque A–D choisie par DISPCNT bits 18–19, en LCDC.
+Son stride reste de 256 pixels même pour une capture large de 128 pixels ;
+la destination utilise la largeur de capture. Les offsets et adresses font
+le tour de la banque de 128 Kio. Une source non affectée en LCDC fournit zéro ;
+une destination non affectée en LCDC ne reçoit aucune écriture. Les
+réaffectations et modifications de VRAM entre deux lignes sont prises en compte.
+
+Les copies simples préservent les 16 bits du pixel, dont le bit 15 de validité.
+Le mélange ignore la couleur d'une entrée dont ce bit est nul, puis calcule
+chaque canal RGB555 par `(A*EVA+B*EVB)/16`, avec saturation à 31. Le bit 15
+résultant vaut un si au moins une entrée valide possède un coefficient non nul.
+Les calculs restent en RGB555 entier, sans les arrondis du chemin interne RGB666.
+Les deux sources d'une ligne sont lues avant son écriture ; les lignes suivantes
+peuvent relire des données capturées, y compris dans la même banque.
+
+L'activation attend la ligne zéro. Si elle est programmée au cycle zéro initial,
+la première avance positive peut démarrer immédiatement. Chaque ligne est
+écrite à la fin de ses 1536 cycles visibles, avant le déclenchement DMA HBlank.
+Le bit occupé demeure actif jusqu'à la ligne 192, même pour une taille plus petite.
+L'effacer arrête la capture dans ce modèle. `render_frame()` et les inspections
+mémoire ne déclenchent aucune capture. Un grand intervalle de cycles traite au
+plus une capture ponctuelle, puis rejoint le chemin temporel coalescé.
+
+Les options 3D seule/FIFO sont refusées par `ravenemu::Error` uniquement si la
+source correspondante est utilisée et la destination allouée. Les bits d'une
+source inutilisée restent sans effet. `advance_cycles()` peut donc maintenant
+lever une erreur : les lignes déjà terminées restent écrites, mais la ligne
+fautive et ses cycles ne sont pas appliqués. Le programme peut corriger les
+paramètres ou désactiver la capture. Copies et chargements conservent ou remettent
+à zéro les paramètres, l'état en attente/en cours et les octets VRAM.
+
+Ce modèle échantillonne les données à la fin de chaque ligne ; les lectures
+et écritures pixel par pixel et les compteurs internes de mosaïque restent à
+développer. Les tests sont synthétiques, sans validation sur console physique.
+Références : [GBATEK, capture DS](https://mgba-emu.github.io/gbatek/ds.html#dsvideocaptureandmainmemorydisplaymode)
+et [circuit vidéo DS](https://mgba-emu.github.io/gbatek/ds.html#dsvideodisplaysystemblockdiagram).
+
 ## Timers
 
 Chaque processeur possède quatre timers 16 bits indépendants. Pour le timer `n`
@@ -819,8 +884,17 @@ bitmap, fenêtres et luminosité maître. Un programme ARM écrit les registres
 et construit deux images complètes avec des grilles différentes ; permutation,
 copie, reset et chargements réussis/refusés sont aussi vérifiés.
 
+`nds_capture` couvre le registre, les DMA, tailles et banques, offsets, wrap,
+stride source/destination, validité des pixels, coefficients, saturation et
+rétroaction VRAM. Il vérifie l'attente de ligne zéro, busy jusqu'à VBlank,
+réaffectations, annulation, ordre capture/DMA et séparation de MASTER_BRIGHT.
+Une image composée avec mosaïque, fenêtre et OBJ affine wrappé est capturée
+ligne par ligne, comparée à l'instantané, puis réaffichée sur B. Un programme
+ARM configure la capture, attend busy et publie sa fin ; les grandes avances,
+copies, erreurs et chargements sont aussi contrôlés.
+
 Prochains jalons : compléter le jeu d'instructions, définir les timings et la
-synchronisation des deux CPU, DMA et timers, puis capture, 3D, entrées et audio.
+synchronisation des deux CPU, DMA et timers, puis FIFO vidéo, 3D, entrées et audio.
 
 Aucun jeu ne tourne à ce stade. Le cœur n'est pas encore exposé par `Core`,
 le SDK ou Libretro : ces interfaces viendront avec une exécution fonctionnelle.

@@ -6,6 +6,7 @@ add_library(nds_raven_core STATIC
     src/video/lcd_timing.cpp
     src/video/vram.cpp
     src/video/frame.cpp
+    src/video/capture.cpp
     src/video/renderer.cpp
     src/video/objects.cpp
     src/video/mosaic.cpp
@@ -99,4 +100,8 @@ if(BUILD_TESTING)
     target_include_directories(nds_mosaic_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_mosaic_tests PRIVATE nds_raven_core)
     add_test(NAME nds_mosaic COMMAND nds_mosaic_tests)
+    add_executable(nds_capture_tests tests/capture_test.cpp)
+    target_include_directories(nds_capture_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_capture_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_capture COMMAND nds_capture_tests)
 endif()

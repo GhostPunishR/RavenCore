@@ -31,9 +31,10 @@ public:
     // Une unité 16/32 bits, sans cycles. Renvoie false si aucun DMA déclenché en attente.
     // Un échec préserve l'unité fautive ; les unités déjà terminées restent appliquées.
     bool step_dma(Processor cpu);
-    // Avance timers et LCD à timer_clock_hz, sans exécuter CPU ni unités DMA.
+    // Avance timers, LCD et capture vidéo, sans exécuter CPU ni unités DMA.
+    // Une source vidéo non prise en charge peut lever Error ; les lignes terminées restent appliquées.
     // Les événements LCD peuvent déclencher les DMA VBlank/HBlank.
-    void advance_cycles(std::uint64_t cycles) noexcept;
+    void advance_cycles(std::uint64_t cycles);
     // Sources : masque de bits IF, pas un numéro de source.
     void request_interrupt(Processor cpu, std::uint32_t sources) noexcept;
     [[nodiscard]] bool irq_pending(Processor cpu) const noexcept;
@@ -56,6 +57,7 @@ public:
     void read_words(Processor cpu, std::uint32_t address, std::span<std::uint32_t> values);
 
 private:
+    void advance_clock(std::uint64_t cycles) noexcept; // horloges et événements sans capture
     [[nodiscard]] DmaController& dma(Processor cpu) noexcept;
     [[nodiscard]] const DmaController& dma(Processor cpu) const noexcept;
     struct Timer {

@@ -8,6 +8,7 @@ VideoMemory::VideoMemory() : bytes_(0xa4000) {}
 void VideoMemory::reset() noexcept {
     std::fill(bytes_.begin(), bytes_.end(), 0);
     controls_ = {}; palettes_ = {}; oam_ = {}; registers_ = {}; power_ = 0;
+    capture_control_ = 0; capture_active_ = false;
 }
 
 void VideoMemory::write_register(unsigned engine, unsigned offset, std::uint8_t value) noexcept {
