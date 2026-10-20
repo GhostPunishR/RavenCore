@@ -8,6 +8,10 @@ namespace ravenemu::nds {
 void Cp15::reset() noexcept {
     control_ = 0x2078;
     data_region_ = instruction_region_ = 0;
+    protection_regions_ = {};
+    permissions_ = {};
+    cacheable_ = {};
+    bufferable_ = 0;
     bytes_.fill(0);
 }
 
@@ -18,6 +22,16 @@ std::uint32_t Cp15::read(unsigned crn, unsigned crm, unsigned opcode2) const {
         return 0x41059461; // ARM946E-S, ARMv5TE, révision 1
     }
     if (crn == 1 && crm == 0 && opcode2 == 0) return control_;
+    if (crn == 2 && crm == 0 && opcode2 < 2) return cacheable_[opcode2];
+    if (crn == 3 && crm == 0 && opcode2 == 0) return bufferable_;
+    if (crn == 5 && crm == 0 && opcode2 < 4) {
+        const auto permissions = permissions_[opcode2 & 1U];
+        if (opcode2 >= 2) return permissions;
+        std::uint32_t packed{};
+        for (unsigned i = 0; i < 8; ++i) packed |= ((permissions >> (i * 4U)) & 3U) << (i * 2U);
+        return packed;
+    }
+    if (crn == 6 && crm < 8 && opcode2 < 2) return protection_regions_[crm];
     if (crn == 9 && crm == 1 && opcode2 < 2)
         return opcode2 == 0 ? data_region_ : instruction_region_;
     throw Error("NDS : registre CP15 non implémenté");
@@ -25,9 +39,43 @@ std::uint32_t Cp15::read(unsigned crn, unsigned crm, unsigned opcode2) const {
 
 void Cp15::write(unsigned crn, unsigned crm, unsigned opcode2, std::uint32_t value) {
     if (crn == 1 && crm == 0 && opcode2 == 0) {
-        // Ne pas annoncer une protection ou un ordre des octets non émulés.
-        if (value & 0x81U) throw Error("NDS : MPU/big-endian CP15 non implémentés");
-        control_ = (value & 0x000ff004U) | 0x78U;
+        if (value & 0x80U) throw Error("NDS : big-endian CP15 non implémenté");
+        control_ = (value & 0x000ff005U) | 0x78U;
+        return;
+    }
+    if (crn == 2 && crm == 0 && opcode2 < 2) {
+        cacheable_[opcode2] = static_cast<std::uint8_t>(value);
+        return;
+    }
+    if (crn == 3 && crm == 0 && opcode2 == 0) {
+        bufferable_ = static_cast<std::uint8_t>(value);
+        return;
+    }
+    if (crn == 5 && crm == 0 && opcode2 < 4) {
+        std::uint32_t expanded{};
+        for (unsigned i = 0; i < 8; ++i) {
+            const auto ap = (value >> (i * (opcode2 < 2 ? 2U : 4U))) & (opcode2 < 2 ? 3U : 15U);
+            if (ap == 4 || ap > 6) throw Error("NDS : permission MPU réservée");
+            expanded |= ap << (i * 4U);
+        }
+        permissions_[opcode2 & 1U] = expanded;
+        return;
+    }
+    if (crn == 6 && crm < 8 && opcode2 < 2) {
+        if (value & 1U) {
+            const auto shift = (value >> 1U) & 31U;
+            const auto size = std::uint64_t{2} << shift;
+            if (shift < 11 || ((value & 0xfffff000U) & (size - 1U)) != 0)
+                throw Error("NDS : région MPU de taille réservée ou base non alignée");
+        }
+        protection_regions_[crm] = value & 0xfffff03fU;
+        return;
+    }
+    if (crn == 7 && ((crm == 5 && opcode2 <= 1) || (crm == 6 && opcode2 <= 1) ||
+                     (crm == 10 && (opcode2 == 1 || opcode2 == 2)) ||
+                     (crm == 13 && opcode2 == 1) || (crm == 14 && (opcode2 == 1 || opcode2 == 2)))) {
+        // Invalidation/nettoyage/préchargement sans effet dans ce modèle sans
+        // lignes de cache. WFI et commandes non ARM946 restent des diagnostics.
         return;
     }
     if (crn == 9 && crm == 1 && opcode2 < 2) {

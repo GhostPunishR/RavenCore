@@ -62,13 +62,13 @@ void registers_test() {
     execute(cpu, memory, cp(true, 15, 0, 0));
     check(!cpu.state().negative && cpu.state().zero && !cpu.state().carry && !cpu.state().overflow &&
           cpu.state().sticky_overflow && cpu.state().registers[15] == base + 4, "MRC pc / NZCV/Q");
-    for (const auto value : {1U, 0x80U}) {
+    for (const auto value : {0x80U}) {
         cpu.set_register(0, value);
         memory.write32(arm9, base, cp(false, 0, 1, 0));
         cpu.set_register(15, base);
         const auto before = cpu.state();
         const auto before_control = memory.cp15().read(1, 0, 0);
-        expect_failure<CpuExecutionError>([&] { cpu.step(memory); }, "MPU/endian non émulés acceptés");
+        expect_failure<CpuExecutionError>([&] { cpu.step(memory); }, "endian non émulé accepté");
         check(cpu.state() == before && memory.cp15().read(1, 0, 0) == before_control, "erreur CP15 non atomique");
     }
     for (const auto raw : {cp(false, 0, 0, 0), cp(true, 0, 8, 0), cp(true, 0, 1, 0) | 0x200000U, cp(false, 15, 1, 0)}) {

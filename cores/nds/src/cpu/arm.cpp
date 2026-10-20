@@ -120,12 +120,12 @@ void Interpreter::arm_transfer(std::uint32_t raw) {
     const auto adjusted = up ? base + offset : base - offset;
     const auto address = pre ? adjusted : base;
     if (load) {
-        const auto value = byte ? ram.read8(cpu, address) : ram.read32(cpu, address);
+        const auto value = byte ? bus.read8(address) : bus.read32(address);
         if (rd == 15) load_pc(value);
         else s.registers[rd] = value;
     }
-    else if (byte) ram.write8(cpu, address, static_cast<std::uint8_t>(reg(rd)));
-    else ram.write32(cpu, address, reg(rd));
+    else if (byte) bus.write8(address, static_cast<std::uint8_t>(reg(rd)));
+    else bus.write32(address, reg(rd));
     if (!pre || writeback) s.registers[rn] = adjusted;
 }
 
@@ -145,10 +145,10 @@ void Interpreter::arm_halfword(std::uint32_t raw) {
     const auto base = reg(rn);
     const auto adjusted = up ? base + offset : base - offset;
     const auto address = pre ? adjusted : base;
-    if (!load) ram.write16(cpu, address, static_cast<std::uint16_t>(reg(rd)));
-    else if (type == 1) s.registers[rd] = ram.read16(cpu, address);
-    else if (type == 2) s.registers[rd] = sign_extend(ram.read8(cpu, address), 8);
-    else s.registers[rd] = sign_extend(ram.read16(cpu, address), 16);
+    if (!load) bus.write16(address, static_cast<std::uint16_t>(reg(rd)));
+    else if (type == 1) s.registers[rd] = bus.read16(address);
+    else if (type == 2) s.registers[rd] = sign_extend(bus.read8(address), 8);
+    else s.registers[rd] = sign_extend(bus.read16(address), 16);
     if (!pre || writeback) s.registers[rn] = adjusted;
 }
 

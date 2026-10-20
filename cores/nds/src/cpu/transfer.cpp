@@ -21,7 +21,7 @@ void Interpreter::multiple(unsigned rn, std::uint32_t list, bool load, bool pre,
     unsigned index{};
     // Lectures et écritures sont préparées avant toute modification : pas
     // de pile à moitié écrite ni de registres à moitié chargés sur erreur.
-    if (load) ram.read_words(cpu, start, std::span<std::uint32_t>{values}.first(count));
+    if (load) bus.read_words(start, std::span<std::uint32_t>{values}.first(count));
     else for (unsigned r = 0; r < 16; ++r) {
         if ((list & (1U << r)) == 0) continue;
         values[index++] = reg(r);
@@ -34,7 +34,7 @@ void Interpreter::multiple(unsigned rn, std::uint32_t list, bool load, bool pre,
             else s.registers[r] = values[index];
             ++index;
         }
-    } else ram.write_words(cpu, start, std::span<const std::uint32_t>{values}.first(count));
+    } else bus.write_words(start, std::span<const std::uint32_t>{values}.first(count));
     if (writeback) s.registers[rn] = up ? base + bytes : base - bytes;
     if (loaded_pc) {
         if (saved) { s.set_cpsr(*saved); branch(*loaded_pc); }

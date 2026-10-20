@@ -169,9 +169,13 @@ et aux régions DTCM/ITCM `c9,c1,0/1`. Les identifiants décrivent ARM946E-S,
 ses caches et ses TCM physiques de 32 Kio (instructions) et 16 Kio (données).
 `MRC pc` remplace seulement NZCV. Un accès CP15 en User ou sur ARM7 entre en
 exception Undefined ; les registres ou variantes non implémentés restent des
-diagnostics sans mutation. Les écritures de contrôle activant MPU ou big-endian
-sont explicitement refusées. Les bits I/D cache sont mémorisés, mais les accès
-restent cohérents et directs : aucune ligne de cache ni maintenance n'est émulée.
+diagnostics sans mutation. Les écritures activant big-endian sont explicitement
+refusées. Les bits I/D cache sont mémorisés, mais les accès restent cohérents et
+directs : aucune ligne de cache physique n'est émulée. Les commandes ARM946 de
+maintenance documentées sont acceptées sans effet (invalidations I/D entières
+ou par adresse, nettoyage D par adresse/index, nettoyage-invalidation D par
+adresse/index et préchargement I). Elles n'accèdent pas au bus. WFI reste refusée
+jusqu'à l'intégration de la suspension CPU dans l'ordonnanceur.
 
 ITCM est fixée à zéro ; DTCM a une base programmable, que le logiciel doit
 aligner sur sa taille virtuelle. Les tailles documentées de 4 Kio à 4 Gio sont
@@ -195,7 +199,46 @@ préserve. Les copies de machine possèdent leurs propres registres et octets TC
 Références : [GBATEK, CP15](https://mgba-emu.github.io/gbatek/ds.html#armcp15systemcontrolcoprocessor),
 [contrôle](https://mgba-emu.github.io/gbatek/ds.html#armcp15controlregister) et
 [TCM](https://mgba-emu.github.io/gbatek/ds.html#armcp15tightlycoupledmemorytcm).
-L'ordonnancement ARM9/ARM7, les MPU, les caches et les cycles CPU restent à faire.
+L'ordonnancement ARM9/ARM7, les caches et les cycles CPU restent à faire.
+
+## Protection mémoire MPU ARM9
+
+Le bit M du contrôle CP15 active les huit régions unifiées `c6,c0..7,0/1` ;
+les deux sélecteurs sont des alias sur ARM946. Chaque région peut être désactivée
+ou couvrir une taille de 4 Kio à 4 Gio. Les bits réservés sont masqués ; une
+région active avec taille réservée ou base non alignée est refusée sans mutation.
+La région de plus grand numéro gagne, sans repli vers une région inférieure
+si ses permissions refusent l'accès. L'arrière-plan est interdit même en System.
+Les adresses virtuelles du CPU sont testées avant leurs miroirs physiques.
+
+Les AP données et instructions sont distinctes : `c5,c0,0/1` expose huit
+champs de 2 bits ; `c5,c0,2/3` les expose sur 4 bits. Une écriture compacte
+remplace tous les champs étendus correspondants, une lecture compacte restitue
+leurs deux bits bas. AP=0 interdit tout, AP=1 réserve R/W au privilégié, AP=2
+ajoute R à User, AP=3 autorise R/W aux deux modes, AP=5 réserve R au privilégié,
+AP=6 autorise R aux deux. Les AP réservées sont refusées à l'écriture.
+Les attributs cacheables `c2,c0,0/1` et bufferables `c3,c0,0` conservent leurs
+huit bits, sans créer de caches ou de tampon d'écriture physiques.
+
+Une vue de bus privée à l'interpréteur vérifie les données et TCM avant tout
+effet MMIO ; le fetch vérifie séparément les AP instructions avec le privilège
+courant. Les API natives `Memory::read/write/peek/fetch` restent des outils
+d'inspection/chargement sans MPU. ARM7, DMA et les accès vidéo sont indépendants.
+`Cp15::permits(address, Access, privileged)` permet d'inspecter une permission
+sans lire le bus ni modifier les registres.
+
+Une faute de fetch entre en Prefetch Abort (`+0x0c`, LR=PC+4) ; une faute de
+données entre en Data Abort (`+0x10`, LR=PC+8), en ARM comme en Thumb. Le CPU
+sauvegarde CPSR dans SPSR_abt, sélectionne la banque Abort, masque IRQ et utilise
+le vecteur bas/haut choisi par CP15.V. L'instruction fautive ne termine pas et
+n'incrémente pas son compteur. Un gestionnaire peut modifier CP15 puis retenter
+l'accès avec `SUBS pc,lr,#4/8`. Les transferts multiples conservent actuellement
+la validation transactionnelle du cœur : une faute MPU ne valide aucun mot ni
+registre. Cela ne reproduit pas les transferts partiels possibles sur matériel.
+Les erreurs de bus non implémenté/non aligné restent des diagnostics, pas des
+aborts externes. Ces limites, les caches et les timings fins restent à développer.
+La copie et le rechargement suivent le même contrat que les autres registres CP15.
+Référence : [GBATEK, ARM CP15 Protection Unit](https://mgba-emu.github.io/gbatek/ds.html#armcp15protectionunitpu).
 
 ## Modes privilégiés et exceptions
 
@@ -909,9 +952,9 @@ Référence : [GBATEK, DS Inter Process Communication](https://mgba-emu.github.i
 (`0x00000000`) ou 4 Kio sur ARM9 (`0xffff0000`). Ces fenêtres sont en lecture seule.
 Sans image, lire un vecteur échoue explicitement. Les tests fournissent de petits
 gestionnaires synthétiques ; aucun BIOS Nintendo ni firmware n'est inclus.
-Il n'y a pas de remplacement haut niveau des services SWI, de démarrage firmware,
-de protection de lecture BIOS selon PC ou
-d'exceptions Data/Prefetch Abort. Les accès mémoire refusés restent des diagnostics.
+Il n'y a pas de remplacement haut niveau des services SWI, de démarrage firmware
+ni de protection de lecture BIOS selon PC. Les fautes MPU utilisent les exceptions
+Data/Prefetch Abort ; les accès bus non implémentés restent des diagnostics.
 
 Une instruction non implémentée ou une erreur de lecture/écriture lève
 `CpuExecutionError` avec processeur, adresse, mode et opcode (absent si la
@@ -919,11 +962,19 @@ lecture de l'instruction a échoué). Le CPU reste sur l'instruction fautive,
 ses registres et son compteur sont préservés. Les écritures multiples vérifient
 toutes les destinations du bus avant de modifier le premier mot ; une erreur de
 chargement multiple ne valide aucun des registres chargés. Cette atomicité est
-un contrat de diagnostic de ce modèle, pas une émulation des exceptions d'abandon
-matérielles. Les instructions déjà terminées
+un contrat transactionnel de ce modèle, distinct des effets partiels possibles
+lors des abandons matériels. Les fautes de protection MPU entrent toutefois dans
+les vecteurs d'abandon décrits plus haut. Les instructions déjà terminées
 d'un `run_steps` restent appliquées. Le chargement d'une nouvelle cartouche
 réinitialise les deux CPU. Aucun CPU ne conserve de référence persistante au
 bus : copier une machine produit une mémoire et des CPU indépendants.
+
+`nds_mpu` couvre les huit régions et leurs priorités, alias et masques CP15,
+les six AP par mode et par type d'accès, les frontières jusqu'à 4 Gio, les AP
+compactes/étendues, l'initialisation par ROM synthétique, la copie et le reset.
+Les tests exécutent des fautes et reprises ARM/Thumb via les vecteurs bas/hauts,
+un gestionnaire MCR réparant les AP, les transferts multiples transactionnels,
+les refus MMIO sans effet FIFO, les TCM, DMA et ARM7, et les commandes de cache.
 
 `nds_cp15` vérifie les MRC/MCR et leurs privilèges, identifiants, masques,
 NZCV/Q, vecteurs et interworking, fenêtres/miroirs/priorités TCM, chargement,

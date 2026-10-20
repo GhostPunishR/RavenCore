@@ -42,7 +42,7 @@ void Interpreter::execute_thumb(std::uint32_t raw) {
             break;
         }
     } else if ((raw & 0xf800U) == 0x4800U) {
-        s.registers[(raw >> 8U) & 7U] = ram.read32(cpu, ((pc + 4U) & ~3U) + (raw & 0xffU) * 4U);
+        s.registers[(raw >> 8U) & 7U] = bus.read32(((pc + 4U) & ~3U) + (raw & 0xffU) * 4U);
     } else if ((raw & 0xf000U) == 0x5000U) {
         const auto address = reg(rs) + reg((raw >> 6U) & 7U);
         const auto type = (raw >> 9U) & 7U;
@@ -50,11 +50,11 @@ void Interpreter::execute_thumb(std::uint32_t raw) {
         case 0: thumb_transfer(rd, address, 4, false); break;
         case 1: thumb_transfer(rd, address, 2, false); break;
         case 2: thumb_transfer(rd, address, 1, false); break;
-        case 3: s.registers[rd] = sign_extend(ram.read8(cpu, address), 8); break;
+        case 3: s.registers[rd] = sign_extend(bus.read8(address), 8); break;
         case 4: thumb_transfer(rd, address, 4, true); break;
         case 5: thumb_transfer(rd, address, 2, true); break;
         case 6: thumb_transfer(rd, address, 1, true); break;
-        case 7: s.registers[rd] = sign_extend(ram.read16(cpu, address), 16); break;
+        case 7: s.registers[rd] = sign_extend(bus.read16(address), 16); break;
         }
     } else if ((raw & 0xe000U) == 0x6000U || (raw & 0xf000U) == 0x8000U) {
         const auto width = (raw & 0xf000U) == 0x8000U ? 2U : ((raw & 0x1000U) != 0 ? 1U : 4U);
@@ -102,13 +102,13 @@ void Interpreter::execute_thumb(std::uint32_t raw) {
 
 void Interpreter::thumb_transfer(unsigned rd, std::uint32_t address, unsigned width, bool load) {
     if (load) {
-        if (width == 1) s.registers[rd] = ram.read8(cpu, address);
-        else if (width == 2) s.registers[rd] = ram.read16(cpu, address);
-        else s.registers[rd] = ram.read32(cpu, address);
+        if (width == 1) s.registers[rd] = bus.read8(address);
+        else if (width == 2) s.registers[rd] = bus.read16(address);
+        else s.registers[rd] = bus.read32(address);
     } else {
-        if (width == 1) ram.write8(cpu, address, static_cast<std::uint8_t>(reg(rd)));
-        else if (width == 2) ram.write16(cpu, address, static_cast<std::uint16_t>(reg(rd)));
-        else ram.write32(cpu, address, reg(rd));
+        if (width == 1) bus.write8(address, static_cast<std::uint8_t>(reg(rd)));
+        else if (width == 2) bus.write16(address, static_cast<std::uint16_t>(reg(rd)));
+        else bus.write32(address, reg(rd));
     }
 }
 

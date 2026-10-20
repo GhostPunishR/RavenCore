@@ -51,11 +51,22 @@ void Cpu::step(Memory& memory) {
     }
     const auto pc = state_.registers[15];
     std::optional<std::uint32_t> instruction;
+    if (processor_ == Processor::arm9 &&
+        !memory.cp15().permits(pc, Cp15::Access::execute, state_.mode != CpuMode::user)) {
+        auto prepared = state_;
+        detail::enter_exception(prepared, memory.exception_base(processor_), detail::Exception::prefetch_abort, pc + 4U);
+        state_ = prepared;
+        return;
+    }
     try {
         instruction = state_.thumb ? memory.fetch16(processor_, pc) : memory.fetch32(processor_, pc);
         detail::Interpreter interpreter{state_, processor_, memory};
         interpreter.execute(*instruction);
         state_ = interpreter.s;
+    } catch (const detail::ProtectionFault&) {
+        auto prepared = state_;
+        detail::enter_exception(prepared, memory.exception_base(processor_), detail::Exception::data_abort, pc + 8U);
+        state_ = prepared;
     } catch (const Error& error) {
         throw CpuExecutionError(processor_, pc, state_.thumb, instruction, error.what());
     }

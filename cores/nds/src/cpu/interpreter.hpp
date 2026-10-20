@@ -1,16 +1,17 @@
 #pragma once
 
 #include "support.hpp"
+#include "data_bus.hpp"
 
 namespace ravenemu::nds::detail {
 
-enum class Exception { software_interrupt, undefined_instruction, irq, fiq };
+enum class Exception { software_interrupt, undefined_instruction, prefetch_abort, data_abort, irq, fiq };
 void enter_exception(CpuState& state, std::uint32_t vector_base, Exception exception, std::uint32_t return_address);
 
 class Interpreter {
 public:
     Interpreter(CpuState state, Processor processor, Memory& memory)
-        : s(state), cpu(processor), ram(memory), pc(state.registers[15]) {}
+        : s(state), cpu(processor), ram(memory), bus(memory, processor, state.mode != CpuMode::user), pc(state.registers[15]) {}
 
     CpuState s;
 
@@ -24,6 +25,7 @@ public:
 private:
     Processor cpu;
     Memory& ram;
+    DataBus bus;
     std::uint32_t pc;
 
     [[noreturn]] static void unsupported() { throw Error("instruction ou variante non implémentée"); }

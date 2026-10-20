@@ -8,6 +8,8 @@ void enter_exception(CpuState& state, std::uint32_t vector_base, Exception excep
     switch (exception) {
     case Exception::software_interrupt: mode = CpuMode::supervisor; offset = 8; break;
     case Exception::undefined_instruction: mode = CpuMode::undefined; offset = 4; break;
+    case Exception::prefetch_abort: mode = CpuMode::abort; offset = 0x0c; break;
+    case Exception::data_abort: mode = CpuMode::abort; offset = 0x10; break;
     case Exception::irq: mode = CpuMode::irq; offset = 0x18; break;
     case Exception::fiq: mode = CpuMode::fiq; offset = 0x1c; break;
     default: throw Error("NDS : exception CPU invalide");

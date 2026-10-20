@@ -34,7 +34,7 @@ public:
     void step(Processor cpu);
     // Horloge explicite timers/LCD/FIFO/capture ; step/run_steps restent sans timings.
     void advance_cycles(std::uint64_t cycles) { memory_.advance_cycles(cycles); }
-    // Budget de pas (une unité DMA ou entrée IRQ/FIQ consomme un pas sans
+    // Budget de pas (une unité DMA ou entrée d'exception consomme un pas sans
     // instruction), pas de cycles. Un échec laisse les instructions/transferts
     // déjà terminées en place et le CPU arrêté sur l'instruction fautive.
     void run_steps(Processor cpu, std::size_t instructions);

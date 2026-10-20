@@ -105,6 +105,15 @@ int main() {
     if (nds.memory().read32(ravenemu::nds::Processor::arm9, 0x02010000) != 0x12345678 ||
         nds.memory().read32(ravenemu::nds::Processor::arm7, 0x02010000) == 0x12345678 ||
         nds.memory().cp15().read(0, 0, 0) != 0x41059461) return 1;
+    nds.memory().cp15().write(6, 0, 0, 0x0200002b);
+    nds.memory().cp15().write(5, 0, 2, 3);
+    nds.memory().cp15().write(5, 0, 3, 3);
+    nds.memory().cp15().write(1, 0, 0, 0x12079);
+    nds_cpu.reset(0x02000000, false);
+    nds_cpu.step(nds.memory()); // b . dans la région autorisée
+    if (nds_cpu.state().mode != ravenemu::nds::CpuMode::system ||
+        nds_cpu.state().instructions != 1 ||
+        nds.memory().cp15().permits(0x04000000, ravenemu::nds::Cp15::Access::read, true)) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};
