@@ -5,7 +5,7 @@
 namespace ravenemu::nds::detail {
 
 enum class Exception { software_interrupt, undefined_instruction, irq, fiq };
-void enter_exception(CpuState& state, Processor cpu, Exception exception, std::uint32_t return_address);
+void enter_exception(CpuState& state, std::uint32_t vector_base, Exception exception, std::uint32_t return_address);
 
 class Interpreter {
 public:
@@ -36,9 +36,9 @@ private:
         branch(address);
     }
     void load_pc(std::uint32_t address) {
-        // ARMv5 : LDR/LDM/POP vers PC prennent aussi le bit T de l'adresse.
+        // ARMv5, CP15.L4=0 : LDR/LDM/POP vers PC prennent le bit T de l'adresse.
         // ARMv4T : ils conservent le mode courant ; seul BX l'échange.
-        if (cpu == Processor::arm9) exchange(address);
+        if (cpu == Processor::arm9 && ram.cp15().load_interworking()) exchange(address);
         else branch(address);
     }
     void nz(std::uint32_t value) {
@@ -59,6 +59,8 @@ private:
     void execute_arm(std::uint32_t raw);
 
     void arm_data(std::uint32_t raw);
+
+    void arm_cp15(std::uint32_t raw);
 
     void arm_psr(std::uint32_t raw, bool read);
 

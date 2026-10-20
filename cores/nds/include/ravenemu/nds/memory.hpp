@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ravenemu/nds/hardware.hpp>
+#include <ravenemu/nds/cp15.hpp>
 #include <ravenemu/nds/interrupts.hpp>
 #include <ravenemu/nds/ipc.hpp>
 #include <ravenemu/nds/dma.hpp>
@@ -16,13 +17,22 @@
 
 namespace ravenemu::nds {
 
-/** Bus RAM, BIOS et premiers registres MMIO NDS, sans timings ni open-bus.
+/** Bus RAM, BIOS, TCM ARM9 et premiers registres MMIO, sans timings ni open-bus.
  * Les accès non mappés ou non alignés lèvent ravenemu::Error.
  * Les rotations des lectures ARM non alignées relèveront du CPU.
  */
 class Memory {
 public:
     Memory();
+    // Contrôle système ARM9 ; sans effet sur les accès ARM7 ou DMA.
+    [[nodiscard]] Cp15& cp15() noexcept { return cp15_; }
+    [[nodiscard]] const Cp15& cp15() const noexcept { return cp15_; }
+    [[nodiscard]] std::uint32_t exception_base(Processor cpu) const noexcept {
+        return cpu == Processor::arm9 ? cp15_.exception_base() : 0U;
+    }
+    // Fetch ARM9 : ITCM visible, DTCM ignorée. Aucun retrait de FIFO MMIO.
+    [[nodiscard]] std::uint16_t fetch16(Processor cpu, std::uint32_t address) const;
+    [[nodiscard]] std::uint32_t fetch32(Processor cpu, std::uint32_t address) const;
     // ARM7 : 16 Kio aux vecteurs bas ; ARM9 : 4 Kio aux vecteurs hauts NDS.
     void load_bios(Processor cpu, std::span<const std::uint8_t> bytes);
     void clear_ram() noexcept; // remet aussi les périphériques à zéro ; conserve les BIOS
@@ -57,6 +67,7 @@ public:
     void read_words(Processor cpu, std::uint32_t address, std::span<std::uint32_t> values);
 
 private:
+    enum class Access { data, instruction, external };
     void advance_clock(std::uint64_t cycles) noexcept; // horloges et événements sans capture
     [[nodiscard]] DmaController& dma(Processor cpu) noexcept;
     [[nodiscard]] const DmaController& dma(Processor cpu) const noexcept;
@@ -77,10 +88,11 @@ private:
     [[nodiscard]] InterruptController& controller(Processor cpu) noexcept;
     [[nodiscard]] const InterruptController& controller(Processor cpu) const noexcept;
     void apply_ipc_interrupts(Ipc::Interrupts sources) noexcept;
-    [[nodiscard]] std::uint32_t peek(Processor cpu, std::uint32_t address, unsigned width) const;
+    [[nodiscard]] std::uint32_t peek(Processor cpu, std::uint32_t address, unsigned width, Access access = Access::data) const;
     [[nodiscard]] std::uint32_t read(Processor cpu, std::uint32_t address, unsigned width);
-    void validate_write(Processor cpu, std::uint32_t address, unsigned width) const;
-    void write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width);
+    void validate_write(Processor cpu, std::uint32_t address, unsigned width, Access access = Access::data) const;
+    void write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width, Access access = Access::data);
+    Cp15 cp15_;
     std::vector<std::uint8_t> ram_;
     std::vector<std::uint8_t> arm9_bios_;
     std::vector<std::uint8_t> arm7_bios_;

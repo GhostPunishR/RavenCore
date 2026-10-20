@@ -339,7 +339,7 @@ void fault_test(Processor processor) {
     Cpu cpu{processor};
     const std::array<std::uint32_t, 11> unsupported{
         0xe1200070, // BKPT : débogueur matériel absent
-        0xee070f15, // CP15
+        0xee070e15, // coprocesseur p14 absent
         0xe8fd8000, // LDM avec restauration SPSR en mode System sans SPSR
         0xe10ff000, // MRS pc : encodage imprévisible
         0xe12fff3f, // BLX pc : variante imprévisible
@@ -447,7 +447,7 @@ void machine_test() {
     machine.run_steps(arm7, 0);
     check(machine.cpu_state(arm7) == arm7_before, "budget nul a avancé le CPU");
     machine.memory().write32(arm9, base + 12, 0xe3a00009); // une instruction valide
-    machine.memory().write32(arm9, base + 16, 0xee070f15); // puis accès CP15 non implémenté
+    machine.memory().write32(arm9, base + 16, 0xee070e15); // puis accès à un coprocesseur non implémenté
     expect_failure<CpuExecutionError>([&] { machine.run_steps(arm9, 2); }, "budget ignore une erreur");
     check(machine.cpu_state(arm9).registers[0] == 9 && machine.cpu_state(arm9).registers[15] == base + 16 &&
           machine.cpu_state(arm9).instructions == 104, "erreur doit conserver le progrès avant la faute");

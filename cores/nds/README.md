@@ -90,7 +90,7 @@ BIOS : pas de firmware, de déchiffrement, de paramètres de démarrage, de copi
 de l'en-tête dans la RAM ni d'initialisation complète des registres CPU. Seuls les
 MMIO LCD, interruption, DMA, timers, IPC, VRAMCNT et WRAMCNT/WRAMSTAT sont présents.
 Les neuf banques VRAM ont des fenêtres CPU réaffectables ; palettes et OAM
-standard des deux moteurs sont présentes. TCM, autres MMIO et
+standard des deux moteurs sont présentes. Les autres MMIO et
 comportements open-bus restent absents ; les accès non mappés lèvent `ravenemu::Error`. Les lectures ARM
 non alignées et leurs rotations ne sont pas encore prises en charge par le CPU.
 
@@ -144,7 +144,8 @@ retenues indéterminées du multiplieur ARM7. Ses restrictions de recouvrement
 avec Rm sont refusées sur ARM7 et permises sur ARM9, en lisant toutes les
 sources avant de modifier les destinations. PC et deux destinations longues
 identiques sont refusés. Il n'y a toujours pas de calcul des cycles CPU.
-CP15, TCM, caches et une partie des instructions propres à ARMv5 restent à développer.
+Le CP15 et les TCM ARM9 sont partiellement disponibles (voir ci-dessous) ;
+les caches physiques et une partie des instructions propres à ARMv5 restent à développer.
 Ce sous-ensemble commun ne constitue pas encore un
 ARM946E-S ou un ARM7TDMI complet. L'interpréteur lit directement la RAM à chaque
 pas ; il ne reproduit pas le pipeline ni le comportement du code automodifiant.
@@ -154,10 +155,47 @@ la cible dans LR, puis le suffixe branche et fixe l'adresse de retour Thumb.
 Un arrêt entre les deux conserve ce LR intermédiaire. Les formes `BLX` ARMv5
 sont disponibles uniquement sur ARM9 ; elles lèvent une erreur sur ARM7.
 `LDR pc`, `LDM ...,{pc}` et `POP {pc}` échangent ARM/Thumb selon le bit 0 de
-l'adresse sur ARM9, tandis qu'ARM7 conserve son mode courant. Les adresses
+l'adresse sur ARM9 quand CP15.L4 est désactivé, tandis qu'ARM7 conserve son mode courant. Les adresses
 sont alignées selon le mode obtenu. Hors retours d'exception, les calculs de
 PC, LR, SP et les transferts ne modifient pas NZCV. Référence : ARM Architecture Reference Manual, ARMv4T /
 ARMv5T, descriptions de BL, BLX, LoadWritePC, LDM/STM et PUSH/POP.
+
+## CP15 ARM9 et mémoires TCM
+
+`Memory::cp15()` expose le sous-ensemble `Cp15`, déclaré dans
+`<ravenemu/nds/cp15.hpp>`. Les instructions privilégiées ARM `MRC/MCR p15`
+(opcode1=0) accèdent aux identifiants `c0,c0,0..7`, au contrôle `c1,c0,0`
+et aux régions DTCM/ITCM `c9,c1,0/1`. Les identifiants décrivent ARM946E-S,
+ses caches et ses TCM physiques de 32 Kio (instructions) et 16 Kio (données).
+`MRC pc` remplace seulement NZCV. Un accès CP15 en User ou sur ARM7 entre en
+exception Undefined ; les registres ou variantes non implémentés restent des
+diagnostics sans mutation. Les écritures de contrôle activant MPU ou big-endian
+sont explicitement refusées. Les bits I/D cache sont mémorisés, mais les accès
+restent cohérents et directs : aucune ligne de cache ni maintenance n'est émulée.
+
+ITCM est fixée à zéro ; DTCM a une base programmable, que le logiciel doit
+aligner sur sa taille virtuelle. Les tailles documentées de 4 Kio à 4 Gio sont
+acceptées, les tailles réservées sont refusées à l'écriture. Les fenêtres plus
+grandes que la mémoire physique produisent des miroirs ; les petites n'exposent
+que leur préfixe. ITCM a priorité sur DTCM pour les accès qui la sélectionnent.
+Le mode de chargement détourne seulement les écritures vers TCM : les lectures
+utilisent la mémoire sous-jacente. `Memory::fetch16/32` consulte ITCM mais ignore
+DTCM ; les lectures/écritures CPU ordinaires et multiples consultent les deux.
+ARM7 et DMA ignorent toujours les TCM, même lorsqu'elles masquent de la RAM ou
+un registre MMIO pour ARM9. Le CPU reste suspendu pendant les unités DMA dans
+le modèle actuel ; l'exécution parallèle depuis TCM n'est pas encore reproduite.
+
+Le contrôle sélectionne les vecteurs bas/hauts (bit V) et l'interworking des
+chargements vers PC (bit L4). L'état initial du chargeur direct conserve les
+vecteurs hauts (`0x2078`), désactive les TCM et laisse leurs régions à zéro ; ce
+n'est pas l'état complet d'un démarrage BIOS/firmware. `Cpu::reset` réinitialise
+les registres du CPU seulement. `Memory::clear_ram` et un chargement de cartouche
+réussi réinitialisent aussi CP15 et le stockage TCM ; un chargement refusé les
+préserve. Les copies de machine possèdent leurs propres registres et octets TCM.
+Références : [GBATEK, CP15](https://mgba-emu.github.io/gbatek/ds.html#armcp15systemcontrolcoprocessor),
+[contrôle](https://mgba-emu.github.io/gbatek/ds.html#armcp15controlregister) et
+[TCM](https://mgba-emu.github.io/gbatek/ds.html#armcp15tightlycoupledmemorytcm).
+L'ordonnancement ARM9/ARM7, les MPU, les caches et les cycles CPU restent à faire.
 
 ## Modes privilégiés et exceptions
 
@@ -872,7 +910,7 @@ Référence : [GBATEK, DS Inter Process Communication](https://mgba-emu.github.i
 Sans image, lire un vecteur échoue explicitement. Les tests fournissent de petits
 gestionnaires synthétiques ; aucun BIOS Nintendo ni firmware n'est inclus.
 Il n'y a pas de remplacement haut niveau des services SWI, de démarrage firmware,
-de protection de lecture BIOS selon PC, de relocation des vecteurs par CP15 ou
+de protection de lecture BIOS selon PC ou
 d'exceptions Data/Prefetch Abort. Les accès mémoire refusés restent des diagnostics.
 
 Une instruction non implémentée ou une erreur de lecture/écriture lève
@@ -886,6 +924,11 @@ matérielles. Les instructions déjà terminées
 d'un `run_steps` restent appliquées. Le chargement d'une nouvelle cartouche
 réinitialise les deux CPU. Aucun CPU ne conserve de référence persistante au
 bus : copier une machine produit une mémoire et des CPU indépendants.
+
+`nds_cp15` vérifie les MRC/MCR et leurs privilèges, identifiants, masques,
+NZCV/Q, vecteurs et interworking, fenêtres/miroirs/priorités TCM, chargement,
+exécution ARM/Thumb depuis ITCM, transferts CPU et DMA séparés, atomicité des
+échecs, copies et rechargements d'une ROM synthétique configurant CP15.
 
 `nds_cpu` exécute sur chacun des deux processeurs des programmes synthétiques
 qui calculent une somme, accèdent à la RAM, appellent une fonction et échangent

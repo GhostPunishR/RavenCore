@@ -8,6 +8,7 @@
 #include <ravenemu/nds/cartridge.hpp>
 #include <ravenemu/nds/machine.hpp>
 #include <ravenemu/nds/cpu.hpp>
+#include <ravenemu/nds/cp15.hpp>
 #include <ravenemu/nds/cpu_state.hpp>
 #include <ravenemu/nds/hardware.hpp>
 #include <ravenemu/nds/interrupts.hpp>
@@ -98,6 +99,12 @@ int main() {
     const auto nds_fifo = nds.render_frame();
     if (nds_fifo.upper[0] != 0x001f || nds_fifo.upper[1] != 0x7c00 || nds_fifo.lower[8] != 0x7c00 ||
         nds.memory().read32(ravenemu::nds::Processor::arm9, 0x06860000) != 0xfc00801f) return 1;
+    nds.memory().cp15().write(9, 1, 0, 0x0201000a);
+    nds.memory().cp15().write(1, 0, 0, 0x12078);
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x02010000, 0x12345678);
+    if (nds.memory().read32(ravenemu::nds::Processor::arm9, 0x02010000) != 0x12345678 ||
+        nds.memory().read32(ravenemu::nds::Processor::arm7, 0x02010000) == 0x12345678 ||
+        nds.memory().cp15().read(0, 0, 0) != 0x41059461) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

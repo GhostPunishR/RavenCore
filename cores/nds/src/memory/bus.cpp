@@ -16,6 +16,7 @@ Memory::Memory() : ram_(main_size + shared_size + private_size) {}
 void Memory::clear_ram() noexcept {
     std::fill(ram_.begin(), ram_.end(), 0);
     wram_control_ = 0;
+    cp15_.reset();
     arm9_interrupts_.reset();
     arm7_interrupts_.reset();
     arm9_timers_ = {};
@@ -50,8 +51,16 @@ std::size_t Memory::index(Processor cpu, std::uint32_t address) const {
     throw Error("NDS : accès RAM non mappé");
 }
 
-std::uint32_t Memory::peek(Processor cpu, std::uint32_t address, unsigned width) const {
+std::uint32_t Memory::peek(Processor cpu, std::uint32_t address, unsigned width, Access access) const {
     if ((address & (width - 1U)) != 0) throw Error("NDS : accès RAM non aligné");
+    // Les fenêtres TCM sont alignées sur au moins 4 Kio : un accès aligné
+    // de 1/2/4 octets ne peut pas en franchir la limite.
+    if (cpu == Processor::arm9 && access != Access::external && cp15_.read_byte(address, access == Access::instruction)) {
+        std::uint32_t value{};
+        for (unsigned i = 0; i < width; ++i)
+            value |= static_cast<std::uint32_t>(*cp15_.read_byte(address + i, access == Access::instruction)) << (i * 8U);
+        return value;
+    }
     if (address >= 0x04100000 && address <= 0x04100003) {
         if (width != 4) throw Error("NDS : FIFO IPC limitée aux accès 32 bits");
         return ipc_.peek(cpu);
@@ -70,7 +79,7 @@ std::uint32_t Memory::peek(Processor cpu, std::uint32_t address, unsigned width)
 
 std::uint32_t Memory::read(Processor cpu, std::uint32_t address, unsigned width) {
     const auto value = peek(cpu, address, width); // valider avant tout effet
-    if (address == 0x04100000) {
+    if (address == 0x04100000 && !(cpu == Processor::arm9 && cp15_.read_byte(address, false))) {
         const auto received = ipc_.receive(cpu);
         apply_ipc_interrupts(received.interrupts);
         return received.value;
@@ -78,8 +87,9 @@ std::uint32_t Memory::read(Processor cpu, std::uint32_t address, unsigned width)
     return value;
 }
 
-void Memory::validate_write(Processor cpu, std::uint32_t address, unsigned width) const {
+void Memory::validate_write(Processor cpu, std::uint32_t address, unsigned width, Access access) const {
     if ((address & (width - 1U)) != 0) throw Error("NDS : accès RAM non aligné");
+    if (cpu == Processor::arm9 && access != Access::external && cp15_.maps_write(address)) return;
     if (address == 0x04000188 && width == 4) return;
     if (cpu == Processor::arm9 && address >= 0x04000068 && address <= 0x0400006b && width != 4)
         throw Error("NDS : FIFO vidéo limitée aux écritures 32 bits");
@@ -87,8 +97,13 @@ void Memory::validate_write(Processor cpu, std::uint32_t address, unsigned width
         if (!io_byte(cpu, address + i) && !video_.read_byte(cpu, address + i)) static_cast<void>(index(cpu, address + i));
 }
 
-void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width) {
-    validate_write(cpu, address, width);
+void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width, Access access) {
+    validate_write(cpu, address, width, access);
+    if (cpu == Processor::arm9 && access != Access::external && cp15_.maps_write(address)) {
+        for (unsigned i = 0; i < width; ++i)
+            cp15_.write_byte(address + i, static_cast<std::uint8_t>(value >> (i * 8U)));
+        return;
+    }
     // STRB ARM9 vers VRAM/palettes/OAM est ignoré ; la VRAM ARM7 accepte les octets.
     if (width == 1 && cpu == Processor::arm9 && video_.read_byte(cpu, address)) return;
     if (cpu == Processor::arm9 && address == 0x04000068) { video_.write_fifo(value); return; }
@@ -102,6 +117,13 @@ void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, un
         else if (video_.read_byte(cpu, address + i)) video_.write_byte(cpu, address + i, byte);
         else ram_[index(cpu, address + i)] = byte;
     }
+}
+
+std::uint16_t Memory::fetch16(Processor cpu, std::uint32_t address) const {
+    return static_cast<std::uint16_t>(peek(cpu, address, 2, Access::instruction));
+}
+std::uint32_t Memory::fetch32(Processor cpu, std::uint32_t address) const {
+    return peek(cpu, address, 4, Access::instruction);
 }
 
 std::uint8_t Memory::read8(Processor cpu, std::uint32_t address) {

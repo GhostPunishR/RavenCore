@@ -2,7 +2,7 @@
 
 namespace ravenemu::nds::detail {
 
-void enter_exception(CpuState& state, Processor cpu, Exception exception, std::uint32_t return_address) {
+void enter_exception(CpuState& state, std::uint32_t vector_base, Exception exception, std::uint32_t return_address) {
     CpuMode mode;
     std::uint32_t offset;
     switch (exception) {
@@ -18,8 +18,7 @@ void enter_exception(CpuState& state, Processor cpu, Exception exception, std::u
     state.set_cpsr(control);
     state.set_spsr(saved);
     state.registers[14] = return_address;
-    // Configuration NDS retenue tant que CP15 n'est pas implémenté.
-    state.registers[15] = (cpu == Processor::arm9 ? 0xffff0000U : 0U) + offset;
+    state.registers[15] = vector_base + offset;
 }
 
 } // namespace ravenemu::nds::detail

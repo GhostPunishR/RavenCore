@@ -18,9 +18,9 @@ void Interpreter::execute_arm(std::uint32_t raw) {
     } else if ((raw & 0x0fb0fff0U) == 0x0120f000U || (raw & 0x0fb0f000U) == 0x0320f000U) {
         arm_psr(raw, false);
     } else if ((raw & 0x0f000000U) == 0x0f000000U) {
-        enter_exception(s, cpu, Exception::software_interrupt, pc + 4U);
+        enter_exception(s, ram.exception_base(cpu), Exception::software_interrupt, pc + 4U);
     } else if ((raw & 0x0ff000f0U) == 0x07f000f0U) {
-        enter_exception(s, cpu, Exception::undefined_instruction, pc + 4U);
+        enter_exception(s, ram.exception_base(cpu), Exception::undefined_instruction, pc + 4U);
     } else if ((raw & 0x0ffffff0U) == 0x012fff10U) {
         exchange(reg(raw & 15U));
     } else if ((raw & 0x0ffffff0U) == 0x012fff30U) {
@@ -44,6 +44,8 @@ void Interpreter::execute_arm(std::uint32_t raw) {
         arm_multiply(raw, true);
     } else if ((raw & 0x0e000090U) == 0x00000090U && (raw & 0x60U) != 0) {
         arm_halfword(raw);
+    } else if ((raw & 0x0f000010U) == 0x0e000010U && ((raw >> 8U) & 15U) == 15) {
+        arm_cp15(raw);
     } else if ((raw & 0x0c000000U) == 0) {
         arm_data(raw);
     } else unsupported();

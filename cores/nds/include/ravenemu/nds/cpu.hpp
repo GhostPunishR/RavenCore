@@ -27,7 +27,7 @@ private:
 };
 
 /** Interpréteur expérimental ARM/Thumb, avec quelques extensions ARMv5 sur ARM9.
- * Pas encore de cycles, pipeline préchargé ou CP15.
+ * Pas encore de cycles ni de pipeline préchargé ; CP15 ARM9 partiel.
  * Une instruction non implémentée ou un accès mémoire refusé lève
  * CpuExecutionError, sans avancer le CPU ni modifier ses registres.
  * Un DMA déclenché transfère une unité par pas en suspendant le CPU ; ses

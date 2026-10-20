@@ -81,8 +81,8 @@ void Interpreter::execute_thumb(std::uint32_t raw) {
         multiple(rn, list, load, false, true, writeback);
     } else if ((raw & 0xf000U) == 0xd000U) {
         const auto cond = (raw >> 8U) & 15U;
-        if (cond == 15) enter_exception(s, cpu, Exception::software_interrupt, pc + 2U);
-        else if (cond == 14) enter_exception(s, cpu, Exception::undefined_instruction, pc + 2U);
+        if (cond == 15) enter_exception(s, ram.exception_base(cpu), Exception::software_interrupt, pc + 2U);
+        else if (cond == 14) enter_exception(s, ram.exception_base(cpu), Exception::undefined_instruction, pc + 2U);
         else if (condition(s, cond)) branch(pc + 4U + sign_extend((raw & 0xffU) << 1U, 9));
     } else if ((raw & 0xf800U) == 0xe000U) {
         branch(pc + 4U + sign_extend((raw & 0x7ffU) << 1U, 12));

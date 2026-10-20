@@ -45,14 +45,14 @@ void Cpu::step(Memory& memory) {
     if ((fiq_line_ && !state_.fiq_disabled) || (irq && !state_.irq_disabled)) {
         const auto exception = fiq_line_ && !state_.fiq_disabled ? detail::Exception::fiq : detail::Exception::irq;
         auto prepared = state_;
-        detail::enter_exception(prepared, processor_, exception, state_.registers[15] + 4U);
+        detail::enter_exception(prepared, memory.exception_base(processor_), exception, state_.registers[15] + 4U);
         state_ = prepared;
         return; // entrée d'exception, aucune instruction terminée sur ce pas
     }
     const auto pc = state_.registers[15];
     std::optional<std::uint32_t> instruction;
     try {
-        instruction = state_.thumb ? memory.read16(processor_, pc) : memory.read32(processor_, pc);
+        instruction = state_.thumb ? memory.fetch16(processor_, pc) : memory.fetch32(processor_, pc);
         detail::Interpreter interpreter{state_, processor_, memory};
         interpreter.execute(*instruction);
         state_ = interpreter.s;

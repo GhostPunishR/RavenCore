@@ -20,6 +20,8 @@ add_library(nds_raven_core STATIC
     src/timers/timers.cpp
     src/bios/boot_rom.cpp
     src/machine/machine.cpp
+    src/cpu/cp15.cpp
+    src/cpu/coprocessor.cpp
     src/cpu/cpu.cpp
     src/cpu/cpu_state.cpp
     src/cpu/arm.cpp
@@ -33,6 +35,10 @@ target_link_libraries(nds_raven_core PUBLIC ravenemu_common)
 set_target_properties(nds_raven_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(BUILD_TESTING)
+    add_executable(nds_cp15_tests tests/cp15_test.cpp)
+    target_include_directories(nds_cp15_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_cp15_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_cp15 COMMAND nds_cp15_tests)
     add_executable(nds_cartridge_tests tests/cartridge_test.cpp)
     target_include_directories(nds_cartridge_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_cartridge_tests PRIVATE nds_raven_core)
