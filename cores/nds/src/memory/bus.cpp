@@ -22,6 +22,7 @@ void Memory::clear_ram() noexcept {
     arm9_timers_ = {};
     arm7_timers_ = {};
     ipc_.reset();
+    input_.reset();
     arm9_dma_.reset();
     arm7_dma_.reset();
     dma_fill_ = {};

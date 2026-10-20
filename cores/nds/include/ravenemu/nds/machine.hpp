@@ -26,6 +26,9 @@ struct BootEntries {
 class Machine {
 public:
     void load_cartridge(const Cartridge& cartridge);
+    void set_input(InputState state) noexcept { memory_.set_input(state); }
+    void set_key(Key key, bool pressed) { memory_.set_key(key, pressed); }
+    [[nodiscard]] const InputState& input_state() const noexcept { return memory_.input_state(); }
     [[nodiscard]] Memory& memory() noexcept { return memory_; }
     [[nodiscard]] const Memory& memory() const noexcept { return memory_; }
     [[nodiscard]] VideoFrame render_frame() const { return memory_.render_frame(); }

@@ -16,6 +16,7 @@ nds/
 │   ├── cartridge/        # cartouches .nds
 │   ├── cpu/              # ARM, Thumb, état, PSR et exceptions
 │   ├── dma/              # canaux, transferts immédiats et VBlank/HBlank
+│   ├── input/            # boutons, KEYCNT, capot et état /PENIRQ
 │   ├── interrupts/       # contrôleurs IME/IE/IF indépendants
 │   ├── ipc/              # synchronisation et FIFO ARM9/ARM7
 │   ├── machine/          # assemblage des deux CPU et chargement
@@ -88,7 +89,7 @@ CPU démarrent en System avec I/F masqués. Les images BIOS déjà fournies sont
 Ce chargement est une préparation expérimentale, pas une séquence de démarrage
 BIOS : pas de firmware, de déchiffrement, de paramètres de démarrage, de copie
 de l'en-tête dans la RAM ni d'initialisation complète des registres CPU. Seuls les
-MMIO LCD, interruption, DMA, timers, IPC, VRAMCNT et WRAMCNT/WRAMSTAT sont présents.
+MMIO LCD, interruption, DMA, timers, entrées, IPC, VRAMCNT et WRAMCNT/WRAMSTAT sont présents.
 Les neuf banques VRAM ont des fenêtres CPU réaffectables ; palettes et OAM
 standard des deux moteurs sont présentes. Les autres MMIO et
 comportements open-bus restent absents ; les accès non mappés lèvent `ravenemu::Error`. Les lectures ARM
@@ -337,7 +338,7 @@ Les accès alignés par octet ou demi-mot aux registres IRQ respectent les voies
 little-endian ; les octets réservés d'IME se lisent zéro. Les demandes restent
 dans IF lorsque IME ou IE sont désactivés. La ligne IRQ est active si
 `IME && (IE & IF) != 0`. Les masques de sources NDS du modèle sont `0x003f3f7f`
-sur ARM9 et `0x019f3fff` sur ARM7 : géométrie sur ARM9, RTC/capot/SPI/Wi-Fi sur
+sur ARM9 et `0x01df3fff` sur ARM7 : géométrie sur ARM9, RTC/capot/SPI/Wi-Fi sur
 ARM7 ; les sources DSi ne sont pas implémentées.
 
 Les périphériques émettent leurs événements par
@@ -939,6 +940,67 @@ IRQ conserve la phase. Ces règles déterministes ne constituent pas une validat
 des latences NDS. L'ordonnanceur avance les timers ; les timings CPU restent à faire.
 Référence : [GBATEK, DS Timers](https://mgba-emu.github.io/gbatek/ds.html#dstimers).
 
+## Boutons, capot et état du stylet
+
+`Input`, `InputState` et l'enum DS `Key` sont déclarés dans
+`<ravenemu/nds/input.hpp>`. L'interface hôte `Machine::set_key(Key, pressed)`
+change un bouton, `set_input(InputState)` applique atomiquement l'ensemble des
+entrées. Les mêmes méthodes sont disponibles sur `Memory`. `input_state()`
+expose une vue constante. `pressed_keys` utilise des bits actifs à un dans
+l'ordre A, B, Select, Start, Right, Left, Up, Down, R, L, X, Y ; les quatre bits
+hauts sont ignorés. Un enum hors de ces douze boutons est refusé sans mutation.
+L'enum commun `ravenemu::Button` et les autres cœurs ne sont pas modifiés.
+
+| Registre | CPU | Comportement |
+| --- | --- | --- |
+| `0x04000130` KEYINPUT | ARM9/ARM7 | Dix boutons historiques communs, actifs à zéro ; bits 10..15 nuls |
+| `0x04000132` KEYCNT | ARM9/ARM7 | Contrôle indépendant, masque `0xc3ff`, sélection de dix boutons, IRQ et OR/AND |
+| `0x04000136` EXTKEYIN | ARM7 | X/Y bits 0/1, DEBUG bit 3 et /PENIRQ bit 6 actifs à zéro ; capot fermé bit 7 actif à un |
+
+KEYINPUT et EXTKEYIN sont en lecture seule. Les voies d'octets et les accès
+16 bits respectent little-endian ; le mot à KEYINPUT combine aussi KEYCNT.
+Les bits 2/4/5 d'EXTKEYIN se lisent à un, son octet haut à zéro. EXTKEYIN reste
+non mappé sur ARM9 ; RCNT et RTC voisins ne sont pas introduits implicitement.
+
+KEYCNT demande IF.12 sur le passage de sa combinaison de faux à vrai, avec
+son autorisation IRQ activée. OR exige au moins un bouton sélectionné ; AND les
+exige tous. L'historique de condition est séparé pour chaque CPU. Un appui
+maintenu, une lecture ou une avance d'horloge ne redemande pas l'IRQ après
+acquittement. Une écriture KEYCNT change la référence de comparaison sans
+produire de front ; activer une combinaison déjà maintenue ne produit donc
+pas de nouvelle demande. Une sélection vide reste constante et ne produit
+aucun front. X/Y, DEBUG et le stylet ne sont pas sélectionnables par KEYCNT.
+
+L'ouverture après fermeture du capot demande IF.22 sur ARM7 seulement ;
+répéter le même état ne redemande pas d'IRQ. Le masque ARM7 inclut désormais
+ce bit (`0x01df3fff`) : l'ancien masque excluait à tort la source capot.
+Comme les autres sources, les demandes sont mémorisées même si IME/IE sont
+coupés ; une IRQ clavier activée peut réveiller WFI ARM9 via l'ordonnanceur.
+Aucun mode Sleep ni arrêt matériel des écrans n'est encore associé au capot.
+
+```cpp
+machine.set_key(ravenemu::nds::Key::a, true);
+machine.run_cycles(1000);
+auto input = machine.input_state();
+input.lid_closed = true;
+machine.set_input(input);
+```
+
+`pen_down` fournit seulement l'état de la ligne /PENIRQ à EXTKEYIN. Il ne
+fournit pas encore de coordonnées, d'étalonnage, de contrôleur tactile SPI ni
+de gestion d'alimentation TSC ; aucune IRQ tactile supplémentaire n'est inventée.
+La copie conserve indépendamment entrées, contrôles et historique ; un
+chargement refusé les préserve. `clear_ram()` ou un chargement réussi remet
+boutons et stylet relâchés, DEBUG relâché et capot ouvert, sans fausse IRQ
+d'ouverture. L'hôte doit ensuite fournir son état courant.
+
+Les bits et sources viennent de [GBATEK, DS Keypad](https://mgba-emu.github.io/gbatek/ds.html#dskeypad)
+et [KEYCNT](https://mgba-emu.github.io/gbatek/gba.html#4000132hkeycntkeyinterruptcontrolrw).
+Les transitions d'IRQ ont aussi été comparées au comportement de
+[melonDS](https://github.com/melonDS-emu/melonDS/blob/master/src/NDS.cpp),
+sans importer son code. Cette vérification ne remplace pas une mesure sur
+console ; les latences fines des entrées restent non validées matériellement.
+
 ## Communication ARM9/ARM7
 
 Le composant `Ipc`, déclaré dans `<ravenemu/nds/ipc.hpp>`, conserve les deux
@@ -1027,6 +1089,13 @@ les vecteurs d'abandon décrits plus haut. Les instructions déjà terminées
 d'un `run_steps` restent appliquées. Le chargement d'une nouvelle cartouche
 réinitialise les deux CPU. Aucun CPU ne conserve de référence persistante au
 bus : copier une machine produit une mémoire et des CPU indépendants.
+
+`nds_input` vérifie les douze boutons, voies d'octets/mots, contrôles par CPU,
+fronts OR/AND, écritures pendant maintien, acquittements, masque de source capot,
+WFI et gestionnaires IRQ, TCM/MPU, copies et chargements. Un programme ARM9 lit A
+et choisit la couleur du backdrop ; un programme ARM7 Thumb publie simultanément
+KEYINPUT en RAM. Les tests appuient puis relâchent A et vérifient la couleur
+rendue et l'état publié, sans modifier directement l'image.
 
 `nds_scheduler` vérifie le rapport des créneaux, budgets nuls/débordants et
 fractionnés, les horloges partagées, les échanges RAM/IPC entre deux programmes,
@@ -1136,8 +1205,11 @@ double consommation ; mélange, validité, rollback et très grandes avances son
 vérifiés. Une ROM ARM9 configure son DMA, attend l'IRQ et produit les 256×192
 pixels, avec copies et chargements refusés/réussis.
 
-Prochains jalons : compléter le jeu d'instructions, définir les timings et la
-synchronisation des deux CPU, DMA et timers, puis 3D, entrées et audio.
+Prochains jalons : compléter les instructions et durées CPU/bus, le démarrage,
+les lectures cartouche et sauvegardes, le SPI tactile/firmware, puis 3D et audio.
+L'ordonnanceur actuel reste un modèle fonctionnel à coût uniforme.
 
-Aucun jeu ne tourne à ce stade. Le cœur n'est pas encore exposé par `Core`,
-le SDK ou Libretro : ces interfaces viendront avec une exécution fonctionnelle.
+Aucun jeu commercial n'est validé à ce stade. Les programmes synthétiques
+peuvent déjà réagir aux boutons et modifier le rendu. La bibliothèque native
+NDS est installée avec le paquet C++, mais les adaptateurs `Core`, `sdk::System`
+et Libretro NDS restent à développer.

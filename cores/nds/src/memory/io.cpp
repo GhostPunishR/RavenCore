@@ -54,6 +54,12 @@ std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address
         return static_cast<std::uint8_t>(static_cast<std::uint32_t>(ipc_.sync(cpu)) >> ((address - 0x04000180U) * 8U));
     if (address >= 0x04000184 && address <= 0x04000187)
         return static_cast<std::uint8_t>(static_cast<std::uint32_t>(ipc_.control(cpu)) >> ((address - 0x04000184U) * 8U));
+    if (address >= 0x04000130 && address <= 0x04000133) {
+        const auto value = address < 0x04000132 ? input_.key_input() : input_.control(cpu);
+        return static_cast<std::uint8_t>(value >> ((address & 1U) * 8U));
+    }
+    if (cpu == Processor::arm7 && (address == 0x04000136 || address == 0x04000137))
+        return static_cast<std::uint8_t>(input_.extended_input() >> ((address & 1U) * 8U));
     const auto& irq = controller(cpu);
     if (address >= 0x04000208 && address <= 0x0400020b)
         return static_cast<std::uint8_t>(address == 0x04000208 && irq.master_enable());
@@ -134,6 +140,15 @@ void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t va
         }
         return;
     }
+    if (address >= 0x04000130 && address <= 0x04000133) {
+        if (address >= 0x04000132) {
+            const auto shift = (address & 1U) * 8U;
+            input_.write_control(cpu, static_cast<std::uint16_t>(static_cast<unsigned>(value) << shift),
+                                 static_cast<std::uint16_t>(0xffU << shift));
+        }
+        return; // KEYINPUT en lecture seule
+    }
+    if (cpu == Processor::arm7 && (address == 0x04000136 || address == 0x04000137)) return;
     auto& irq = controller(cpu);
     if (address == 0x04000208) irq.set_master_enable((value & 1U) != 0);
     else if (address >= 0x04000210 && address <= 0x04000213) {

@@ -4,6 +4,7 @@
 #include <ravenemu/nds/cp15.hpp>
 #include <ravenemu/nds/interrupts.hpp>
 #include <ravenemu/nds/ipc.hpp>
+#include <ravenemu/nds/input.hpp>
 #include <ravenemu/nds/dma.hpp>
 #include <ravenemu/nds/lcd_timing.hpp>
 #include <ravenemu/nds/video.hpp>
@@ -24,6 +25,9 @@ namespace ravenemu::nds {
 class Memory {
 public:
     Memory();
+    void set_input(InputState state) noexcept;
+    void set_key(Key key, bool pressed);
+    [[nodiscard]] const InputState& input_state() const noexcept { return input_.state(); }
     // Contrôle système ARM9 ; sans effet sur les accès ARM7 ou DMA.
     [[nodiscard]] Cp15& cp15() noexcept { return cp15_; }
     [[nodiscard]] const Cp15& cp15() const noexcept { return cp15_; }
@@ -89,6 +93,7 @@ private:
     [[nodiscard]] InterruptController& controller(Processor cpu) noexcept;
     [[nodiscard]] const InterruptController& controller(Processor cpu) const noexcept;
     void apply_ipc_interrupts(Ipc::Interrupts sources) noexcept;
+    void apply_input_interrupts(Input::Events events) noexcept;
     [[nodiscard]] std::uint32_t peek(Processor cpu, std::uint32_t address, unsigned width, Access access = Access::data) const;
     [[nodiscard]] std::uint32_t read(Processor cpu, std::uint32_t address, unsigned width);
     void validate_write(Processor cpu, std::uint32_t address, unsigned width, Access access = Access::data) const;
@@ -102,6 +107,7 @@ private:
     TimerBank arm9_timers_{};
     TimerBank arm7_timers_{};
     Ipc ipc_;
+    Input input_;
     DmaController arm9_dma_{Processor::arm9};
     DmaController arm7_dma_{Processor::arm7};
     std::array<std::uint8_t, 16> dma_fill_{};

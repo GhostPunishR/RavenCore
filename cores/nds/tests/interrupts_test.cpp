@@ -60,7 +60,7 @@ void register_test(Processor cpu) {
 
 void masks_and_lanes_test(Processor cpu) {
     Memory memory;
-    const auto valid = cpu == arm9 ? 0x003f3f7fU : 0x019f3fffU;
+    const auto valid = cpu == arm9 ? 0x003f3f7fU : 0x01df3fffU;
     memory.write32(cpu, ie, 0xffffffff);
     memory.request_interrupt(cpu, 0xffffffff);
     check(memory.read32(cpu, ie) == valid && memory.read32(cpu, flags) == valid,
@@ -73,6 +73,9 @@ void masks_and_lanes_test(Processor cpu) {
     memory.write32(cpu, flags, 0xffffffff);
     memory.request_interrupt(cpu, 1U << 21U); // FIFO géométrique ARM9
     check(memory.read32(cpu, flags) == (cpu == arm9 ? 1U << 21U : 0U), "source géométrique propre à ARM9");
+    memory.write32(cpu, flags, 0xffffffff);
+    memory.request_interrupt(cpu, 1U << 22U); // ouverture des écrans ARM7
+    check(memory.read32(cpu, flags) == (cpu == arm7 ? 1U << 22U : 0U), "source capot propre à ARM7");
     memory.write32(cpu, flags, 0xffffffff);
     memory.request_interrupt(cpu, 1U << 24U); // Wi-Fi ARM7
     check(memory.read32(cpu, flags) == (cpu == arm7 ? 1U << 24U : 0U), "source Wi-Fi propre à ARM7");

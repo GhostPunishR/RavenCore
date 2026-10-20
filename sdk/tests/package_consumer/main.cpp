@@ -14,6 +14,7 @@
 #include <ravenemu/nds/hardware.hpp>
 #include <ravenemu/nds/interrupts.hpp>
 #include <ravenemu/nds/ipc.hpp>
+#include <ravenemu/nds/input.hpp>
 #include <ravenemu/nds/dma.hpp>
 #include <ravenemu/nds/lcd_timing.hpp>
 #include <ravenemu/nds/video.hpp>
@@ -116,13 +117,13 @@ int main() {
     if (nds_cpu.state().mode != ravenemu::nds::CpuMode::system ||
         nds_cpu.state().instructions != 1 ||
         nds.memory().cp15().permits(0x04000000, ravenemu::nds::Cp15::Access::read, true)) return 1;
-    std::vector<std::uint8_t> scheduled_rom(0x208);
+    std::vector<std::uint8_t> scheduled_rom(0x20c);
     const auto scheduled_put = [&](std::size_t offset, std::uint32_t value) {
         for (unsigned i = 0; i < 4; ++i) scheduled_rom[offset + i] = static_cast<std::uint8_t>(value >> (i * 8U));
     };
-    scheduled_put(0x20,0x200); scheduled_put(0x24,0x02000000); scheduled_put(0x28,0x02000000); scheduled_put(0x2c,4);
-    scheduled_put(0x30,0x204); scheduled_put(0x34,0x03800000); scheduled_put(0x38,0x03800000); scheduled_put(0x3c,4);
-    scheduled_put(0x200,0xee070f90); scheduled_put(0x204,0xeafffffe);
+    scheduled_put(0x20,0x200); scheduled_put(0x24,0x02000000); scheduled_put(0x28,0x02000000); scheduled_put(0x2c,8);
+    scheduled_put(0x30,0x208); scheduled_put(0x34,0x03800000); scheduled_put(0x38,0x03800000); scheduled_put(0x3c,4);
+    scheduled_put(0x200,0xee070f90); scheduled_put(0x204,0xeafffffe); scheduled_put(0x208,0xeafffffe);
     nds.load_cartridge(ravenemu::nds::Cartridge{scheduled_rom});
     nds.advance_cycles(ravenemu::nds::LcdTiming::frame_cycles - 2);
     nds.run_frame();
@@ -132,6 +133,20 @@ int main() {
         nds.cpu_state(ravenemu::nds::Processor::arm7).instructions != 2) return 1;
     nds.run_cycles(1);
     if (nds.scheduler_state().cycles != 3 || ravenemu::nds::arm9_clock_hz != 2 * ravenemu::nds::arm7_clock_hz) return 1;
+    ravenemu::nds::InputState nds_inputs{};
+    nds_inputs.pen_down = true;
+    nds_inputs.lid_closed = true;
+    nds.set_input(nds_inputs);
+    nds.set_key(ravenemu::nds::Key::x,true);
+    nds.memory().write16(ravenemu::nds::Processor::arm9,0x04000132,0x4001);
+    nds.memory().write32(ravenemu::nds::Processor::arm9,0x04000210,0x1000);
+    nds.memory().write32(ravenemu::nds::Processor::arm9,0x04000208,1);
+    nds.set_key(ravenemu::nds::Key::a,true);
+    nds.run_cycles(1);
+    if (nds.cpu_state(ravenemu::nds::Processor::arm9).waiting_for_interrupt ||
+        nds.memory().read16(ravenemu::nds::Processor::arm7,0x04000130) != 0x3fe ||
+        nds.memory().read16(ravenemu::nds::Processor::arm7,0x04000136) != 0xbe ||
+        nds.input_state().pressed_keys != 0x401) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

@@ -2,6 +2,8 @@ add_library(nds_raven_core STATIC
     src/cartridge/cartridge.cpp
     src/memory/bus.cpp
     src/memory/io.cpp
+    src/memory/input.cpp
+    src/input/input.cpp
     src/memory/clock.cpp
     src/video/lcd_timing.cpp
     src/video/vram.cpp
@@ -37,6 +39,10 @@ target_link_libraries(nds_raven_core PUBLIC ravenemu_common)
 set_target_properties(nds_raven_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(BUILD_TESTING)
+    add_executable(nds_input_tests tests/input_test.cpp)
+    target_include_directories(nds_input_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_input_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_input COMMAND nds_input_tests)
     add_executable(nds_scheduler_tests tests/scheduler_test.cpp)
     target_include_directories(nds_scheduler_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_scheduler_tests PRIVATE nds_raven_core)
