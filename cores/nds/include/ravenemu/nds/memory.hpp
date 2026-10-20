@@ -5,6 +5,7 @@
 #include <ravenemu/nds/interrupts.hpp>
 #include <ravenemu/nds/ipc.hpp>
 #include <ravenemu/nds/input.hpp>
+#include <ravenemu/nds/spi.hpp>
 #include <ravenemu/nds/dma.hpp>
 #include <ravenemu/nds/lcd_timing.hpp>
 #include <ravenemu/nds/video.hpp>
@@ -45,7 +46,7 @@ public:
     // Une unité 16/32 bits, sans cycles. Renvoie false si aucun DMA déclenché en attente.
     // Un échec préserve l'unité fautive ; les unités déjà terminées restent appliquées.
     bool step_dma(Processor cpu);
-    // Avance timers, LCD, FIFO et capture vidéo, sans exécuter CPU ni unités DMA.
+    // Avance timers, SPI, LCD, FIFO et capture vidéo, sans exécuter CPU ni unités DMA.
     // Une source vidéo non prise en charge peut lever Error ; les lignes terminées restent appliquées.
     // Les événements LCD peuvent déclencher les DMA VBlank/HBlank/FIFO vidéo.
     void advance_cycles(std::uint64_t cycles);
@@ -96,7 +97,7 @@ private:
     void apply_input_interrupts(Input::Events events) noexcept;
     [[nodiscard]] std::uint32_t peek(Processor cpu, std::uint32_t address, unsigned width, Access access = Access::data) const;
     [[nodiscard]] std::uint32_t read(Processor cpu, std::uint32_t address, unsigned width);
-    void validate_write(Processor cpu, std::uint32_t address, unsigned width, Access access = Access::data) const;
+    void validate_write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width, Access access = Access::data) const;
     void write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width, Access access = Access::data);
     Cp15 cp15_;
     std::vector<std::uint8_t> ram_;
@@ -108,6 +109,7 @@ private:
     TimerBank arm7_timers_{};
     Ipc ipc_;
     Input input_;
+    Spi spi_;
     DmaController arm9_dma_{Processor::arm9};
     DmaController arm7_dma_{Processor::arm7};
     std::array<std::uint8_t, 16> dma_fill_{};

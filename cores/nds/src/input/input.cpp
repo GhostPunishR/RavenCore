@@ -13,6 +13,10 @@ bool Input::matches(unsigned cpu) const noexcept {
 Input::Events Input::set_state(InputState state) noexcept {
     const bool opened = state_.lid_closed && !state.lid_closed;
     state.pressed_keys &= 0xfffU;
+    state.touch.x &= 0xfffU;
+    state.touch.y &= 0xfffU;
+    state.touch.z1 &= 0xfffU;
+    state.touch.z2 &= 0xfffU;
     state_ = state;
     Events events{0, opened ? 1U << 22U : 0U};
     for (unsigned cpu = 0; cpu < 2; ++cpu) {

@@ -23,6 +23,7 @@ void Memory::clear_ram() noexcept {
     arm7_timers_ = {};
     ipc_.reset();
     input_.reset();
+    spi_.reset();
     arm9_dma_.reset();
     arm7_dma_.reset();
     dma_fill_ = {};
@@ -88,10 +89,14 @@ std::uint32_t Memory::read(Processor cpu, std::uint32_t address, unsigned width)
     return value;
 }
 
-void Memory::validate_write(Processor cpu, std::uint32_t address, unsigned width, Access access) const {
+void Memory::validate_write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width, Access access) const {
     if ((address & (width - 1U)) != 0) throw Error("NDS : accès RAM non aligné");
     if (cpu == Processor::arm9 && access != Access::external && cp15_.maps_write(address)) return;
     if (address == 0x04000188 && width == 4) return;
+    if (cpu == Processor::arm7 && address >= 0x040001c0 && address <= 0x040001c3) {
+        spi_.validate_write(address - 0x040001c0U, value, width);
+        return;
+    }
     if (cpu == Processor::arm9 && address >= 0x04000068 && address <= 0x0400006b && width != 4)
         throw Error("NDS : FIFO vidéo limitée aux écritures 32 bits");
     for (unsigned i = 0; i < width; ++i)
@@ -99,7 +104,7 @@ void Memory::validate_write(Processor cpu, std::uint32_t address, unsigned width
 }
 
 void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width, Access access) {
-    validate_write(cpu, address, width, access);
+    validate_write(cpu, address, value, width, access);
     if (cpu == Processor::arm9 && access != Access::external && cp15_.maps_write(address)) {
         for (unsigned i = 0; i < width; ++i)
             cp15_.write_byte(address + i, static_cast<std::uint8_t>(value >> (i * 8U)));
@@ -107,6 +112,10 @@ void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, un
     }
     // STRB ARM9 vers VRAM/palettes/OAM est ignoré ; la VRAM ARM7 accepte les octets.
     if (width == 1 && cpu == Processor::arm9 && video_.read_byte(cpu, address)) return;
+    if (cpu == Processor::arm7 && address >= 0x040001c0 && address <= 0x040001c3) {
+        spi_.write(address - 0x040001c0U, value, width, input_.state());
+        return;
+    }
     if (cpu == Processor::arm9 && address == 0x04000068) { video_.write_fifo(value); return; }
     if (address == 0x04000188) {
         apply_ipc_interrupts(ipc_.send(cpu, value));
@@ -151,7 +160,7 @@ void Memory::write_words(Processor cpu, std::uint32_t address, std::span<const s
     if (values.size() > available) throw Error("NDS : plage RAM débordante");
     for (std::size_t i = 0; i < values.size(); ++i) {
         const auto current = address + static_cast<std::uint32_t>(i * 4);
-        validate_write(cpu, current, 4);
+        validate_write(cpu, current, values[i], 4);
     }
     for (std::size_t i = 0; i < values.size(); ++i)
         write32(cpu, address + static_cast<std::uint32_t>(i * 4), values[i]);

@@ -21,6 +21,7 @@ nds/
 │   ├── ipc/              # synchronisation et FIFO ARM9/ARM7
 │   ├── machine/          # assemblage des deux CPU et chargement
 │   ├── memory/           # bus RAM, miroirs et WRAM
+│   ├── spi/              # bus SPI ARM7 et convertisseur tactile TSC2046
 │   ├── timers/           # compteurs, préscalers et cascade
 │   └── video/            # horloge LCD, VRAM, fonds, sprites, fenêtres et effets A/B
 └── tests/                # programmes et BIOS synthétiques
@@ -986,9 +987,9 @@ input.lid_closed = true;
 machine.set_input(input);
 ```
 
-`pen_down` fournit seulement l'état de la ligne /PENIRQ à EXTKEYIN. Il ne
-fournit pas encore de coordonnées, d'étalonnage, de contrôleur tactile SPI ni
-de gestion d'alimentation TSC ; aucune IRQ tactile supplémentaire n'est inventée.
+`pen_down` fournit le contact physique. La ligne /PENIRQ d'EXTKEYIN tient aussi
+compte du mode d'alimentation du contrôleur tactile décrit ci-dessous ; aucune
+IRQ tactile supplémentaire n'est inventée.
 La copie conserve indépendamment entrées, contrôles et historique ; un
 chargement refusé les préserve. `clear_ram()` ou un chargement réussi remet
 boutons et stylet relâchés, DEBUG relâché et capot ouvert, sans fausse IRQ
@@ -1000,6 +1001,68 @@ Les transitions d'IRQ ont aussi été comparées au comportement de
 [melonDS](https://github.com/melonDS-emu/melonDS/blob/master/src/NDS.cpp),
 sans importer son code. Cette vérification ne remplace pas une mesure sur
 console ; les latences fines des entrées restent non validées matériellement.
+
+## Bus SPI ARM7 et contrôleur tactile
+
+`Spi` et `Touchscreen` sont déclarés dans `<ravenemu/nds/{spi,touchscreen}.hpp>`.
+Ils possèdent leur état et restent copiables sans référence au bus ni aux CPU.
+L'implémentation C++ est originale, écrite à partir de
+[GBATEK, DS SPI](https://mgba-emu.github.io/gbatek/ds.html#dsserialperipheralinterfacebusspi)
+et [DS Touch Screen Controller](https://mgba-emu.github.io/gbatek/ds.html#dstouchscreencontrollertsc),
+sans importer de code d'émulateur tiers.
+
+| Registre | CPU | Comportement |
+| --- | --- | --- |
+| `0x040001c0` SPICNT | ARM7 | Débit, busy en lecture seule, périphérique, maintien CS, IRQ, activation ; masque `0xcf03` |
+| `0x040001c2` SPIDATA | ARM7 | Écrire l'octet bas lance un échange ; octet haut toujours nul et sans strobe |
+
+Les accès 8/16 bits et le mot combiné contrôle/données sont pris en charge.
+Le mot est validé avant mutation et applique le nouveau contrôle au strobe.
+SPI reste non mappé sur ARM9. Chaque octet dure `64 << débit` cycles communs,
+soit huit horloges série divisées par 8/16/32/64 à partir de l'horloge ARM7.
+Busy reste actif jusqu'à la fin ; la donnée précédente reste lisible pendant
+le transfert. `advance_cycles`, `run_cycles` et `run_frame` avancent le bus ;
+`step` et `run_steps` seuls ne font pas avancer son horloge.
+La fin demande IF.23 sur ARM7 si l'IRQ est autorisée, même avant activation
+d'IME/IE. Une lecture ou un acquittement ne répète pas cette demande.
+
+Le périphérique 2 utilise le protocole TSC2046 de la DS originale : commande
+MSB-first, bit muet, ADC 12 ou 8 bits puis bourrage nul. Les commandes peuvent
+commencer pendant les six derniers bits du résultat précédent, y compris
+sans alignement à l'octet. Maintenir CS conserve ce flux ; retirer hold avant
+le dernier transfert termine d'abord ce transfert, puis désélectionne le TSC.
+Changer de périphérique ou désactiver SPI abandonne le flux. La désactivation
+annule aussi un transfert en attente sans IRQ. Les autres écritures pendant
+busy sont ignorées dans ce modèle ; ce cas n'est pas mesuré sur console.
+
+`InputState::touch` contient un `TouchSample` avec les mesures brutes `x`, `y`,
+`z1`, `z2`. Leurs quatre bits hauts sont ignorés, comme pour un ADC 12 bits.
+Ce ne sont pas des pixels : le logiciel doit utiliser son étalonnage firmware.
+Les valeurs de pression sont fournies explicitement par l'hôte, sans prétendre
+simuler une résistance électrique. Sans contact, X/Z1 donnent 0 et Y/Z2 `0xfff`.
+La batterie donne 0 (entrée câblée à GND). Microphone et températures donnent
+provisoirement 0 : aucun modèle audio/thermique n'est encore implémenté.
+
+```cpp
+auto input = machine.input_state();
+input.pen_down = true;
+input.touch = {0x800, 0x600, 0x400, 0xc00}; // mesures ADC, pas des pixels
+machine.set_input(input);
+```
+
+Les mesures sont échantillonnées au départ de chaque transfert ; une commande
+terminée applique sa nouvelle alimentation et le résultat reste mémorisé
+pendant sa lecture. PD0 à un désactive /PENIRQ ; PD0 à zéro l'autorise si
+`pen_down` est vrai. CS n'efface pas le mode d'alimentation. Le modèle vise
+la DS originale ; les variantes DS Lite, le contrôleur DSi, le bruit et les
+temps analogiques fins restent hors périmètre.
+
+Firmware SPI, Powerman, périphérique réservé et mode de transfert SPI 16 bits
+restent explicitement refusés au strobe actif, avec un diagnostic et sans
+mutation. Ils ne sont pas remplacés par une fausse image de firmware ; aucun
+étalonnage n'est inventé. Le SPI auxiliaire des sauvegardes cartouche et le
+DMA SPI restent à développer. Copie, `clear_ram()` et rechargement conservent
+les mêmes contrats que les autres périphériques, sans IRQ différée après reset.
 
 ## Communication ARM9/ARM7
 
@@ -1089,6 +1152,14 @@ les vecteurs d'abandon décrits plus haut. Les instructions déjà terminées
 d'un `run_steps` restent appliquées. Le chargement d'une nouvelle cartouche
 réinitialise les deux CPU. Aucun CPU ne conserve de référence persistante au
 bus : copier une machine produit une mémoire et des CPU indépendants.
+
+`nds_spi` vérifie les débits et busy, les voies d'octets/demi-mots/mots,
+CS, ADC X/Y/Z1/Z2 en 12/8 bits, référence, relâchement, commandes en pipeline
+et non alignées, alimentation/PENIRQ, échantillonnage et copies en attente.
+Il contrôle les erreurs sans mutation, annulations, reset, grandes avances et
+IF.23 jusque dans le gestionnaire ARM7. Un exécutable ARM7 configure le bus,
+attend busy, assemble les octets ADC et publie X en RAM partagée sous
+l'ordonnanceur ; un rechargement vérifie ensuite le contact relâché.
 
 `nds_input` vérifie les douze boutons, voies d'octets/mots, contrôles par CPU,
 fronts OR/AND, écritures pendant maintien, acquittements, masque de source capot,
@@ -1206,7 +1277,8 @@ vérifiés. Une ROM ARM9 configure son DMA, attend l'IRQ et produit les 256×192
 pixels, avec copies et chargements refusés/réussis.
 
 Prochains jalons : compléter les instructions et durées CPU/bus, le démarrage,
-les lectures cartouche et sauvegardes, le SPI tactile/firmware, puis 3D et audio.
+les lectures cartouche et sauvegardes, le firmware SPI/Powerman et l'étalonnage
+tactile, puis 3D et audio.
 L'ordonnanceur actuel reste un modèle fonctionnel à coût uniforme.
 
 Aucun jeu commercial n'est validé à ce stade. Les programmes synthétiques

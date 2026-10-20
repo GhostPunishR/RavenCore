@@ -15,6 +15,8 @@
 #include <ravenemu/nds/interrupts.hpp>
 #include <ravenemu/nds/ipc.hpp>
 #include <ravenemu/nds/input.hpp>
+#include <ravenemu/nds/spi.hpp>
+#include <ravenemu/nds/touchscreen.hpp>
 #include <ravenemu/nds/dma.hpp>
 #include <ravenemu/nds/lcd_timing.hpp>
 #include <ravenemu/nds/video.hpp>
@@ -147,6 +149,17 @@ int main() {
         nds.memory().read16(ravenemu::nds::Processor::arm7,0x04000130) != 0x3fe ||
         nds.memory().read16(ravenemu::nds::Processor::arm7,0x04000136) != 0xbe ||
         nds.input_state().pressed_keys != 0x401) return 1;
+    nds_inputs = nds.input_state();
+    nds_inputs.touch = {0xabc,0x321,0x456,0x789};
+    nds.set_input(nds_inputs);
+    nds.memory().write16(ravenemu::nds::Processor::arm7,0x040001c0,0x8a01);
+    const auto nds_spi_byte = [&](std::uint8_t value) {
+        nds.memory().write8(ravenemu::nds::Processor::arm7,0x040001c2,value);
+        nds.advance_cycles(128);
+        return nds.memory().read16(ravenemu::nds::Processor::arm7,0x040001c2);
+    };
+    if (nds_spi_byte(0xd0) != 0 || nds_spi_byte(0) != 0x55 || nds_spi_byte(0) != 0xe0 ||
+        nds.memory().read16(ravenemu::nds::Processor::arm7,0x040001c0) != 0x8a01) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

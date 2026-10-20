@@ -19,6 +19,8 @@ void Memory::apply_ipc_interrupts(Ipc::Interrupts sources) noexcept {
 }
 
 std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address) const noexcept {
+    if (cpu == Processor::arm7 && address >= 0x040001c0 && address <= 0x040001c3)
+        return spi_.read_byte(address - 0x040001c0U);
     if (cpu == Processor::arm9) {
         if (address >= 0x04000068 && address <= 0x0400006b) return 0; // port FIFO sans retrait en lecture
         if (address >= 0x04000064 && address <= 0x04000067)
@@ -58,8 +60,10 @@ std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address
         const auto value = address < 0x04000132 ? input_.key_input() : input_.control(cpu);
         return static_cast<std::uint8_t>(value >> ((address & 1U) * 8U));
     }
-    if (cpu == Processor::arm7 && (address == 0x04000136 || address == 0x04000137))
-        return static_cast<std::uint8_t>(input_.extended_input() >> ((address & 1U) * 8U));
+    if (cpu == Processor::arm7 && (address == 0x04000136 || address == 0x04000137)) {
+        const auto value = input_.extended_input() | (spi_.pen_irq_enabled() ? 0U : 0x40U);
+        return static_cast<std::uint8_t>(value >> ((address & 1U) * 8U));
+    }
     const auto& irq = controller(cpu);
     if (address >= 0x04000208 && address <= 0x0400020b)
         return static_cast<std::uint8_t>(address == 0x04000208 && irq.master_enable());

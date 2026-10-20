@@ -11,11 +11,18 @@ namespace ravenemu::nds {
 // Enum propre à la DS : ne change pas ravenemu::Button ni les autres cœurs.
 enum class Key : std::uint8_t { a, b, select, start, right, left, up, down, r, l, x, y };
 
+// Mesures ADC brutes, pas des pixels : l'étalonnage appartient au firmware.
+struct TouchSample {
+    std::uint16_t x{}, y{}, z1{0x400}, z2{0xc00};
+    bool operator==(const TouchSample&) const = default;
+};
+
 struct InputState {
     std::uint16_t pressed_keys{}; // 1 = pressé, bits 0..11 ; les autres sont ignorés
-    bool pen_down{};             // état /PENIRQ seulement ; pas encore de coordonnées SPI
+    bool pen_down{};             // contact physique ; /PENIRQ dépend aussi de l'alimentation TSC
     bool lid_closed{};
     bool debug_pressed{};
+    TouchSample touch{};         // seules les douze positions basses sont conservées
     bool operator==(const InputState&) const = default;
 };
 

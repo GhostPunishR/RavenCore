@@ -43,7 +43,7 @@ public:
     void run_cycles(std::uint64_t cycles);
     // Exécute jusqu'à la prochaine frontière LCD (une image entière à phase zéro).
     void run_frame();
-    // Horloge explicite timers/LCD/FIFO/capture ; step/run_steps restent sans timings.
+    // Horloge explicite timers/SPI/LCD/FIFO/capture ; step/run_steps restent sans timings.
     void advance_cycles(std::uint64_t cycles) { memory_.advance_cycles(cycles); }
     // Budget de pas (une unité DMA ou entrée d'exception consomme un pas sans
     // instruction), pas de cycles. Un échec laisse les instructions/transferts
