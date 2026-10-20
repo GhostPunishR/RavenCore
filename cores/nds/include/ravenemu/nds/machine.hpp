@@ -26,8 +26,10 @@ struct BootEntries {
 class Machine {
 public:
     void load_cartridge(const Cartridge& cartridge);
+    void load_firmware(std::span<const std::uint8_t> bytes) { memory_.load_firmware(bytes); }
     void set_input(InputState state) noexcept { memory_.set_input(state); }
     void set_key(Key key, bool pressed) { memory_.set_key(key, pressed); }
+    void set_touch_position(std::uint16_t x, std::uint16_t y, bool pressed = true) { memory_.set_touch_position(x,y,pressed); }
     [[nodiscard]] const InputState& input_state() const noexcept { return memory_.input_state(); }
     [[nodiscard]] Memory& memory() noexcept { return memory_; }
     [[nodiscard]] const Memory& memory() const noexcept { return memory_; }

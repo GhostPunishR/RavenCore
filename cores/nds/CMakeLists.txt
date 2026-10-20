@@ -4,7 +4,9 @@ add_library(nds_raven_core STATIC
     src/memory/io.cpp
     src/memory/input.cpp
     src/input/input.cpp
+    src/firmware/firmware.cpp
     src/spi/spi.cpp
+    src/spi/firmware.cpp
     src/spi/touchscreen.cpp
     src/memory/clock.cpp
     src/video/lcd_timing.cpp
@@ -41,6 +43,10 @@ target_link_libraries(nds_raven_core PUBLIC ravenemu_common)
 set_target_properties(nds_raven_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(BUILD_TESTING)
+    add_executable(nds_firmware_tests tests/firmware_test.cpp)
+    target_include_directories(nds_firmware_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_firmware_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_firmware COMMAND nds_firmware_tests)
     add_executable(nds_spi_tests tests/spi_test.cpp)
     target_include_directories(nds_spi_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_spi_tests PRIVATE nds_raven_core)

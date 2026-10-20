@@ -17,11 +17,13 @@
 #include <ravenemu/nds/input.hpp>
 #include <ravenemu/nds/spi.hpp>
 #include <ravenemu/nds/touchscreen.hpp>
+#include <ravenemu/nds/firmware.hpp>
 #include <ravenemu/nds/dma.hpp>
 #include <ravenemu/nds/lcd_timing.hpp>
 #include <ravenemu/nds/video.hpp>
 
 #include <cstdio>
+#include <algorithm>
 #include <vector>
 
 int main() {
@@ -160,6 +162,28 @@ int main() {
     };
     if (nds_spi_byte(0xd0) != 0 || nds_spi_byte(0) != 0x55 || nds_spi_byte(0) != 0xe0 ||
         nds.memory().read16(ravenemu::nds::Processor::arm7,0x040001c0) != 0x8a01) return 1;
+    // Image synthétique avec réglages et étalonnage ; aucun firmware tiers.
+    std::vector<std::uint8_t> nds_firmware(0x40000,0xff);
+    const auto firmware_put16 = [&](std::size_t offset, std::uint16_t value) {
+        nds_firmware[offset] = static_cast<std::uint8_t>(value);
+        nds_firmware[offset + 1] = static_cast<std::uint8_t>(value >> 8U);
+    };
+    firmware_put16(0x20,0x7fc0);
+    std::fill_n(nds_firmware.begin() + 0x3fe00,0x70,0);
+    firmware_put16(0x3fe00,5); nds_firmware[0x3fe02] = 3;
+    firmware_put16(0x3fe58,0x200); firmware_put16(0x3fe5a,0x300);
+    nds_firmware[0x3fe5c] = 33; nds_firmware[0x3fe5d] = 25;
+    firmware_put16(0x3fe5e,0xe00); firmware_put16(0x3fe60,0xd00);
+    nds_firmware[0x3fe62] = 225; nds_firmware[0x3fe63] = 169;
+    firmware_put16(0x3fe70,10); firmware_put16(0x3fe72,0x9b43);
+    nds.load_firmware(nds_firmware);
+    nds.load_cartridge(ravenemu::nds::Cartridge{scheduled_rom});
+    nds.set_touch_position(128,96);
+    if (nds.input_state().touch != ravenemu::nds::TouchSample{0x800,0x800} ||
+        nds.memory().read8(ravenemu::nds::Processor::arm9,ravenemu::nds::firmware_settings_address + 2) != 3 ||
+        !nds.memory().firmware().settings()) return 1;
+    nds.memory().write16(ravenemu::nds::Processor::arm7,0x040001c0,0x8900);
+    if (nds_spi_byte(0x9f) != 0xff || nds_spi_byte(0) != 0x20 || nds_spi_byte(0) != 0x40 || nds_spi_byte(0) != 0x12) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

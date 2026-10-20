@@ -46,6 +46,11 @@ void Machine::load_cartridge(const Cartridge& cartridge) {
     Memory prepared = memory_;
     prepared.clear_ram();
     prepared.set_wram_control(3); // toute la WRAM partagée à l'ARM7
+    // Préparer les réglages du démarrage direct, avant les exécutables : une
+    // section RAM explicitement fournie par la cartouche garde la priorité.
+    if (const auto& settings = prepared.firmware().settings(); settings)
+        for (std::uint32_t i = 0; i < settings->data.size(); ++i)
+            prepared.write8(Processor::arm7, firmware_settings_address + i, settings->data[i]);
     for (std::uint32_t i = 0; i < header.arm9.size; ++i)
         prepared.write8(Processor::arm9, header.arm9.load_address + i, arm9[i]);
     for (std::uint32_t i = 0; i < header.arm7.size; ++i)

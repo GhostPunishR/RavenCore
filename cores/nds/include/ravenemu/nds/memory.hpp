@@ -28,6 +28,9 @@ public:
     Memory();
     void set_input(InputState state) noexcept;
     void set_key(Key key, bool pressed);
+    // Pixels d'origine (0,0) ; exige un étalonnage valide pour un contact.
+    // pressed=false relâche le stylet même sans firmware, en conservant les ADC.
+    void set_touch_position(std::uint16_t x, std::uint16_t y, bool pressed = true);
     [[nodiscard]] const InputState& input_state() const noexcept { return input_.state(); }
     // Contrôle système ARM9 ; sans effet sur les accès ARM7 ou DMA.
     [[nodiscard]] Cp15& cp15() noexcept { return cp15_; }
@@ -40,7 +43,9 @@ public:
     [[nodiscard]] std::uint32_t fetch32(Processor cpu, std::uint32_t address) const;
     // ARM7 : 16 Kio aux vecteurs bas ; ARM9 : 4 Kio aux vecteurs hauts NDS.
     void load_bios(Processor cpu, std::span<const std::uint8_t> bytes);
-    void clear_ram() noexcept; // remet aussi les périphériques à zéro ; conserve les BIOS
+    void load_firmware(std::span<const std::uint8_t> bytes) { spi_.load_firmware(bytes); }
+    [[nodiscard]] const Firmware& firmware() const noexcept { return spi_.firmware(); }
+    void clear_ram() noexcept; // remet aussi les périphériques à zéro ; conserve BIOS/firmware
     [[nodiscard]] VideoFrame render_frame() const { return video_.render_frame(display_control_, graphics_power_, display_control_b_); }
     [[nodiscard]] bool dma_pending(Processor cpu) const noexcept;
     // Une unité 16/32 bits, sans cycles. Renvoie false si aucun DMA déclenché en attente.

@@ -16,12 +16,13 @@ nds/
 │   ├── cartridge/        # cartouches .nds
 │   ├── cpu/              # ARM, Thumb, état, PSR et exceptions
 │   ├── dma/              # canaux, transferts immédiats et VBlank/HBlank
+│   ├── firmware/         # image fournie par l'hôte, réglages CRC et étalonnage
 │   ├── input/            # boutons, KEYCNT, capot et état /PENIRQ
 │   ├── interrupts/       # contrôleurs IME/IE/IF indépendants
 │   ├── ipc/              # synchronisation et FIFO ARM9/ARM7
 │   ├── machine/          # assemblage des deux CPU et chargement
 │   ├── memory/           # bus RAM, miroirs et WRAM
-│   ├── spi/              # bus SPI ARM7 et convertisseur tactile TSC2046
+│   ├── spi/              # bus SPI ARM7, lecture flash et convertisseur tactile
 │   ├── timers/           # compteurs, préscalers et cascade
 │   └── video/            # horloge LCD, VRAM, fonds, sprites, fenêtres et effets A/B
 └── tests/                # programmes et BIOS synthétiques
@@ -85,7 +86,10 @@ qui se chevauchent et les entrées mal alignées ou dont la première instructio
 est tronquée. Un échec préserve mémoire, répartition WRAM, entrées et états CPU précédents.
 Un nouveau chargement réussi efface le contenu antérieur de toutes les RAM et
 réinitialise registres, banques, drapeaux, compteurs et lignes IRQ/FIQ. Les deux
-CPU démarrent en System avec I/F masqués. Les images BIOS déjà fournies sont conservées.
+CPU démarrent en System avec I/F masqués. Les images BIOS et firmware déjà fournies
+sont conservées. Avec un firmware et des réglages valides, le chargeur prépare
+leurs `0x70` octets à `0x027ffc80` avant de charger les exécutables. Un segment
+de programme explicitement situé dans cette zone garde ainsi la priorité.
 
 Ce chargement est une préparation expérimentale, pas une séquence de démarrage
 BIOS : pas de firmware, de déchiffrement, de paramètres de démarrage, de copie
@@ -1057,12 +1061,94 @@ pendant sa lecture. PD0 à un désactive /PENIRQ ; PD0 à zéro l'autorise si
 la DS originale ; les variantes DS Lite, le contrôleur DSi, le bruit et les
 temps analogiques fins restent hors périmètre.
 
-Firmware SPI, Powerman, périphérique réservé et mode de transfert SPI 16 bits
-restent explicitement refusés au strobe actif, avec un diagnostic et sans
-mutation. Ils ne sont pas remplacés par une fausse image de firmware ; aucun
-étalonnage n'est inventé. Le SPI auxiliaire des sauvegardes cartouche et le
-DMA SPI restent à développer. Copie, `clear_ram()` et rechargement conservent
-les mêmes contrats que les autres périphériques, sans IRQ différée après reset.
+Powerman, périphérique réservé et mode de transfert SPI 16 bits restent refusés
+au strobe actif, avec un diagnostic et sans mutation. Le périphérique firmware
+est décrit ci-dessous. Le SPI auxiliaire des sauvegardes cartouche et le DMA SPI
+restent à développer. Copie, `clear_ram()` et rechargement conservent les mêmes
+contrats que les autres périphériques, sans IRQ différée après reset.
+
+## Firmware SPI, réglages et étalonnage tactile
+
+`Firmware`, `FirmwareSettings` et `TouchCalibration` sont déclarés dans
+`<ravenemu/nds/firmware.hpp>`. `Machine::load_firmware(bytes)` ou la même méthode
+sur `Memory` reçoit une image DS de **256 ou 512 Kio**, copiée dans le cœur.
+L'hôte fournit les octets : aucune image Nintendo ni image de remplacement
+n'est incluse. DSi 128 Kio/4 Kio n'est pas pris en charge. La validation porte
+sur la taille et les réglages, pas sur l'authenticité du code de démarrage.
+
+Le périphérique SPI 1 accepte les commandes suivantes. Adresses sur trois
+octets, poids fort en premier ; les lectures bouclent à la capacité physique.
+
+| Commande | Comportement |
+| --- | --- |
+| `03` READ | Adresse 24 bits puis flux continu |
+| `0b` FAST | Même lecture, avec un octet muet après l'adresse |
+| `9f` RDID | Modèle M45PE20 `20 40 12` pour 256 Kio, M25PE40 `20 80 13` pour 512 Kio |
+| `05` RDSR | Statut répété : WEL bit 1, WIP nul dans ce modèle sans écriture |
+| `06` WREN / `04` WRDI | Active/désactive WEL à la remontée de CS |
+| `b9` DP / `ab` RDP | Sommeil/réveil à la remontée de CS ; les commandes ordinaires sont ignorées pendant le sommeil |
+
+Ce choix d'identifiant modélise un composant documenté selon la capacité ; il
+ne prétend pas retrouver le fabricant à partir du dump. Les octets sans réponse
+définie donnent `0xff` dans ce modèle ; l'open-bus n'est pas mesuré sur console.
+Les mêmes busy, horloges, CS et IRQ IF.23 que le tactile s'appliquent. Chaque
+transfert prépare seulement une petite session, sans recopier l'image flash.
+Une session n'est appliquée qu'à la fin du transfert ; annulation et copie
+de machine conservent des curseurs indépendants.
+
+Écriture de page, programmation et effacement restent **explicitement refusés**
+avant mutation, même avec WEL activé. Le firmware est donc pour l'instant lu
+seulement ; ces opérations ne sont pas simulées comme des succès. Les délais
+analogiques de mise sous tension, sommeil et réveil restent à implémenter.
+Un strobe firmware sans image ou une commande inconnue hors sommeil produit
+un diagnostic, sans modifier les registres ni les octets de l'image.
+
+L'offset des réglages vient du demi-mot à `0x20`, multiplié par huit, et non
+d'une position de fin d'image imposée. Les deux blocs de `0x100` octets doivent
+tenir dans l'image après l'en-tête. Chaque candidat exige la version 5, un
+compteur 0..127 et un CRC16 sur les `0x70` premiers octets (polynôme réfléchi
+`0xa001`, graine `0xffff`). Avec deux copies valides, la seconde est retenue
+si son compteur suit immédiatement le premier modulo 128 ; sinon la première.
+Avec une seule copie valide, celle-ci est utilisée. Aucune copie valide ne
+produit aucun réglage de remplacement. `firmware().settings()` est alors vide,
+mais les octets restent accessibles par SPI. La copie RAM de boot n'inclut
+ni compteur ni CRC, conformément au format de la console.
+
+Un étalonnage exige deux points ADC 12 bits distincts par axe et deux points
+écran distincts et valides. Un étalonnage dégénéré n'empêche pas de lire le
+reste des réglages. L'API `set_input` conserve toujours ses ADC bruts ; l'API
+`Machine::set_touch_position(x,y,pressed=true)` convertit des **pixels d'origine
+(0,0)** dans les limites 256×192 à partir de l'étalonnage sélectionné. Elle
+applique l'inverse de la formule GBATEK, arrondit à l'ADC le plus proche et
+sature l'extrapolation à 0..4095. Elle conserve boutons, capot, DEBUG et Z1/Z2.
+Un contact sans étalonnage ou un pixel hors écran est refusé sans mutation.
+`pressed=false` relâche le stylet sans exiger d'étalonnage ni changer les ADC.
+
+```cpp
+machine.load_firmware(firmware_bytes);
+machine.load_cartridge(cartridge);
+machine.set_touch_position(128, 96);       // centre de l'écran inférieur
+machine.run_frame();
+machine.set_touch_position(0, 0, false);  // relâchement ; position ignorée
+```
+
+Charger une image valide réinitialise le bus SPI, ses sessions et le TSC, en
+conservant les entrées physiques et les IRQ déjà acquises. Un chargement refusé
+conserve aussi le transfert en attente. La RAM et les autres périphériques ne
+changent pas : charger le firmware **avant la cartouche** permet d'obtenir la
+copie RAM correspondante au prochain démarrage direct. `clear_ram()` et le
+rechargement de cartouche conservent l'image, réinitialisent sommeil/WEL/busy
+et les entrées physiques. `clear_ram()` seul ne prépare pas les réglages RAM.
+Le lancement du code de boot firmware, les écritures persistantes et le menu
+de recalibrage ne sont pas encore implémentés.
+
+Cette implémentation C++ indépendante suit
+[GBATEK, Firmware Serial Flash](https://mgba-emu.github.io/gbatek/ds.html#dsfirmwareserialflashmemory),
+[Header](https://mgba-emu.github.io/gbatek/ds.html#dsfirmwareheader) et
+[User Settings](https://mgba-emu.github.io/gbatek/ds.html#dsfirmwareusersettings).
+La graine CRC a aussi été vérifiée dans la bibliothèque pour console
+[Calico](https://github.com/devkitPro/calico/blob/master/source/nds/arm7/env.c),
+sans importer son code. Les tests n'utilisent que des images synthétiques.
 
 ## Communication ARM9/ARM7
 
@@ -1152,6 +1238,14 @@ les vecteurs d'abandon décrits plus haut. Les instructions déjà terminées
 d'un `run_steps` restent appliquées. Le chargement d'une nouvelle cartouche
 réinitialise les deux CPU. Aucun CPU ne conserve de référence persistante au
 bus : copier une machine produit une mémoire et des CPU indépendants.
+
+`nds_firmware` vérifie taille/propriété des images, offsets 256/512 Kio, versions,
+CRC indépendants, sélection et wrap des compteurs, étalonnages valides/dégénérés,
+pixels, arrondis, saturation et pression conservée. Il contrôle READ/FAST, adresse
+24 bits, bouclage, JEDEC, WEL, sommeil/réveil, IRQ, refus sans mutation, reset et
+copies en attente. Deux programmes ARM9/ARM7 lisent les réglages en RAM, un ADC
+de référence par SPI, puis la mesure issue des pixels hôte sous l'ordonnanceur.
+Les chargements refusés/réussis et la priorité des exécutables sont vérifiés.
 
 `nds_spi` vérifie les débits et busy, les voies d'octets/demi-mots/mots,
 CS, ADC X/Y/Z1/Z2 en 12/8 bits, référence, relâchement, commandes en pipeline
@@ -1277,11 +1371,12 @@ vérifiés. Une ROM ARM9 configure son DMA, attend l'IRQ et produit les 256×192
 pixels, avec copies et chargements refusés/réussis.
 
 Prochains jalons : compléter les instructions et durées CPU/bus, le démarrage,
-les lectures cartouche et sauvegardes, le firmware SPI/Powerman et l'étalonnage
-tactile, puis 3D et audio.
+les lectures cartouche et sauvegardes, Powerman et les écritures firmware,
+puis 3D et audio.
 L'ordonnanceur actuel reste un modèle fonctionnel à coût uniforme.
 
 Aucun jeu commercial n'est validé à ce stade. Les programmes synthétiques
-peuvent déjà réagir aux boutons et modifier le rendu. La bibliothèque native
+peuvent déjà réagir aux boutons et modifier le rendu, lire le firmware fourni
+et mesurer le tactile à partir de pixels étalonnés. La bibliothèque native
 NDS est installée avec le paquet C++, mais les adaptateurs `Core`, `sdk::System`
 et Libretro NDS restent à développer.
