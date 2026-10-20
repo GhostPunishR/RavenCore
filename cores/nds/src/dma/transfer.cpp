@@ -31,7 +31,11 @@ bool Memory::step_dma(Processor cpu) {
         // Valider les deux extrémités avant toute écriture ou avancée de canal.
         for (unsigned i = 0; i < width; ++i) {
             if (!fill && !video_.read_byte(cpu, transfer->source + i)) static_cast<void>(index(cpu, transfer->source + i));
-            if (!video_.read_byte(cpu, transfer->destination + i)) static_cast<void>(index(cpu, transfer->destination + i));
+            const auto destination = transfer->destination + i;
+            const bool mosaic = cpu == Processor::arm9 &&
+                ((destination >= 0x0400004c && destination <= 0x0400004f) ||
+                 (destination >= 0x0400104c && destination <= 0x0400104f));
+            if (!mosaic && !video_.read_byte(cpu, destination)) static_cast<void>(index(cpu, destination));
         }
         const auto value = peek(cpu, transfer->source, width);
         write(cpu, transfer->destination, value, width);

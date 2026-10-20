@@ -11,6 +11,7 @@ void Renderer::objects(std::span<Sample> pixels) const {
     if (!(control_ & 0x1000U)) return;
     const bool one_d = (control_ & 0x10U) != 0;
     const auto boundary = (control_ >> 20U) & 3U;
+    const auto mosaic_height = ((reg16(0x4c) >> 12U) & 15U) + 1;
     constexpr unsigned widths[3][4]{{8,16,32,64},{16,32,32,64},{8,8,16,32}};
     constexpr unsigned heights[3][4]{{8,16,32,64},{8,8,16,32},{16,32,32,64}};
     for (unsigned obj = 0; obj < 128; ++obj) {
@@ -22,7 +23,7 @@ void Renderer::objects(std::span<Sample> pixels) const {
         if (!bitmap && engine_ && one_d && boundary == 3) throw Error("NDS : frontière OBJ 256 Kio réservée au moteur A");
         if (window && !(control_ & 0x8000U)) continue;
         if (bitmap && !(attr2 & 0xf000U)) continue;
-        if (attr0 & 0x1000U) throw Error("NDS : mosaïque OBJ non implémentée");
+        const bool mosaic = !window && (attr0 & 0x1000U);
         const bool bitmap_1d = (control_ & 0x40U) != 0;
         if (bitmap && bitmap_1d && (control_ & 0x20U)) throw Error("NDS : mapping bitmap OBJ réservé");
         const auto shape = attr0 >> 14U, size = attr1 >> 14U;
@@ -42,32 +43,37 @@ void Renderer::objects(std::span<Sample> pixels) const {
         for (unsigned v = 0; v < bound_height; ++v) for (unsigned u = 0; u < bound_width; ++u) {
             const auto x = ((attr1 & 0x1ffU) + u) & 0x1ffU, y = ((attr0 & 0xffU) + v) & 0xffU;
             if (x >= VideoFrame::width || y >= VideoFrame::height) continue;
+            // La grille verticale est ancrée à l'écran, pas au sommet de l'OBJ.
+            auto row = mosaic ? (y - y % mosaic_height - (attr0 & 0xffU)) & 0xffU : v;
+            if (row >= bound_height) row = 0; // premier bloc partiel au sommet de l'OBJ
             int sx, sy;
             if (affine) {
-                const auto dx = static_cast<int>(u) - static_cast<int>(bound_width / 2), dy = static_cast<int>(v) - static_cast<int>(bound_height / 2);
+                const auto dx = static_cast<int>(u) - static_cast<int>(bound_width / 2), dy = static_cast<int>(row) - static_cast<int>(bound_height / 2);
                 sx = floor256(signed16(oam16(matrix + 6)) * dx + signed16(oam16(matrix + 14)) * dy) + static_cast<int>(width / 2);
                 sy = floor256(signed16(oam16(matrix + 22)) * dx + signed16(oam16(matrix + 30)) * dy) + static_cast<int>(height / 2);
             } else {
                 sx = static_cast<int>((attr1 & 0x1000U) ? width - 1 - u : u);
-                sy = static_cast<int>((attr1 & 0x2000U) ? height - 1 - v : v);
+                sy = static_cast<int>((attr1 & 0x2000U) ? height - 1 - row : row);
             }
             if (sx < 0 || sy < 0 || sx >= static_cast<int>(width) || sy >= static_cast<int>(height)) continue;
             auto& pixel = pixels[y * VideoFrame::width + x];
             if (!window && rank >= pixel.object.rank) continue;
+            std::optional<std::uint16_t> color;
+            unsigned alpha = mode == 1 ? 17U : 0U;
             if (bitmap) {
                 const auto stride = bitmap_1d ? width : ((control_ & 0x20U) ? 256U : 128U);
-                const auto color = gpu16(true, base + (static_cast<unsigned>(sy) * stride + static_cast<unsigned>(sx)) * 2);
-                if (color & 0x8000U) pixel.object = {static_cast<std::uint16_t>(color & 0x7fffU), rank, 4,
-                    static_cast<unsigned>(attr2 >> 12U) + 1};
-                continue;
+                const auto direct = gpu16(true, base + (static_cast<unsigned>(sy) * stride + static_cast<unsigned>(sx)) * 2);
+                if (direct & 0x8000U) color = static_cast<std::uint16_t>(direct & 0x7fffU);
+                alpha = static_cast<unsigned>(attr2 >> 12U) + 1;
+            } else {
+                const auto tile_bytes = depth8 ? 64U : 32U;
+                const auto address = base + (static_cast<unsigned>(sy) / 8) * (one_d ? width / 8 * tile_bytes : 1024U) +
+                    (static_cast<unsigned>(sx) / 8) * tile_bytes;
+                color = tile_pixel(true, address, depth8, static_cast<unsigned>(sx) & 7U, static_cast<unsigned>(sy) & 7U, attr2 >> 12U, extended_slot);
             }
-            const auto tile_bytes = depth8 ? 64U : 32U;
-            const auto address = base + (static_cast<unsigned>(sy) / 8) * (one_d ? width / 8 * tile_bytes : 1024U) +
-                (static_cast<unsigned>(sx) / 8) * tile_bytes;
-            if (const auto color = tile_pixel(true, address, depth8, static_cast<unsigned>(sx) & 7U, static_cast<unsigned>(sy) & 7U, attr2 >> 12U, extended_slot)) {
-                if (window) pixel.object_window = true;
-                else pixel.object = {*color, rank, 4, mode == 1 ? 17U : 0U};
-            }
+            if (window) {
+                if (color) pixel.object_window = true;
+            } else pixel.offer_object(color, rank, alpha, mosaic);
         }
     }
 }

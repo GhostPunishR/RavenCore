@@ -21,8 +21,20 @@ private:
     };
     struct Sample {
         Pixel top, below, object;
-        bool object_window{};
+        bool object_window{}, object_mosaic{};
+        std::uint8_t object_priority{4};
         std::uint8_t mask{0x3f};
+        void offer_object(std::optional<std::uint16_t> color, unsigned rank, unsigned alpha, bool mosaic) {
+            if (color && rank < object.rank) {
+                object = {*color, rank, 4, alpha};
+                object_mosaic = mosaic;
+                object_priority = static_cast<std::uint8_t>(rank / 1024);
+            } else if (!color && object.layer != 4) {
+                // Un texel transparent ne cache aucun OBJ, mais garde ses attributs de mosaïque.
+                object_mosaic = mosaic;
+                object_priority = static_cast<std::uint8_t>(rank / 1024);
+            }
+        }
         void insert(Pixel pixel) {
             if (pixel.rank < top.rank) { below = top; top = pixel; }
             else if (pixel.rank < below.rank) below = pixel;
@@ -43,6 +55,7 @@ private:
     [[nodiscard]] std::optional<std::uint16_t> background_pixel(unsigned bg, Background kind, unsigned x, unsigned y) const;
     void backgrounds(std::span<Sample> pixels) const;
     void objects(std::span<Sample> pixels) const;
+    void mosaic_objects(std::span<Sample> pixels) const;
     void windows(std::span<Sample> pixels) const;
     [[nodiscard]] std::uint16_t composite(const Sample& sample) const;
 };

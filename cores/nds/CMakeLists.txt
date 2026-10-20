@@ -8,6 +8,7 @@ add_library(nds_raven_core STATIC
     src/video/frame.cpp
     src/video/renderer.cpp
     src/video/objects.cpp
+    src/video/mosaic.cpp
     src/video/palettes.cpp
     src/video/compositor.cpp
     src/interrupts/interrupt_controller.cpp
@@ -94,4 +95,8 @@ if(BUILD_TESTING)
     target_include_directories(nds_palette_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_palette_tests PRIVATE nds_raven_core)
     add_test(NAME nds_palettes COMMAND nds_palette_tests)
+    add_executable(nds_mosaic_tests tests/mosaic_test.cpp)
+    target_include_directories(nds_mosaic_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_mosaic_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_mosaic COMMAND nds_mosaic_tests)
 endif()

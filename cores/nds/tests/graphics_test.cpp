@@ -283,13 +283,13 @@ void diagnostics_and_dma_test() {
     m.write_words(arm9,0x040000b0,oam_upload); m.step_dma(arm9);
     check(m.read32(arm9,0x07000400)==0x03e0001f,"DMA vers OAM B");
     m.write32(arm9,port(0),0x00010100); m.write16(arm9,port(0)+8,0x40);
-    expect_failure<ravenemu::Error>([&]{static_cast<void>(m.render_frame());},"mosaïque BG absente ignorée");
+    check(m.render_frame().upper[0]==red,"mosaïque BG 1x1 doit conserver le pixel");
     m.write32(arm9,port(0),0x00010108);
     expect_failure<ravenemu::Error>([&]{static_cast<void>(m.render_frame());},"BG0 3D ignoré");
     m.write32(arm9,port(0),0x40010100); m.write16(arm9,port(0)+8,0x1080); tile(m,bg(0),true,1);
     check(m.render_frame().upper[0]==0,"palette BG étendue non affectée doit se lire zéro");
     m.write32(arm9,port(0),0x00011010); sprite(m,0,0,0x1000,0,0);
-    expect_failure<ravenemu::Error>([&]{static_cast<void>(m.render_frame());},"mosaïque OBJ absente ignorée");
+    check(m.render_frame().upper[0]==red,"mosaïque OBJ 1x1 : texel zéro reste transparent");
 }
 
 void put32(std::vector<std::uint8_t>& bytes,std::size_t offset,std::uint32_t value) {

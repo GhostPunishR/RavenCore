@@ -114,7 +114,9 @@ void Renderer::backgrounds(std::span<Sample> pixels) const {
         if (kind == B::none) continue;
         if (kind == B::three_d || (bg == 0 && !engine_ && (control_ & 8U))) throw Error("NDS : couche BG0 3D non implémentée");
         const auto cnt = reg16(8 + bg * 2);
-        if (cnt & 0x40U) throw Error("NDS : mosaïque BG non implémentée");
+        const auto mosaic = reg16(0x4c);
+        const auto mosaic_width = (cnt & 0x40U) ? (mosaic & 15U) + 1 : 1;
+        const auto mosaic_height = (cnt & 0x40U) ? ((mosaic >> 4U) & 15U) + 1 : 1;
         if (kind == B::large && (cnt >> 14U) > 1) throw Error("NDS : taille de grand bitmap réservée");
         if (engine_ && kind == B::extended && (cnt & 0x80U)) {
             const auto size = cnt >> 14U;
@@ -125,7 +127,7 @@ void Renderer::backgrounds(std::span<Sample> pixels) const {
         for (unsigned y = 0; y < VideoFrame::height; ++y) for (unsigned x = 0; x < VideoFrame::width; ++x) {
             auto& pixel = pixels[y * VideoFrame::width + x];
             if (!(pixel.mask & (1U << bg)) || rank >= pixel.below.rank) continue;
-            if (const auto color = background_pixel(bg, kind, x, y)) pixel.insert({*color, rank, bg, 0});
+            if (const auto color = background_pixel(bg, kind, x - x % mosaic_width, y - y % mosaic_height)) pixel.insert({*color, rank, bg, 0});
         }
     }
 }
@@ -148,6 +150,7 @@ void Renderer::render(std::span<std::uint16_t> output, std::uint16_t power) cons
     std::vector<Sample> pixels(output.size());
     for (auto& pixel : pixels) pixel.top = {palette(false, 0), 0xffffU, 5, 0};
     objects(pixels);
+    mosaic_objects(pixels);
     windows(pixels);
     backgrounds(pixels);
     for (std::size_t i = 0; i < output.size(); ++i) {

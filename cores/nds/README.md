@@ -257,7 +257,7 @@ Les copies chevauchantes lisent la RAM à chaque unité, sans copie préalable
 du bloc source. Les masques et miroirs RAM propres à chaque CPU s'appliquent.
 
 Le moteur accepte RAM, VRAM affectée au CPU, palettes et OAM comme sources ou destinations,
-ainsi que DMAFILL ARM9 en source. Les quatre registres
+ainsi que DMAFILL ARM9 en source et MOSAIC A/B en destination ARM9. Les quatre registres
 DMAFILL à `0x040000e0–0x040000ef` fournissent 16 octets lisibles et modifiables
 sur ARM9, utilisables comme source fixe. Les autres MMIO, BIOS, TCM et
 cartouches ne sont pas des extrémités DMA prises en charge. Un accès refusé
@@ -475,9 +475,7 @@ priorité OBJ plus haute peut donc passer devant un OBJ de plus petit indice.
 L'indice de couleur zéro est transparent ; la couleur BG standard zéro sert
 de backdrop. Un noir provenant d'un indice non nul reste opaque.
 
-La mosaïque reste à développer. Son activation lève une erreur plutôt que
-de produire une image partiellement correcte ; le port MOSAIC n'est pas encore
-mappé. Les palettes étendues sont décrites plus bas. Le moteur ne
+La mosaïque et les palettes étendues sont décrites plus bas. Le moteur ne
 reproduit pas les limites de pixels OBJ par ligne ni les modifications de registres au cours du balayage. Copies et chargements
 conservent ou réinitialisent palettes, OAM et registres comme les autres états
 NDS. Références : [GBATEK, DS Video BG Modes](https://mgba-emu.github.io/gbatek/ds.html#dsvideobgmodescontrol)
@@ -531,6 +529,45 @@ Le rendu conserve son fonctionnement par instantané, sans effets de balayage.
 Références : [GBATEK, fenêtres LCD](https://mgba-emu.github.io/gbatek/gba.html#lcdiowindowfeature),
 [effets de couleur](https://mgba-emu.github.io/gbatek/gba.html#lcdiocolorspecialeffects)
 et [OBJ DS](https://mgba-emu.github.io/gbatek/ds.html#dsvideoobjs).
+
+## Mosaïque 2D
+
+Chaque moteur possède son registre `MOSAIC`, à `0x0400004c` pour A et
+`0x0400104c` pour B. Les quatre champs de 4 bits indiquent les tailles moins
+un : BG horizontal/vertical dans les bits 0–3/4–7, OBJ horizontal/vertical
+dans les bits 8–11/12–15. Les tailles vont donc de 1 à 16 ; zéro donne 1×1.
+Les écritures ARM9 sur 8/16/32 bits sont acceptées, les 16 bits hauts sont
+ignorés. Le registre est en écriture seule : lectures et inspections renvoient
+zéro. POWCNT1 protège les écritures de chaque moteur indépendamment. Les DMA
+ARM9 peuvent aussi écrire ces ports sur 16/32 bits ; les autres restrictions
+actuelles des destinations DMA restent applicables.
+
+BGnCNT bit 6 active l'effet par fond. La grille commence au coin de l'écran,
+avant le défilement et les transformations affines : chaque bloc utilise la
+coordonnée de son coin supérieur gauche. Cela s'applique aux fonds texte
+4/8 bpp, affines, affines étendus, bitmaps indexés/directs et grand bitmap A.
+Les palettes standard ou étendues et les règles de transparence sont ensuite
+celles du mode utilisé. Les fenêtres, priorités et effets de couleur continuent
+de se calculer pour chaque pixel affiché, même au milieu d'un bloc.
+
+L'attribut OAM bit 12 active la mosaïque OBJ. La sélection verticale utilise
+une grille écran avant les flips ou la matrice ; le premier bloc partiel au
+sommet de la boîte est borné à sa première ligne. Le clipping et le wrap
+NDS restent applicables. L'axe horizontal traite ensuite la couche OBJ après
+la sélection de ses gagnants. À l'intérieur d'un bloc, une activation différente
+ou une priorité BG plus haute commence un nouveau segment. La couleur et
+son alpha sont répétés ensemble, y compris la transparence ; un OBJ sans
+mosaïque reste intact et la répétition ne déborde pas sur une zone sans OBJ.
+Les sprites servant de fenêtre OBJ ignorent la mosaïque sur les deux axes.
+
+Les deux registres sont copiés ou remis à zéro avec la mémoire vidéo. Les
+paramètres suivent le moteur lors de la permutation des écrans. Le modèle
+reste un instantané : il ne reproduit pas les compteurs internes ni les
+changements de taille ou d'activation pendant le balayage. La 3D et l'affichage
+VRAM direct ne reçoivent pas cette mosaïque 2D. Les tests utilisent des scènes
+et une ROM synthétiques, sans validation sur console NDS physique.
+Références : [GBATEK, mosaïque LCD](https://mgba-emu.github.io/gbatek/gba.html#lcdiomosaicfunction)
+et [moteurs vidéo DS](https://mgba-emu.github.io/gbatek/ds.html#dsvideo).
 
 ## Palettes étendues et luminosité maître
 
@@ -774,9 +811,16 @@ fenêtres, VRAM directe et extinction. Une ROM synthétique exécute des STRH AR
 pour configurer les deux images complètes ; permutation, copies et chargements
 réussis/refusés sont aussi vérifiés.
 
+`nds_mosaic` vérifie les tailles 1..16, les champs A/B, écritures seules,
+protection d'alimentation et DMA, défilement, flips, références affines négatives,
+wrap et bitmaps. Il contrôle les blocs partiels OBJ, matrices, palettes standard
+et étendues, transparence, chevauchements et changements de priorité, alpha
+bitmap, fenêtres et luminosité maître. Un programme ARM écrit les registres
+et construit deux images complètes avec des grilles différentes ; permutation,
+copie, reset et chargements réussis/refusés sont aussi vérifiés.
+
 Prochains jalons : compléter le jeu d'instructions, définir les timings et la
-synchronisation des deux CPU, DMA et timers, puis mosaïque, capture, 3D,
-entrées et audio.
+synchronisation des deux CPU, DMA et timers, puis capture, 3D, entrées et audio.
 
 Aucun jeu ne tourne à ce stade. Le cœur n'est pas encore exposé par `Core`,
 le SDK ou Libretro : ces interfaces viendront avec une exécution fonctionnelle.

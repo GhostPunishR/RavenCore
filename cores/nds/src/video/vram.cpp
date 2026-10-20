@@ -19,7 +19,7 @@ void VideoMemory::write_register(unsigned engine, unsigned offset, std::uint8_t 
     if (offset == 0x2b || offset == 0x2f || offset == 0x3b || offset == 0x3f) value &= 15U;
     if (offset == 0x48 || offset == 0x49 || offset == 0x4a || offset == 0x4b || offset == 0x51) value &= 0x3fU;
     if (offset == 0x52 || offset == 0x53 || offset == 0x54) value &= 0x1fU;
-    if (offset == 0x55) value = 0;
+    if (offset == 0x4e || offset == 0x4f || offset == 0x55) value = 0;
     registers_[engine][offset] = value;
 }
 

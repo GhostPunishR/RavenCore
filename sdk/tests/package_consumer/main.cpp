@@ -82,6 +82,9 @@ int main() {
     const auto nds_master = nds.render_frame();
     if (nds.memory().read32(ravenemu::nds::Processor::arm9, 0x0400006c) != 0x8010 ||
         nds_master.upper[0] != 0 || nds_master.lower[0] != 0x7fff || nds_master.lower[8] != 0x7c00) return 1;
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x0400104c, 0xffffffff);
+    if (nds.memory().read32(ravenemu::nds::Processor::arm9, 0x0400104c) != 0 ||
+        nds.render_frame().lower[8] != 0x7c00) return 1; // MOSAIC en écriture seule, backdrop inchangé
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};
