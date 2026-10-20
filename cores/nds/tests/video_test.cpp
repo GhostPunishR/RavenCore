@@ -191,7 +191,7 @@ void frame_test() {
     memory.write32(arm9, dispcnt, 0x00010007);
     expect_failure<ravenemu::Error>([&] { static_cast<void>(memory.render_frame()); }, "mode BG réservé affiché silencieusement");
     memory.write32(arm9, dispcnt, 0x00030000);
-    expect_failure<ravenemu::Error>([&] { static_cast<void>(memory.render_frame()); }, "affichage FIFO absent accepté");
+    check(memory.render_frame().upper[0] == 0 && memory.render_frame().upper.back() == 0, "FIFO avant balayage doit conserver son image initiale noire");
     memory.write16(arm9, power, 0);
     check(white(memory.render_frame().upper), "LCD désactivé ne produit pas le blanc du modèle");
 }

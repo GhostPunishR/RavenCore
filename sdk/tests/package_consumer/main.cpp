@@ -90,6 +90,14 @@ int main() {
     nds.advance_cycles(2 * ravenemu::nds::LcdTiming::frame_cycles);
     if ((nds.memory().read32(ravenemu::nds::Processor::arm9, 0x04000064) & 0x80000000U) ||
         nds.memory().read16(ravenemu::nds::Processor::arm9, 0x06860000) != 0x801f) return 1;
+    nds.memory().write16(ravenemu::nds::Processor::arm9, 0x0400006c, 0);
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04000000, 0x30000);
+    for (unsigned i = 0; i < 8; ++i) nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04000068, 0xfc00801f);
+    nds.memory().write32(ravenemu::nds::Processor::arm9, 0x04000064, 0xa2030000); // source B FIFO -> D
+    nds.advance_cycles(2 * ravenemu::nds::LcdTiming::frame_cycles);
+    const auto nds_fifo = nds.render_frame();
+    if (nds_fifo.upper[0] != 0x001f || nds_fifo.upper[1] != 0x7c00 || nds_fifo.lower[8] != 0x7c00 ||
+        nds.memory().read32(ravenemu::nds::Processor::arm9, 0x06860000) != 0xfc00801f) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

@@ -4,11 +4,13 @@
 #include "vram_layout.hpp"
 
 namespace ravenemu::nds {
-VideoMemory::VideoMemory() : bytes_(0xa4000) {}
+VideoMemory::VideoMemory() : bytes_(0xa4000), fifo_pixels_(VideoFrame::width * VideoFrame::height) {}
 void VideoMemory::reset() noexcept {
     std::fill(bytes_.begin(), bytes_.end(), 0);
     controls_ = {}; palettes_ = {}; oam_ = {}; registers_ = {}; power_ = 0;
     capture_control_ = 0; capture_active_ = false;
+    fifo_words_ = {}; fifo_read_ = fifo_write_ = 0; fifo_running_ = false;
+    std::fill(fifo_pixels_.begin(), fifo_pixels_.end(), 0);
 }
 
 void VideoMemory::write_register(unsigned engine, unsigned offset, std::uint8_t value) noexcept {

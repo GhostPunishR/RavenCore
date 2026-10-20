@@ -148,7 +148,11 @@ void Renderer::render(std::span<std::uint16_t> output, std::uint16_t power) cons
         }
         return;
     }
-    if (mode != 1) throw Error("NDS : mode d'affichage FIFO ou réservé non implémenté");
+    if (mode == 3 && engine_ == 0) {
+        for (std::size_t pixel = 0; pixel < output.size(); ++pixel) output[pixel] = memory_.fifo_pixels_[pixel] & 0x7fffU;
+        return;
+    }
+    if (mode != 1) throw Error("NDS : mode d'affichage réservé");
     render_graphics(output, 0, power);
 }
 

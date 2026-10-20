@@ -19,21 +19,22 @@ unsigned VideoMemory::capture_height() const noexcept {
     return heights[(capture_control_ >> 20U) & 3U];
 }
 
-void VideoMemory::capture_line(unsigned line, std::uint32_t display_control, std::uint16_t power) {
+void VideoMemory::capture_line(unsigned line, std::uint32_t display_control, std::uint16_t power,
+                               std::span<const std::uint16_t> fifo_line) {
     const auto control = capture_control_;
     const auto destination = (control >> 16U) & 3U;
     if ((controls_[destination] & 0x87U) != 0x80U || line >= capture_height()) return;
     const auto mode = (control >> 29U) & 3U;
     const bool use_a = mode != 1, use_b = mode != 0;
     if (use_a && (control & 0x01000000U)) throw Error("NDS : source de capture 3D non implémentée");
-    if (use_b && (control & 0x02000000U)) throw Error("NDS : source de capture FIFO non implémentée");
     const auto width = ((control >> 20U) & 3U) == 0 ? 128U : 256U;
     std::array<std::uint16_t, VideoFrame::width> source_a{}, source_b{};
     if (use_a) {
         detail::Renderer{*this, 0, display_control}.render_graphics(source_a, line, power);
         for (auto& color : source_a) color |= 0x8000U; // sortie composée 2D opaque, backdrop compris
     }
-    if (use_b) {
+    if (use_b && (control & 0x02000000U)) std::copy_n(fifo_line.begin(), width, source_b.begin());
+    else if (use_b) {
         const auto bank = (display_control >> 18U) & 3U;
         if ((controls_[bank] & 0x87U) == 0x80U) {
             const auto offset = ((display_control >> 16U) & 3U) == 2 ? 0 : ((control >> 26U) & 3U) * 0x8000U;

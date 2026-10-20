@@ -81,6 +81,8 @@ std::uint32_t Memory::read(Processor cpu, std::uint32_t address, unsigned width)
 void Memory::validate_write(Processor cpu, std::uint32_t address, unsigned width) const {
     if ((address & (width - 1U)) != 0) throw Error("NDS : accès RAM non aligné");
     if (address == 0x04000188 && width == 4) return;
+    if (cpu == Processor::arm9 && address >= 0x04000068 && address <= 0x0400006b && width != 4)
+        throw Error("NDS : FIFO vidéo limitée aux écritures 32 bits");
     for (unsigned i = 0; i < width; ++i)
         if (!io_byte(cpu, address + i) && !video_.read_byte(cpu, address + i)) static_cast<void>(index(cpu, address + i));
 }
@@ -89,6 +91,7 @@ void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, un
     validate_write(cpu, address, width);
     // STRB ARM9 vers VRAM/palettes/OAM est ignoré ; la VRAM ARM7 accepte les octets.
     if (width == 1 && cpu == Processor::arm9 && video_.read_byte(cpu, address)) return;
+    if (cpu == Processor::arm9 && address == 0x04000068) { video_.write_fifo(value); return; }
     if (address == 0x04000188) {
         apply_ipc_interrupts(ipc_.send(cpu, value));
         return;

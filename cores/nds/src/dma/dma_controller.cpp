@@ -45,9 +45,26 @@ void DmaController::write_byte(unsigned offset, std::uint8_t value) noexcept {
     channel.pending = timing(control) == 0;
 }
 
+unsigned DmaController::event_mode(Event event) noexcept {
+    return event == Event::vblank ? 1U : (event == Event::hblank ? 2U : 4U);
+}
+
+bool DmaController::listening(Event event) const noexcept {
+    if (event != Event::vblank && processor_ == Processor::arm7) return false;
+    for (const auto& channel : channels_)
+        if ((channel.registers[2] & 0x80000000U) && timing(channel.transfer.control) == event_mode(event)) return true;
+    return false;
+}
+
+void DmaController::pause(Event event) noexcept {
+    if (event != Event::vblank && processor_ == Processor::arm7) return;
+    for (auto& channel : channels_)
+        if (timing(channel.transfer.control) == event_mode(event)) channel.pending = false;
+}
+
 void DmaController::trigger(Event event) noexcept {
-    if (event == Event::hblank && processor_ == Processor::arm7) return;
-    const auto mode = event == Event::vblank ? 1U : 2U;
+    if (event != Event::vblank && processor_ == Processor::arm7) return;
+    const auto mode = event_mode(event);
     for (unsigned i = 0; i < channels_.size(); ++i) {
         auto& channel = channels_[i];
         if (!(channel.registers[2] & 0x80000000U) || channel.pending || timing(channel.transfer.control) != mode) continue;
@@ -60,6 +77,7 @@ void DmaController::trigger(Event event) noexcept {
             }
             channel.reload = false;
         }
+        channel.burst_remaining = event == Event::display_fifo ? 4U : 0U;
         channel.pending = true;
     }
 }
@@ -79,7 +97,11 @@ std::uint32_t DmaController::complete_unit() noexcept {
         const auto destination_mode = (transfer.control >> 21U) & 3U;
         if (source_mode < 2) transfer.source = (source_mode == 0 ? transfer.source + width : transfer.source - width) & address_mask(i, true);
         if (destination_mode != 2) transfer.destination = (destination_mode == 1 ? transfer.destination - width : transfer.destination + width) & address_mask(i, false);
-        if (--transfer.remaining != 0) return 0;
+        if (--transfer.remaining != 0) {
+            if (processor_ == Processor::arm9 && timing(transfer.control) == 4 && --channel.burst_remaining == 0)
+                channel.pending = false;
+            return 0;
+        }
         channel.pending = false;
         channel.reload = (transfer.control & 0x02000000U) && timing(transfer.control) != 0;
         if (!channel.reload) channel.registers[2] &= ~0x80000000U;

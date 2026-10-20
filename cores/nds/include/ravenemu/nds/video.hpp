@@ -4,6 +4,7 @@
 
 #include <array>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace ravenemu::nds {
@@ -42,9 +43,20 @@ private:
     std::uint16_t power_{};
     std::uint32_t capture_control_{};
     bool capture_active_{};
+    std::array<std::uint32_t, 8> fifo_words_{};
+    std::vector<std::uint16_t> fifo_pixels_;
+    unsigned fifo_read_{}, fifo_write_{};
+    bool fifo_running_{};
+    void write_fifo(std::uint32_t value) noexcept;
+    [[nodiscard]] bool wants_fifo(std::uint32_t display_control) const noexcept;
+    [[nodiscard]] std::array<std::uint16_t, 8> fifo_group() const noexcept;
+    void sample_fifo_group(unsigned line, unsigned x) noexcept;
+    void finish_visible_line(unsigned line, std::uint32_t display_control, std::uint16_t power);
+    void finish_frame() noexcept;
     void write_capture(unsigned offset, std::uint8_t value) noexcept;
     [[nodiscard]] unsigned capture_height() const noexcept;
-    void capture_line(unsigned line, std::uint32_t display_control, std::uint16_t power);
+    void capture_line(unsigned line, std::uint32_t display_control, std::uint16_t power,
+                      std::span<const std::uint16_t> fifo_line);
     void write_register(unsigned engine, unsigned offset, std::uint8_t value) noexcept;
     [[nodiscard]] std::optional<std::uint32_t> index(unsigned bank, Processor cpu, std::uint32_t address) const noexcept;
     [[nodiscard]] std::optional<std::uint8_t> read_byte(Processor cpu, std::uint32_t address) const noexcept;

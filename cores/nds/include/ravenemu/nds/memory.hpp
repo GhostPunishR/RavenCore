@@ -31,9 +31,9 @@ public:
     // Une unité 16/32 bits, sans cycles. Renvoie false si aucun DMA déclenché en attente.
     // Un échec préserve l'unité fautive ; les unités déjà terminées restent appliquées.
     bool step_dma(Processor cpu);
-    // Avance timers, LCD et capture vidéo, sans exécuter CPU ni unités DMA.
+    // Avance timers, LCD, FIFO et capture vidéo, sans exécuter CPU ni unités DMA.
     // Une source vidéo non prise en charge peut lever Error ; les lignes terminées restent appliquées.
-    // Les événements LCD peuvent déclencher les DMA VBlank/HBlank.
+    // Les événements LCD peuvent déclencher les DMA VBlank/HBlank/FIFO vidéo.
     void advance_cycles(std::uint64_t cycles);
     // Sources : masque de bits IF, pas un numéro de source.
     void request_interrupt(Processor cpu, std::uint32_t sources) noexcept;

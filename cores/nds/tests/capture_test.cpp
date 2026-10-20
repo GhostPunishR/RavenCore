@@ -39,10 +39,10 @@ void registers_test() {
     check(m.read32(arm9,capture)==0xef3f1f1f,"masque DISPCAPCNT ou écriture moteur éteint incorrect");
     m.write8(arm9,capture,0xa8); m.write8(arm9,capture+1,0xf0); m.write16(arm9,capture+2,0x1234);
     check(m.peek32(arm9,capture)==0x02341008,"voies d'octets et demi-mots DISPCAPCNT");
-    const std::array<std::uint32_t,2> invalid{0,0};
-    expect_failure<ravenemu::Error>([&]{m.write_words(arm9,capture,invalid);},"capture puis FIFO non implémentée acceptée");
+    const std::array<std::uint32_t,4> invalid{0,0,0,0};
+    expect_failure<ravenemu::Error>([&]{m.write_words(arm9,capture,invalid);},"capture puis port non implémenté acceptés");
     check(m.read32(arm9,capture)==0x02341008,"transfert refusé a modifié DISPCAPCNT");
-    for(const auto address : {capture,0x04001064U,0x04000060U,0x04000068U}) {
+    for(const auto address : {capture,0x04001064U,0x04000060U}) {
         if(address!=capture) expect_failure<ravenemu::Error>([&]{m.write32(arm9,address,0);},"port 3D/FIFO/B mappé par erreur");
         expect_failure<ravenemu::Error>([&]{static_cast<void>(m.read32(arm7,address));},"capture accessible ARM7");
     }
@@ -170,8 +170,9 @@ void clocks_copy_and_failures_test() {
     m.write32(arm9,0x04000100,0x00800000); m.advance_cycles(1535);
     expect_failure<ravenemu::Error>([&]{m.advance_cycles(1);},"source 3D de capture ignorée");
     check(m.read16(arm9,0x04000100)==1535&&m.read16(arm9,vram(3))==sentinel,"capture refusée a avancé l'horloge ou écrit des pixels");
-    m.write32(arm9,capture,0xa2330000);
-    expect_failure<ravenemu::Error>([&]{m.advance_cycles(1);},"source FIFO de capture ignorée");
+    m.write32(arm9,capture,0x80330000); m.write32(arm9,0x04000000,0x10108);
+    expect_failure<ravenemu::Error>([&]{m.advance_cycles(1);},"composition 3D de capture ignorée");
+    m.write32(arm9,0x04000000,0);
     m.write32(arm9,capture,0xa0330000); source_pattern(m,0); m.advance_cycles(1);
     auto split=m, clock_only=m; clock_only.write32(arm9,capture,0);
     const auto count=std::numeric_limits<std::uint64_t>::max();

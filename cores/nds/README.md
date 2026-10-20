@@ -257,7 +257,7 @@ Les copies chevauchantes lisent la RAM à chaque unité, sans copie préalable
 du bloc source. Les masques et miroirs RAM propres à chaque CPU s'appliquent.
 
 Le moteur accepte RAM, VRAM affectée au CPU, palettes et OAM comme sources ou destinations,
-ainsi que DMAFILL ARM9 en source, MOSAIC A/B et DISPCAPCNT en destination ARM9. Les quatre registres
+ainsi que DMAFILL ARM9 en source, MOSAIC A/B, DISPCAPCNT et DISP_MMEM_FIFO en destination ARM9. Les quatre registres
 DMAFILL à `0x040000e0–0x040000ef` fournissent 16 octets lisibles et modifiables
 sur ARM9, utilisables comme source fixe. Les autres MMIO, BIOS, TCM et
 cartouches ne sont pas des extrémités DMA prises en charge. Un accès refusé
@@ -271,7 +271,8 @@ registres d'un canal déjà actif sont conservées pour sa prochaine activation 
 elles ne rechargent pas le transfert en cours. Une destination incrément/rechargement
 agit comme incrément en immédiat. VBlank (mode 1 sur les deux CPU) et HBlank
 (mode 2 ARM9, lignes visibles uniquement) sont déclenchés par l'horloge LCD.
-Les modes cartouche, géométrie et autres modes vidéo restent armés sans déclencheur.
+Le mode ARM9 4 (mémoire principale vers FIFO vidéo) est décrit plus bas.
+Les modes cartouche, géométrie et début d'affichage (ARM9 3) restent armés sans déclencheur.
 
 Avec repeat en VBlank/HBlank, chaque événement démarre un bloc de la longueur
 programmée. La source continue d'un bloc à l'autre ; la destination continue
@@ -325,11 +326,12 @@ machine.advance_cycles(192 * ravenemu::nds::LcdTiming::line_cycles);
 ```
 
 `Memory::advance_cycles()` et `Machine::advance_cycles()` avancent ensemble
-LCD, timers et capture, sans exécuter de CPU ni d'unité DMA. Les événements
-IRQ/DMA sont coalescés sur l'intervalle demandé. Sans capture, un grand appel
+LCD, timers, FIFO vidéo et capture, sans exécuter de CPU ni d'unité DMA. Les événements
+IRQ/DMA sont coalescés sur l'intervalle demandé. Sans capture ni FIFO, un grand appel
 traverse plusieurs images sans boucle par cycle ni par ligne. Avec capture,
-seules ses lignes sont traitées individuellement ; le reste de l'intervalle
-conserve ce chemin rapide. Aucun appel n'exécute les répétitions DMA.
+seules ses lignes sont traitées individuellement. La FIFO vidéo ajoute des
+étapes de huit pixels dans les lignes visibles ; les images entières suivantes
+sont coalescées une fois son contenu stable pendant un grand appel. Aucun appel n'exécute les répétitions DMA.
 Pour traiter un bloc à chaque HBlank/VBlank, alterner les avances jusqu'aux
 événements et les pas CPU/DMA. `step()` et `run_steps()` conservent leur budget
 de pas sans durée matérielle ; les latences fines IRQ/DMA et l'ordonnanceur
@@ -406,7 +408,8 @@ DISPCNT A à `0x04000000`, DISPCNT B à `0x04001000`. Le mode 0 et forced blank
 (POWCNT1 bit 0 nul) produit deux écrans blancs dans ce modèle.
 
 Le mode graphique 1 compose les fonds et sprites décrits ci-dessous ; le
-mode FIFO 3 reste refusé. La capture 2D/VRAM et la luminosité maître sont
+mode FIFO 3 affiche les pixels déjà consommés par l'horloge LCD, comme décrit
+plus bas. La capture 2D/VRAM/FIFO et la luminosité maître sont également
 décrites plus bas ; la 3D reste absente.
 L'instantané lit toute l'image au
 moment de l'appel : il n'émule pas les changements de pixels pendant le
@@ -632,7 +635,8 @@ Le moteur B ne possède pas de registre de capture séparé.
 | 16–17 | Banque destination A, B, C ou D, affectée en LCDC |
 | 18–19 | Offset destination : 0, 32, 64 ou 96 Kio |
 | 20–21 | Taille : 128×128, 256×64, 256×128 ou 256×192 |
-| 24, 25 | Options source A 3D seule et source B FIFO, encore non prises en charge |
+| 24 | Source A : composition 2D ou 3D seule (cette dernière reste non prise en charge) |
+| 25 | Source B : VRAM ou FIFO vidéo |
 | 26–27 | Offset source VRAM, ignoré en affichage VRAM direct |
 | 29–30 | Source A seule, B seule, ou A+B (modes 2 et 3) |
 | 31 | Activation/occupé ; effacé automatiquement à la ligne 192 |
@@ -644,7 +648,8 @@ la sélection de l'affichage. Un affichage VRAM direct, une permutation des
 La sortie composée est opaque, backdrop compris, et forced blank fournit du
 blanc. Un moteur 2D A éteint fournit du blanc dans ce modèle.
 
-La source B lit la banque A–D choisie par DISPCNT bits 18–19, en LCDC.
+Quand le bit 25 est nul, la source B lit la banque A–D choisie par DISPCNT
+bits 18–19, en LCDC.
 Son stride reste de 256 pixels même pour une capture large de 128 pixels ;
 la destination utilise la largeur de capture. Les offsets et adresses font
 le tour de la banque de 128 Kio. Une source non affectée en LCDC fournit zéro ;
@@ -667,8 +672,8 @@ L'effacer arrête la capture dans ce modèle. `render_frame()` et les inspection
 mémoire ne déclenchent aucune capture. Un grand intervalle de cycles traite au
 plus une capture ponctuelle, puis rejoint le chemin temporel coalescé.
 
-Les options 3D seule/FIFO sont refusées par `ravenemu::Error` uniquement si la
-source correspondante est utilisée et la destination allouée. Les bits d'une
+La source A 3D seule est refusée par `ravenemu::Error` uniquement si elle
+est utilisée et la destination allouée. La source B FIFO est prise en charge. Les bits d'une
 source inutilisée restent sans effet. `advance_cycles()` peut donc maintenant
 lever une erreur : les lignes déjà terminées restent écrites, mais la ligne
 fautive et ses cycles ne sont pas appliqués. Le programme peut corriger les
@@ -680,6 +685,75 @@ et écritures pixel par pixel et les compteurs internes de mosaïque restent à
 développer. Les tests sont synthétiques, sans validation sur console physique.
 Références : [GBATEK, capture DS](https://mgba-emu.github.io/gbatek/ds.html#dsvideocaptureandmainmemorydisplaymode)
 et [circuit vidéo DS](https://mgba-emu.github.io/gbatek/ds.html#dsvideodisplaysystemblockdiagram).
+
+## FIFO vidéo et DMA mémoire principale
+
+`DISP_MMEM_FIFO`, à `0x04000068` sur ARM9, alimente le mode d'affichage A 3
+et la source B de capture lorsque DISPCAPCNT bit 25 est actif. Une écriture
+32 bits fournit deux pixels RGB555, le premier dans les bits bas. Le port
+se lit à zéro sans retirer de données, y compris avec les inspections du bus.
+Les écritures 8/16 bits ne sont pas encore prises en charge et lèvent une
+erreur avant tout effet ; ARM7 et le port B inexistant restent non mappés.
+
+Le modèle utilise un anneau de huit mots, soit seize pixels. Ses emplacements
+retiennent leurs valeurs : en cas de sous-alimentation, ils sont relus à leur
+prochain passage ; trop d'écritures sans consommation remplacent les anciennes
+valeurs. Il n'existe pas de drapeaux plein/vide comme pour IPC. À VBlank, les
+pointeurs reviennent à zéro sans effacer ces mots. Un reset ou chargement réussi
+efface aussi l'anneau et l'image consommée ; les copies possèdent leur état propre.
+
+Le flux démarre au début d'une image si le mode A 3, une capture utilisant
+la FIFO ou un DMA vidéo ARM9 est armé. Une activation en milieu d'image attend
+le prochain passage à la ligne zéro. La décision reste active jusqu'à VBlank.
+Chaque groupe de huit pixels est consommé après 48 cycles visibles, sur les
+256 pixels des 192 lignes ; une capture large de 128 utilise la moitié gauche
+mais ne réduit pas cette consommation. Le dernier groupe est préparé avant
+la capture de la ligne, sans être retiré si la composition échoue.
+
+L'affichage et la capture partagent les mêmes pixels échantillonnés. Le bit 15
+est ignoré à l'affichage mais préservé pour la copie ou le mélange en capture.
+Le mode 3 contourne les fonds, fenêtres et effets BLDCNT ; MASTER_BRIGHT et
+la permutation des écrans restent appliqués. Il fonctionne même lorsque le
+moteur 2D A est éteint. `render_frame()` lit uniquement l'image déjà consommée,
+initialement noire : il n'alimente ni ne vide la FIFO. Une inspection en cours
+de balayage peut donc montrer un préfixe récent et le reste de l'image précédente.
+
+Le mode DMA ARM9 4 se déclenche par demandes de quatre mots, à la première
+avance positive de chaque ligne visible puis après chaque groupe sauf le
+dernier. Il requiert des mots 32 bits depuis la RAM principale, avec destination
+`0x04000068` fixe. La longueur programmée est conservée séparément du quota de
+rafale : un transfert de 24576 mots fournit une image entière, tandis qu'une
+longueur de quatre avec repeat réarme un bloc à chaque demande. Le pointeur
+source continue entre les rafales ; l'IRQ arrive à la fin de la longueur, pas
+à la fin de chaque quota. VBlank suspend les rafales non servies. Le prochain
+début d'image peut reprendre un canal encore armé ; aucun rembobinage source
+implicite n'est effectué. Les autres canaux conservent leurs priorités.
+
+L'horloge déclenche les demandes mais n'exécute pas les unités DMA. Pour un flux
+complet, alterner l'avancée LCD et les pas CPU/DMA. Par exemple, après avoir
+configuré SAD vers une image en RAM, DAD vers la FIFO et CNT en mode 4, destination
+fixe, mots 32 bits et longueur 24576 :
+
+```cpp
+using ravenemu::nds::Processor;
+using ravenemu::nds::LcdTiming;
+for (unsigned y = 0; y < 192; ++y) {
+    machine.advance_cycles(1); // première demande de la ligne
+    for (unsigned group = 0; group < 32; ++group) {
+        machine.run_steps(Processor::arm9, 4); // quatre unités DMA, CPU suspendu
+        machine.advance_cycles(group == 0 ? 47 : 48);
+    }
+    machine.advance_cycles(LcdTiming::line_cycles - 1536);
+}
+```
+
+Les accès CPU et DMA restent sans durée propre ; le préchargement et les
+fronts matériels fins ne sont pas encore reproduits. La cadence de huit pixels
+est un modèle par groupes, vérifié sur scènes et ROM synthétiques. Un grand
+appel sans intervention CPU/DMA peut coalescer les images entières après deux
+passages à VBlank, sans changer les pixels, pointeurs, IRQ ou durées observables.
+Références : [GBATEK, FIFO d'affichage](https://mgba-emu.github.io/gbatek/ds.html#dsvideocaptureandmainmemorydisplaymode)
+et [DMA NDS](https://mgba-emu.github.io/gbatek/ds.html#dsdmatransfers).
 
 ## Timers
 
@@ -893,8 +967,16 @@ ligne par ligne, comparée à l'instantané, puis réaffichée sur B. Un program
 ARM configure la capture, attend busy et publie sa fin ; les grandes avances,
 copies, erreurs et chargements sont aussi contrôlés.
 
+`nds_fifo` couvre le port CPU 32 bits, lectures sans retrait, bouclage et
+sous-alimentation, reset des pointeurs à VBlank, copies et activations différées.
+Il contrôle les quotas DMA, longueurs continues/répétées, IRQ, erreurs et
+suspension CPU. Une image entière est affichée et capturée simultanément, sans
+double consommation ; mélange, validité, rollback et très grandes avances sont
+vérifiés. Une ROM ARM9 configure son DMA, attend l'IRQ et produit les 256×192
+pixels, avec copies et chargements refusés/réussis.
+
 Prochains jalons : compléter le jeu d'instructions, définir les timings et la
-synchronisation des deux CPU, DMA et timers, puis FIFO vidéo, 3D, entrées et audio.
+synchronisation des deux CPU, DMA et timers, puis 3D, entrées et audio.
 
 Aucun jeu ne tourne à ce stade. Le cœur n'est pas encore exposé par `Core`,
 le SDK ou Libretro : ces interfaces viendront avec une exécution fonctionnelle.

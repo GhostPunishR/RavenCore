@@ -7,6 +7,7 @@ add_library(nds_raven_core STATIC
     src/video/vram.cpp
     src/video/frame.cpp
     src/video/capture.cpp
+    src/video/fifo.cpp
     src/video/renderer.cpp
     src/video/objects.cpp
     src/video/mosaic.cpp
@@ -104,4 +105,8 @@ if(BUILD_TESTING)
     target_include_directories(nds_capture_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_capture_tests PRIVATE nds_raven_core)
     add_test(NAME nds_capture COMMAND nds_capture_tests)
+    add_executable(nds_fifo_tests tests/fifo_test.cpp)
+    target_include_directories(nds_fifo_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_fifo_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_fifo COMMAND nds_fifo_tests)
 endif()

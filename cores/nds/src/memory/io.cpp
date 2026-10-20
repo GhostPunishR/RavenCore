@@ -20,6 +20,7 @@ void Memory::apply_ipc_interrupts(Ipc::Interrupts sources) noexcept {
 
 std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address) const noexcept {
     if (cpu == Processor::arm9) {
+        if (address >= 0x04000068 && address <= 0x0400006b) return 0; // port FIFO sans retrait en lecture
         if (address >= 0x04000064 && address <= 0x04000067)
             return static_cast<std::uint8_t>(video_.capture_control_ >> ((address & 3U) * 8U));
         if (address >= 0x04001000 && address <= 0x04001003)
