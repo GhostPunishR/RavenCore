@@ -22,6 +22,7 @@ public:
 
     void reset() noexcept;
     [[nodiscard]] std::uint16_t vcount() const noexcept;
+    [[nodiscard]] std::uint32_t cycles_until_frame() const noexcept { return frame_cycles - phase_; }
     [[nodiscard]] std::uint32_t cycle_in_line() const noexcept { return phase_ % line_cycles; }
     [[nodiscard]] std::uint16_t status(Processor cpu) const noexcept;
     void write_status(Processor cpu, std::uint16_t value, std::uint16_t mask) noexcept;

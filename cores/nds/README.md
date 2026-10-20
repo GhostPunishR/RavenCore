@@ -111,14 +111,16 @@ const auto& arm7 = machine.cpu_state(ravenemu::nds::Processor::arm7);
 
 Ces appels exécutent le nombre demandé de pas sur le CPU sélectionné,
 sans faire avancer l'autre. Le budget est borné même sur une boucle infinie.
-Un pas transfère une unité DMA, entre en IRQ/FIQ ou exécute une instruction.
+Un pas transfère une unité DMA, entre en exception, exécute une instruction
+ou reste en attente WFI.
 Un DMA déclenché en attente est prioritaire sur les interruptions et suspend
 uniquement le CPU associé ; l'autre CPU n'avance que par ses propres appels.
 Le compteur `instructions`
 compte uniquement les instructions terminées, dont SWI, UDF et les conditions
-ARM fausses. Une unité DMA ou entrée IRQ/FIQ ne l'incrémente pas. Il n'y a pas
-encore d'ordonnanceur, de calcul des cycles CPU ou de rapport de fréquence ARM9/ARM7.
-Les timers et le balayage LCD disposent d'une horloge explicite commune, décrite ci-dessous.
+ARM fausses. Une unité DMA, entrée d'exception ou attente ne l'incrémente pas.
+Les API de pas explicites ne calculent pas de durée et ne font pas avancer les
+timers/LCD. `run_cycles()` et `run_frame()` proposent désormais une exécution
+commune des deux CPU et périphériques, décrite ci-dessous.
 
 | Mode | Instructions actuellement prises en charge |
 | --- | --- |
@@ -174,8 +176,9 @@ refusées. Les bits I/D cache sont mémorisés, mais les accès restent cohéren
 directs : aucune ligne de cache physique n'est émulée. Les commandes ARM946 de
 maintenance documentées sont acceptées sans effet (invalidations I/D entières
 ou par adresse, nettoyage D par adresse/index, nettoyage-invalidation D par
-adresse/index et préchargement I). Elles n'accèdent pas au bus. WFI reste refusée
-jusqu'à l'intégration de la suspension CPU dans l'ordonnanceur.
+adresse/index et préchargement I). Elles n'accèdent pas au bus. Les deux formes
+WFI ARM946 sont interprétées par le CPU (voir l'ordonnanceur ci-dessous), tandis
+qu'un appel natif à `Cp15::write` reste un mutateur de registres sans suspension CPU.
 
 ITCM est fixée à zéro ; DTCM a une base programmable, que le logiciel doit
 aligner sur sa taille virtuelle. Les tailles documentées de 4 Kio à 4 Gio sont
@@ -199,7 +202,62 @@ préserve. Les copies de machine possèdent leurs propres registres et octets TC
 Références : [GBATEK, CP15](https://mgba-emu.github.io/gbatek/ds.html#armcp15systemcontrolcoprocessor),
 [contrôle](https://mgba-emu.github.io/gbatek/ds.html#armcp15controlregister) et
 [TCM](https://mgba-emu.github.io/gbatek/ds.html#armcp15tightlycoupledmemorytcm).
-L'ordonnancement ARM9/ARM7, les caches et les cycles CPU restent à faire.
+Les durées des instructions, les caches et les attentes de bus restent à faire.
+
+## Ordonnanceur et attente d'interruption
+
+`Machine::run_cycles(n)` exécute un budget de cycles communs à
+`timer_clock_hz` (33 513 982 Hz). Chaque cycle offre successivement un pas ARM9,
+un pas ARM7, un second pas ARM9 puis une avance d'un cycle des timers/LCD,
+FIFO et capture. Les horloges nominales `arm9_clock_hz` et `arm7_clock_hz`
+conservent le rapport 2:1 ; un événement produit par ARM7 peut donc être observé
+par le second pas ARM9 du même cycle. Les IRQ et DMA produits en fin de cycle
+sont observés aux créneaux suivants. Le DMA ne suspend que son CPU associé.
+
+Ce premier ordonnanceur est un modèle fonctionnel déterministe, pas une mesure
+des durées ARM : une instruction, unité DMA, entrée d'exception ou réveil coûte
+un créneau du CPU associé. Les attentes RAM/VRAM/cartouche, conflits de bus,
+pipeline, caches et durées propres aux instructions ne sont pas encore calculés.
+Le nombre d'instructions par seconde obtenu ne constitue pas un timing matériel
+validé. Chaque cycle est traité individuellement pour conserver les événements
+et écritures des deux CPU ; aucune accélération par saut de CPU inactifs n'est
+encore appliquée.
+
+`Machine::run_frame()` termine le balayage LCD en cours ; à sa phase zéro, il
+exécute une image complète de 560190 cycles. Il utilise la phase LCD réelle,
+y compris après une avance manuelle. `render_frame()` reste un instantané sans
+effet. Les API `step`, `run_steps` et `advance_cycles` conservent leurs contrats
+séparés et n'avancent pas le compteur de l'ordonnanceur.
+
+```cpp
+machine.run_cycles(1000); // deux CPU, DMA, timers et vidéo
+machine.run_frame();
+const auto frame = machine.render_frame();
+const auto clock = machine.scheduler_state(); // cycles terminés et phase en cours
+```
+
+`SchedulerState`, déclaré dans `<ravenemu/nds/scheduler.hpp>`, conserve la phase
+`arm9_first`, `arm7`, `arm9_second` ou `peripherals`. Une erreur laisse cette
+phase en attente et préserve tout le travail précédent. Après correction de
+l'opcode, du DMA ou de la source vidéo, `run_cycles()` reprend cette phase sans
+rejouer les CPU déjà exécutés. Son budget compte les cycles communs terminés,
+y compris le cycle partiel repris. Un budget nul n'effectue aucun travail ;
+un budget qui ferait déborder le compteur est refusé avant tout effet. La copie
+conserve une phase indépendante ; un chargement réussi remet l'horloge à zéro,
+un chargement refusé la préserve.
+
+Les instructions privilégiées `MCR p15,0,Rd,c7,c0,4` et `c7,c8,2` terminent puis
+activent `CpuState::waiting_for_interrupt`. Les prochains pas ARM9 ne lisent
+plus d'instruction jusqu'à une ligne IRQ/FIQ. La ligne IRQ du contrôleur dépend
+de IME et IE/IF sur ARM9 ; le masque I du CPSR ne bloque pas le réveil. Si IRQ/FIQ
+est démasquée, le CPU entre en exception ; sinon un pas enlève l'attente et le
+pas suivant reprend le code. Les lignes externes sont des entrées physiques
+déjà affirmées. Un CPU en attente continue de servir ses unités DMA ; dans
+`run_cycles`, ARM7 et les horloges continuent. WFI conditionnelle ignorée ne
+suspend pas, et les accès en User ou sur ARM7 entrent en Undefined. Le reset CPU
+ou un chargement réussi efface l'attente. HALTCNT ARM7 et Sleep restent absents.
+Références : [GBATEK, HALTCNT et attente ARM9](https://mgba-emu.github.io/gbatek/ds.html#4000301hnds7haltcntlowpowermodecontrolrw),
+[commandes CP15](https://mgba-emu.github.io/gbatek/ds.html#armcp15cachecontrol).
 
 ## Protection mémoire MPU ARM9
 
@@ -362,7 +420,8 @@ le DAD de rechargement sont relus au prochain déclenchement. Un événement re�
 pendant qu'un bloc est en attente ou en cours est ignoré, sans file de reprises.
 Repeat en immédiat conserve le comportement ponctuel.
 
-Les pas DMA n'avancent pas l'horloge explicite timers/LCD. Copier une machine
+Les pas DMA explicites n'avancent pas les timers/LCD ; l'ordonnanceur avance
+l'horloge commune après ses créneaux CPU/DMA. Copier une machine
 copie aussi les canaux suspendus ; un chargement réussi ou `clear_ram()` remet
 canaux et DMAFILL à zéro. Référence :
 [GBATEK, DS DMA Transfers](https://mgba-emu.github.io/gbatek/ds.html#dsdmatransfers).
@@ -413,10 +472,10 @@ traverse plusieurs images sans boucle par cycle ni par ligne. Avec capture,
 seules ses lignes sont traitées individuellement. La FIFO vidéo ajoute des
 étapes de huit pixels dans les lignes visibles ; les images entières suivantes
 sont coalescées une fois son contenu stable pendant un grand appel. Aucun appel n'exécute les répétitions DMA.
-Pour traiter un bloc à chaque HBlank/VBlank, alterner les avances jusqu'aux
-événements et les pas CPU/DMA. `step()` et `run_steps()` conservent leur budget
-de pas sans durée matérielle ; les latences fines IRQ/DMA et l'ordonnanceur
-CPU restent à développer.
+Pour traiter un bloc à chaque HBlank/VBlank, utiliser `run_cycles()`/`run_frame()`
+ou alterner explicitement les avances jusqu'aux événements et les pas CPU/DMA.
+`step()` et `run_steps()` conservent leur budget de pas sans durée matérielle ;
+les latences fines IRQ/DMA restent à développer.
 
 Les écritures VCOUNT sont ignorées dans ce modèle : la resynchronisation
 par écriture disponible sur NDS n'est pas encore prise en charge. Les ports
@@ -877,7 +936,7 @@ Ce modèle reste sans précision matérielle des transitions : le démarrage et
 le rechargement sont immédiats, sans latence de bus. Changer marche, source ou
 diviseur remet la phase du préscaler à zéro ; changer seulement l'autorisation
 IRQ conserve la phase. Ces règles déterministes ne constituent pas une validation
-des latences NDS. L'intégration à un ordonnanceur et les timings CPU restent à faire.
+des latences NDS. L'ordonnanceur avance les timers ; les timings CPU restent à faire.
 Référence : [GBATEK, DS Timers](https://mgba-emu.github.io/gbatek/ds.html#dstimers).
 
 ## Communication ARM9/ARM7
@@ -941,8 +1000,8 @@ suivante est refusée. Les écritures multiples conservent la même validation
 préalable, y compris avec SEND et les pulses IPCSYNC.
 
 Les échanges prennent effet immédiatement selon l'ordre des appels à
-`step()`/`run_steps()` ; aucune exécution simultanée ni latence matérielle
-n'est encore modélisée. Copier une machine copie les files, erreurs et
+`step()`/`run_steps()` ou des créneaux de `run_cycles()`. L'ordre commun est
+déterministe, mais aucune latence matérielle de synchronisation n'est modélisée. Copier une machine copie les files, erreurs et
 registres IPC ; un chargement réussi les réinitialise, un échec les préserve.
 Référence : [GBATEK, DS Inter Process Communication](https://mgba-emu.github.io/gbatek/ds.html#dsinterprocesscommunicationipc).
 
@@ -968,6 +1027,14 @@ les vecteurs d'abandon décrits plus haut. Les instructions déjà terminées
 d'un `run_steps` restent appliquées. Le chargement d'une nouvelle cartouche
 réinitialise les deux CPU. Aucun CPU ne conserve de référence persistante au
 bus : copier une machine produit une mémoire et des CPU indépendants.
+
+`nds_scheduler` vérifie le rapport des créneaux, budgets nuls/débordants et
+fractionnés, les horloges partagées, les échanges RAM/IPC entre deux programmes,
+le réveil timer et les gestionnaires IRQ/MPU, les DMA des deux CPU et HBlank,
+la FIFO vidéo avec capture, les quatre phases d'erreur et leur reprise, les
+copies et chargements en attente, ainsi qu'une image complète et les API manuelles.
+`nds_wait` vérifie les deux WFI, IME/IE/IF, les masques CPSR, IRQ/FIQ, conditions
+ARM, privilèges, DMA pendant l'attente, MPU après réveil et reset CPU.
 
 `nds_mpu` couvre les huit régions et leurs priorités, alias et masques CP15,
 les six AP par mode et par type d'accès, les frontières jusqu'à 4 Gio, les AP

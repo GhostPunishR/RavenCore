@@ -309,10 +309,10 @@ void cache_commands_test() {
         check(cpu.state().instructions == 1 && cpu.state().registers[0] == 0xdeadbeef,
               "maintenance cache cohérente doit terminer sans accès au bus");
     }
-    for (const auto raw : {cp(false, 0, 7, 0, 4), cp(false, 0, 7, 8, 2), cp(true, 0, 7, 5)}) {
+    for (const auto raw : {cp(false, 0, 7, 5, 2), cp(false, 0, 7, 7, 0), cp(true, 0, 7, 5)}) {
         memory.write32(arm9, base, raw); cpu.reset(base, false);
         const auto before = cpu.state();
-        expect_failure<CpuExecutionError>([&] { cpu.step(memory); }, "WFI ou lecture cache absente ignorée");
+        expect_failure<CpuExecutionError>([&] { cpu.step(memory); }, "commande ou lecture cache absente ignorée");
         check(cpu.state() == before, "commande cache refusée a modifié CPU");
     }
 }

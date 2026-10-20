@@ -19,6 +19,7 @@ void enter_exception(CpuState& state, std::uint32_t vector_base, Exception excep
     if (exception == Exception::fiq) control |= 0x40U;
     state.set_cpsr(control);
     state.set_spsr(saved);
+    state.waiting_for_interrupt = false;
     state.registers[14] = return_address;
     state.registers[15] = vector_base + offset;
 }

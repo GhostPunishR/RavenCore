@@ -42,6 +42,13 @@ void Cpu::set_register(std::size_t index, std::uint32_t value) {
 void Cpu::step(Memory& memory) {
     if (memory.step_dma(processor_)) return; // priorité au bus DMA, aucun registre CPU modifié
     const bool irq = irq_line_ || memory.irq_pending(processor_);
+    const bool woke = state_.waiting_for_interrupt;
+    if (woke) {
+        // ARM9 WFI dépend de IME/IE/IF (ligne IRQ), mais pas du masque I.
+        // Les lignes externes représentent déjà les entrées physiques IRQ/FIQ.
+        if (!irq && !fiq_line_) return;
+        state_.waiting_for_interrupt = false;
+    }
     if ((fiq_line_ && !state_.fiq_disabled) || (irq && !state_.irq_disabled)) {
         const auto exception = fiq_line_ && !state_.fiq_disabled ? detail::Exception::fiq : detail::Exception::irq;
         auto prepared = state_;
@@ -49,6 +56,7 @@ void Cpu::step(Memory& memory) {
         state_ = prepared;
         return; // entrée d'exception, aucune instruction terminée sur ce pas
     }
+    if (woke) return; // réveil masqué : pas d'instruction sur ce créneau
     const auto pc = state_.registers[15];
     std::optional<std::uint32_t> instruction;
     if (processor_ == Processor::arm9 &&

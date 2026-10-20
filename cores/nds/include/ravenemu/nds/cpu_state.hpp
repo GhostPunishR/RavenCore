@@ -23,6 +23,7 @@ struct CpuState {
     bool thumb{};
     bool irq_disabled{true};
     bool fiq_disabled{true};
+    bool waiting_for_interrupt{}; // WFI ARM9 ; distinct de CPSR et du compteur
     CpuMode mode{CpuMode::system}; // état de départ du chargement direct
     std::uint64_t instructions{};
 

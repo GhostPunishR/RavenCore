@@ -3,6 +3,7 @@
 #include <ravenemu/nds/cartridge.hpp>
 #include <ravenemu/nds/memory.hpp>
 #include <ravenemu/nds/cpu.hpp>
+#include <ravenemu/nds/scheduler.hpp>
 
 #include <optional>
 
@@ -19,7 +20,7 @@ struct BootEntries {
 };
 
 /** Préparation mémoire d'un démarrage direct expérimental, pas un BIOS NDS.
- * Pas-à-pas ARM/Thumb sans synchronisation temporelle des deux CPU.
+ * Pas-à-pas explicite ou ordonnanceur commun expérimental ARM9/ARM7.
  * Les échecs de chargement préservent la machine.
  */
 class Machine {
@@ -32,6 +33,13 @@ public:
     [[nodiscard]] const CpuState& cpu_state(Processor cpu) const noexcept;
     void set_interrupt_lines(Processor cpu, bool irq, bool fiq = false) noexcept;
     void step(Processor cpu);
+    [[nodiscard]] const SchedulerState& scheduler_state() const noexcept { return scheduler_; }
+    // Budget en cycles communs à timer_clock_hz. Coût uniforme d'un pas par
+    // créneau CPU : ne reproduit pas encore les timings des instructions/bus.
+    // Une reprise termine la phase interrompue sans rejouer les pas terminés.
+    void run_cycles(std::uint64_t cycles);
+    // Exécute jusqu'à la prochaine frontière LCD (une image entière à phase zéro).
+    void run_frame();
     // Horloge explicite timers/LCD/FIFO/capture ; step/run_steps restent sans timings.
     void advance_cycles(std::uint64_t cycles) { memory_.advance_cycles(cycles); }
     // Budget de pas (une unité DMA ou entrée d'exception consomme un pas sans
@@ -40,6 +48,7 @@ public:
     void run_steps(Processor cpu, std::size_t instructions);
 
 private:
+    SchedulerState scheduler_;
     Memory memory_;
     std::optional<BootEntries> entries_;
     Cpu arm9_{Processor::arm9};

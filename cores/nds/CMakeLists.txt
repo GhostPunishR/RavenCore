@@ -20,6 +20,7 @@ add_library(nds_raven_core STATIC
     src/timers/timers.cpp
     src/bios/boot_rom.cpp
     src/machine/machine.cpp
+    src/machine/scheduler.cpp
     src/cpu/protection.cpp
     src/cpu/cp15.cpp
     src/cpu/coprocessor.cpp
@@ -36,6 +37,14 @@ target_link_libraries(nds_raven_core PUBLIC ravenemu_common)
 set_target_properties(nds_raven_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(BUILD_TESTING)
+    add_executable(nds_scheduler_tests tests/scheduler_test.cpp)
+    target_include_directories(nds_scheduler_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_scheduler_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_scheduler COMMAND nds_scheduler_tests)
+    add_executable(nds_wait_tests tests/wait_test.cpp)
+    target_include_directories(nds_wait_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_wait_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_wait COMMAND nds_wait_tests)
     add_executable(nds_mpu_tests tests/mpu_test.cpp)
     target_include_directories(nds_mpu_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_mpu_tests PRIVATE nds_raven_core)

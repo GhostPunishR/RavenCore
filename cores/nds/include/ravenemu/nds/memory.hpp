@@ -45,6 +45,7 @@ public:
     // Une source vidéo non prise en charge peut lever Error ; les lignes terminées restent appliquées.
     // Les événements LCD peuvent déclencher les DMA VBlank/HBlank/FIFO vidéo.
     void advance_cycles(std::uint64_t cycles);
+    [[nodiscard]] std::uint32_t cycles_until_frame() const noexcept { return lcd_.cycles_until_frame(); }
     // Sources : masque de bits IF, pas un numéro de source.
     void request_interrupt(Processor cpu, std::uint32_t sources) noexcept;
     [[nodiscard]] bool irq_pending(Processor cpu) const noexcept;

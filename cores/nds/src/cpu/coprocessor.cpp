@@ -22,7 +22,9 @@ void Interpreter::arm_cp15(std::uint32_t raw) {
         } else s.registers[rd] = value;
     } else {
         if (rd == 15) unsupported(); // valeur du pipeline MCR pc non modélisée
-        ram.cp15().write(crn, crm, opcode2, reg(rd));
+        if (crn == 7 && ((crm == 0 && opcode2 == 4) || (crm == 8 && opcode2 == 2))) {
+            s.waiting_for_interrupt = true;
+        } else ram.cp15().write(crn, crm, opcode2, reg(rd));
     }
 }
 

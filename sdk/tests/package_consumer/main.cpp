@@ -7,6 +7,7 @@
 #include <ravenemu/sdk.hpp>
 #include <ravenemu/nds/cartridge.hpp>
 #include <ravenemu/nds/machine.hpp>
+#include <ravenemu/nds/scheduler.hpp>
 #include <ravenemu/nds/cpu.hpp>
 #include <ravenemu/nds/cp15.hpp>
 #include <ravenemu/nds/cpu_state.hpp>
@@ -18,6 +19,7 @@
 #include <ravenemu/nds/video.hpp>
 
 #include <cstdio>
+#include <vector>
 
 int main() {
     ravenemu::nds::Machine nds;
@@ -114,6 +116,22 @@ int main() {
     if (nds_cpu.state().mode != ravenemu::nds::CpuMode::system ||
         nds_cpu.state().instructions != 1 ||
         nds.memory().cp15().permits(0x04000000, ravenemu::nds::Cp15::Access::read, true)) return 1;
+    std::vector<std::uint8_t> scheduled_rom(0x208);
+    const auto scheduled_put = [&](std::size_t offset, std::uint32_t value) {
+        for (unsigned i = 0; i < 4; ++i) scheduled_rom[offset + i] = static_cast<std::uint8_t>(value >> (i * 8U));
+    };
+    scheduled_put(0x20,0x200); scheduled_put(0x24,0x02000000); scheduled_put(0x28,0x02000000); scheduled_put(0x2c,4);
+    scheduled_put(0x30,0x204); scheduled_put(0x34,0x03800000); scheduled_put(0x38,0x03800000); scheduled_put(0x3c,4);
+    scheduled_put(0x200,0xee070f90); scheduled_put(0x204,0xeafffffe);
+    nds.load_cartridge(ravenemu::nds::Cartridge{scheduled_rom});
+    nds.advance_cycles(ravenemu::nds::LcdTiming::frame_cycles - 2);
+    nds.run_frame();
+    if (nds.scheduler_state().cycles != 2 || nds.scheduler_state().phase != ravenemu::nds::SchedulerState::Phase::arm9_first ||
+        !nds.cpu_state(ravenemu::nds::Processor::arm9).waiting_for_interrupt ||
+        nds.cpu_state(ravenemu::nds::Processor::arm9).instructions != 1 ||
+        nds.cpu_state(ravenemu::nds::Processor::arm7).instructions != 2) return 1;
+    nds.run_cycles(1);
+    if (nds.scheduler_state().cycles != 3 || ravenemu::nds::arm9_clock_hz != 2 * ravenemu::nds::arm7_clock_hz) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

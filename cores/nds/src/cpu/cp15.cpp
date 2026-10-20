@@ -75,7 +75,7 @@ void Cp15::write(unsigned crn, unsigned crm, unsigned opcode2, std::uint32_t val
                      (crm == 10 && (opcode2 == 1 || opcode2 == 2)) ||
                      (crm == 13 && opcode2 == 1) || (crm == 14 && (opcode2 == 1 || opcode2 == 2)))) {
         // Invalidation/nettoyage/préchargement sans effet dans ce modèle sans
-        // lignes de cache. WFI et commandes non ARM946 restent des diagnostics.
+        // lignes de cache. WFI est interprétée par le CPU, pas par ce mutateur.
         return;
     }
     if (crn == 9 && crm == 1 && opcode2 < 2) {

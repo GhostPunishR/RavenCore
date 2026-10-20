@@ -59,6 +59,7 @@ void Machine::load_cartridge(const Cartridge& cartridge) {
     entries_ = entries;
     arm9_ = arm9_cpu;
     arm7_ = arm7_cpu;
+    scheduler_ = {};
 }
 
 const CpuState& Machine::cpu_state(Processor cpu) const noexcept {
