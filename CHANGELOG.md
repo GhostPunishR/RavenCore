@@ -24,7 +24,7 @@ Cette version complète la carte mémoire RetroAchievements de la Game Boy et de
 ### Compatibilité des états instantanés
 
 - **GBA : format 16** et **GB/GBC : format 11**, inchangés.
-- **API C : version 0**, inchangée.
+- **API C : version 0**, inchangée ; **API C++** inchangée. Le paquet CMake se demande désormais avec `find_package(RavenCore 0.8)`.
 
 ### Tests
 
