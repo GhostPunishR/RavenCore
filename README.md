@@ -75,7 +75,7 @@ Les cœurs déclarent à RetroArch la mémoire que surveille RetroAchievements :
 Après `cmake --install`, utilisez le paquet CMake :
 
 ```cmake
-find_package(RavenCore 0.7 REQUIRED)
+find_package(RavenCore 0.8 REQUIRED)
 target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 
@@ -121,7 +121,7 @@ ctest --test-dir build --output-on-failure
 
 ## Versions
 
-Version actuelle : **0.7.1**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro Linux. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
+Version actuelle : **0.8.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro Linux. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
 
 Avant la 1.0, une version peut changer l'API ou le format des états ; le journal le signale à chaque fois.
 
