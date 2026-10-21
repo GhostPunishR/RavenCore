@@ -16,6 +16,31 @@ public:
     virtual ~Cartridge() = default;
 
     [[nodiscard]] virtual int read_rom(int address) const = 0;
+    /**
+     * Banque de ROM que le CPU voit dans la fenêtre de 16 Kio de `address`
+     * (0x0000-0x3FFF ou 0x4000-0x7FFF), ou -1 quand cette fenêtre n'est pas
+     * une simple banque (demi-banques du MBC6, menu du MMM01).
+     */
+    [[nodiscard]] virtual int rom_bank_at(int) const noexcept { return -1; }
+    /**
+     * La ROM telle que le CPU la lit à partir de `address`, sans sortir de sa
+     * fenêtre de 16 Kio : d'un bloc pour une simple banque, sinon octet par
+     * octet. Sert aux lecteurs extérieurs (succès), qui relisent les deux
+     * fenêtres à chaque image.
+     */
+    void read_rom_window(int address, std::span<std::uint8_t> out) const {
+        const int bank = rom_bank_at(address);
+        if (bank < 0) {
+            for (std::size_t index = 0; index < out.size(); ++index)
+                out[index] = static_cast<std::uint8_t>(read_rom(address + static_cast<int>(index)));
+            return;
+        }
+        const auto start = static_cast<std::size_t>(bank) * rom_bank_size +
+                           static_cast<std::size_t>(address & (rom_bank_size - 1));
+        const auto available = start < rom_->size() ? std::min(out.size(), rom_->size() - start) : 0;
+        std::copy_n(rom_->begin() + static_cast<std::ptrdiff_t>(start), available, out.begin());
+        std::fill(out.begin() + static_cast<std::ptrdiff_t>(available), out.end(), std::uint8_t{0xff});
+    }
     virtual void write_control(int address, int value) = 0;
     [[nodiscard]] virtual int read_ram(int address) const = 0;
     virtual void write_ram(int address, int value) = 0;
@@ -86,6 +111,11 @@ protected:
         return std::max(2, static_cast<int>(rom_->size() / rom_bank_size));
     }
     [[nodiscard]] int normalize_rom_bank(int bank) const noexcept { return bank % rom_bank_count(); }
+    // Octet de `address` dans la banque `bank`, 0xFF au-delà de la ROM.
+    [[nodiscard]] int rom_byte(int bank, int address) const noexcept {
+        const auto offset = static_cast<std::size_t>(bank * rom_bank_size + (address & (rom_bank_size - 1)));
+        return offset < rom_->size() ? (*rom_)[offset] : 0xff;
+    }
     void mark_written() noexcept { ++generation_; }
     void mark_clean() noexcept { saved_generation_ = generation_; }
 

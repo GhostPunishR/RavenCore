@@ -300,6 +300,14 @@ private:
         if (address <= 0xfdff) return wram[static_cast<std::size_t>(wram_bank() * 0x1000 + address - 0xf000)];
         if (address <= 0xfe9f) return ppu_.read_oam(address);
         if (address <= 0xfeff) return 0xff;
+        return read_io(address);
+    }
+
+public:
+    // Registres d'E/S, HRAM et IE tels que le CPU les lit. Ces lectures n'ont
+    // aucun effet de bord : un lecteur extérieur (succès) peut les relever
+    // entre deux images sans changer l'émulation.
+    [[nodiscard]] int read_io(int address) const noexcept {
         switch (address) {
         case 0xff00: return joypad_.read();
         case 0xff01: return serial_.read_data();
@@ -349,6 +357,7 @@ private:
         return 0xff;
     }
 
+private:
     void write_internal(int address, int value) {
         if (address <= 0x7fff) { cartridge_.write_control(address, value); return; }
         if (address <= 0x9fff) { ppu_.write_vram(address, value); return; }

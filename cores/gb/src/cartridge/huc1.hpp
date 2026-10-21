@@ -11,13 +11,10 @@ public:
     Huc1(RomImage rom, CartridgeHeader header)
         : Cartridge(std::move(rom), header) {}
 
-    int read_rom(int address) const override {
-        const int bank = address < rom_bank_size ? 0 : normalize_rom_bank(rom_bank_);
-        const auto offset = static_cast<std::size_t>(
-            bank * rom_bank_size + (address & (rom_bank_size - 1))
-        );
-        return offset < rom_->size() ? (*rom_)[offset] : 0xff;
+    int rom_bank_at(int address) const noexcept override {
+        return address < rom_bank_size ? 0 : normalize_rom_bank(rom_bank_);
     }
+    int read_rom(int address) const override { return rom_byte(rom_bank_at(address), address); }
 
     void write_control(int address, int value) override {
         if (address <= 0x1fff) {

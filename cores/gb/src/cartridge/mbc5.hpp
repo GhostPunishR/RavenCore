@@ -8,11 +8,10 @@ class Mbc5 final : public Cartridge {
 public:
     Mbc5(RomImage rom, CartridgeHeader header)
         : Cartridge(std::move(rom), header), has_rumble_(header.cartridge_type >= 0x1c && header.cartridge_type <= 0x1e) {}
-    int read_rom(int address) const override {
-        const int bank = address < rom_bank_size ? 0 : normalize_rom_bank((rom_bank_high_ << 8) | rom_bank_low_);
-        const auto offset = static_cast<std::size_t>(bank * rom_bank_size + (address & (rom_bank_size - 1)));
-        return offset < rom_->size() ? (*rom_)[offset] : 0xff;
+    int rom_bank_at(int address) const noexcept override {
+        return address < rom_bank_size ? 0 : normalize_rom_bank((rom_bank_high_ << 8) | rom_bank_low_);
     }
+    int read_rom(int address) const override { return rom_byte(rom_bank_at(address), address); }
     void write_control(int address, int value) override {
         if (address <= 0x1fff) ram_enabled_ = (value & 0x0f) == 0x0a;
         else if (address <= 0x2fff) rom_bank_low_ = byte(value);

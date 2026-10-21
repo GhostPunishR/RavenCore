@@ -22,10 +22,12 @@ public:
             return (*rom_)[offset];
         }
 
-        const int bank = address < rom_bank_size ? lower_rom_bank() : upper_rom_bank();
-        const auto offset = static_cast<std::size_t>(bank * rom_bank_size +
-                                                     (address & (rom_bank_size - 1)));
-        return offset < rom_->size() ? (*rom_)[offset] : 0xff;
+        return rom_byte(rom_bank_at(address), address);
+    }
+    // Le menu d'avant le mapping se relit octet par octet.
+    int rom_bank_at(int address) const noexcept override {
+        if (!mapped_) return -1;
+        return address < rom_bank_size ? lower_rom_bank() : upper_rom_bank();
     }
 
     void write_control(int address, int value) override {

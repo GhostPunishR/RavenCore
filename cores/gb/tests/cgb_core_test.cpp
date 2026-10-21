@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <initializer_list>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -263,6 +264,81 @@ void invalid_rom_test() {
  * plages étaient restaurées telles quelles et faisaient déborder
  * l'arithmétique signée (`pc + 1`, décompte de recharge...).
  */
+// Un programme écrit à partir de 0x150, lancé par JP 0x150.
+std::vector<std::uint8_t> rom_running(std::vector<std::uint8_t> rom, std::initializer_list<std::uint8_t> program) {
+    rom[0x100] = 0xc3;
+    rom[0x101] = 0x50;
+    rom[0x102] = 0x01;
+    std::copy(program.begin(), program.end(), rom.begin() + 0x150);
+    return rom;
+}
+
+/**
+ * Ce que les succès lisent est ce que lit le CPU : registres d'E/S, banque de
+ * ROM choisie par le jeu, et première fenêtre que le MBC1 commute en mode 1.
+ */
+void achievement_memory_follows_the_cpu_test() {
+    std::vector<std::uint8_t> out(0x4000);
+    const auto run = [](ravenemu::Core& core) {
+        std::vector<std::int32_t> frame(core.video_spec().pixel_count());
+        core.run_frame(frame, true);
+    };
+    // LD HL,$FF40 ; LD DE,$C000 ; LD B,12 ; boucle : LD A,(HL+) ; LD (DE),A ; INC DE ; DEC B ; JR NZ ; JR $
+    for (const bool color : {false, true}) {
+        auto rom = rom_running(minimal_game_boy_rom(), {0x21, 0x40, 0xff, 0x11, 0x00, 0xc0, 0x06, 0x0c, 0x2a, 0x12,
+                                                        0x13, 0x05, 0x20, 0xfa, 0x18, 0xfe});
+        rom[0x143] = color ? 0x80 : 0x00;
+        auto core = ravenemu::make_game_boy_core();
+        core->load_rom(rom, {});
+        run(*core);
+        std::array<std::uint8_t, 12> registers{}, copied{};
+        check(core->read_achievement_memory(0xff40, registers) == 12 && core->read_achievement_memory(0xc000, copied) == 12,
+              "registres LCD illisibles");
+        // LY (FF44) et le mode de STAT (FF41) avancent entre la copie et la lecture.
+        for (const std::size_t index : {0U, 2U, 3U, 5U, 6U, 7U, 8U, 9U, 10U, 11U})
+            check(registers[index] == copied[index], "registre d'E/S différent de la lecture du CPU");
+    }
+    // MBC5, 16 banques remplies de leur numéro ; LD A,5 ; LD ($2000),A ; JR $
+    {
+        auto rom = minimal_game_boy_rom();
+        rom.resize(16U * 0x4000U);
+        for (std::size_t bank = 1; bank < 16; ++bank)
+            std::fill_n(rom.begin() + static_cast<std::ptrdiff_t>(bank * 0x4000U), 0x4000, static_cast<std::uint8_t>(bank));
+        rom[0x147] = 0x19;
+        rom[0x148] = 0x03;
+        rom = rom_running(std::move(rom), {0x3e, 0x05, 0xea, 0x00, 0x20, 0x18, 0xfe});
+        auto core = ravenemu::make_game_boy_core();
+        core->load_rom(rom, {});
+        check(core->read_achievement_memory(0x4000, out) == 0x4000 && out.front() == 1 && out.back() == 1,
+              "banque 1 absente au démarrage");
+        run(*core);
+        check(core->read_achievement_memory(0x4000, out) == 0x4000 &&
+              std::all_of(out.begin(), out.end(), [](std::uint8_t byte) { return byte == 5; }),
+              "la banque de ROM choisie par le jeu n'est pas celle exposée");
+        check(core->read_achievement_memory(0x0000, out) == 0x4000 && std::equal(out.begin(), out.end(), rom.begin()),
+              "banque 0 de ROM incorrecte");
+    }
+    // MBC1 de 1 Mio en mode 1 : la première fenêtre passe à la banque $20.
+    // LD A,1 ; LD ($6000),A ; LD ($4000),A ; JR $ (aussi présent en banque $20)
+    {
+        auto rom = minimal_game_boy_rom();
+        rom.resize(64U * 0x4000U);
+        for (std::size_t bank = 1; bank < 64; ++bank)
+            std::fill_n(rom.begin() + static_cast<std::ptrdiff_t>(bank * 0x4000U), 0x4000, static_cast<std::uint8_t>(bank));
+        rom[0x147] = 0x01;
+        rom[0x148] = 0x05;
+        rom = rom_running(std::move(rom), {0x3e, 0x01, 0xea, 0x00, 0x60, 0xea, 0x00, 0x40, 0x18, 0xfe});
+        std::copy_n(rom.begin() + 0x150, 10, rom.begin() + 0x20 * 0x4000 + 0x150);
+        auto core = ravenemu::make_game_boy_core();
+        core->load_rom(rom, {});
+        std::array<std::uint8_t, 1> byte{};
+        check(core->read_achievement_memory(0x3000, byte) == 1 && byte[0] == 0, "banque 0 absente au démarrage");
+        run(*core);
+        check(core->read_achievement_memory(0x3000, byte) == 1 && byte[0] == 0x20,
+              "la première fenêtre ne suit pas le MBC1 en mode 1");
+    }
+}
+
 void cpu_interrupt_timer_state_validation_test() {
     auto core = ravenemu::make_game_boy_core();
     core->load_rom(minimal_game_boy_rom(), {});
@@ -319,7 +395,7 @@ void achievement_memory_map_test() {
               "première banque de RAM de cartouche incorrecte");
         check(read(0xc000, 0x3e00) == 0x3e00, "WRAM et son miroir non exposés");
         check(read(0xfe00, 0x100) == 0xa0, "OAM mal bornée");
-        check(read(0xff00, 1) == 0, "registres E/S exposés à tort");
+        check(read(0xff00, 0x80) == 0x80, "registres E/S non exposés");
         check(read(0xff80, 0x80) == 0x80, "HRAM et IE non exposés");
         check(read(0x10000, 0x6000) == (color ? 0x6000U : 0U), "banques WRAM CGB mal exposées");
         check(read(0x16000, 0x20000) == battery.size() - 0x2000 &&
@@ -327,8 +403,8 @@ void achievement_memory_map_test() {
               "banques suivantes de RAM de cartouche incorrectes");
         // Une lecture qui franchit une frontière de région rend les mêmes
         // octets que des lectures d'un octet, et s'arrête au même endroit.
-        for (const std::uint32_t start : {0x7ff0U, 0x9ff0U, 0xbff0U, 0xdff0U, 0xfdf0U, 0xfe90U, 0xff70U, 0xfff0U,
-                                          0xfff8U, 0x15ff0U, 0x1dff0U, 0x33ff0U}) {
+        for (const std::uint32_t start : {0x3ff0U, 0x7ff0U, 0x9ff0U, 0xbff0U, 0xdff0U, 0xfdf0U, 0xfe90U, 0xfef0U,
+                                          0xff70U, 0xfff0U, 0xfff8U, 0x15ff0U, 0x1dff0U, 0x33ff0U}) {
             std::array<std::uint8_t, 0x40> block{};
             std::vector<std::uint8_t> bytes;
             for (std::uint32_t offset = 0; offset < block.size(); ++offset) {
@@ -382,6 +458,7 @@ void link_cable_test() {
 
 int main() {
     achievement_memory_map_test();
+    achievement_memory_follows_the_cpu_test();
     cpu_interrupt_timer_state_validation_test();
     invalid_rom_test();
     game_boy_smoke_test();

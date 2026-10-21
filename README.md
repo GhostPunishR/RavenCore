@@ -116,7 +116,7 @@ ctest --test-dir build --output-on-failure
   - le câble link avec une autre application ou une autre machine, le mode UART et l'adaptateur sans fil ;
   - l'exception d'instruction indéfinie.
 - **Capteurs** : ceux des cartouches GBA suivent les mesures publiées par GBATEK, mais n'ont pas encore été essayés en jeu. Le sens des axes d'inclinaison (GBA et MBC7) et l'échelle du gyroscope restent à confirmer.
-- **RetroAchievements** : les cœurs Libretro exposent une copie de la mémoire du jeu, rafraîchie à chaque image, vérifiée avec le code de rcheevos qu'utilise RetroArch mais pas encore en jeu dans RetroArch. Sur Game Boy, la banque de ROM paginée et les registres d'E/S ne sont pas exposés, et la banque 0 de la ROM l'est telle qu'au démarrage. Les codes de triche ne sont pas pris en charge. L'intégration de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte.
+- **RetroAchievements** : les cœurs Libretro exposent une copie de la mémoire du jeu, rafraîchie à chaque image, vérifiée avec le code de rcheevos qu'utilise RetroArch mais pas encore en jeu dans RetroArch. Sur Game Boy, les deux fenêtres de ROM suivent la banque choisie par le jeu et les registres d'E/S sont exposés ; restent hors carte la RAM du MBC7 et, pour le MBC2, les bits hauts que relit le CPU. Le détail est dans [docs/retroachievements.md](docs/retroachievements.md). Les codes de triche ne sont pas pris en charge. L'intégration de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte.
 - **États instantanés** : un état ne se recharge pas dans une version plus ancienne que celle qui l'a créé. Les changements de format sont listés dans le [journal des modifications](CHANGELOG.md).
 
 ## Versions

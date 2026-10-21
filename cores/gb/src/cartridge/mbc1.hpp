@@ -7,11 +7,10 @@ namespace ravenemu::cgb {
 class Mbc1 final : public Cartridge {
 public:
     using Cartridge::Cartridge;
-    int read_rom(int address) const override {
-        const int bank = address < rom_bank_size ? fixed_bank() : current_rom_bank();
-        const auto offset = static_cast<std::size_t>(bank * rom_bank_size + (address & (rom_bank_size - 1)));
-        return offset < rom_->size() ? (*rom_)[offset] : 0xff;
+    int rom_bank_at(int address) const noexcept override {
+        return address < rom_bank_size ? fixed_bank() : current_rom_bank();
     }
+    int read_rom(int address) const override { return rom_byte(rom_bank_at(address), address); }
     void write_control(int address, int value) override {
         if (address <= 0x1fff) ram_enabled_ = (value & 0x0f) == 0x0a;
         else if (address <= 0x3fff) { const int v = value & 0x1f; rom_bank_low_ = v == 0 ? 1 : v; }
