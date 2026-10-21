@@ -2,6 +2,36 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## Non publié
+
+### Ajouté
+
+- **Game Boy et Game Boy Color : carte mémoire RetroAchievements complète.** La banque de ROM paginée (0x4000-0x7FFF) et les registres d'E/S (0xFF00-0xFF7F) rejoignent la carte, comme dans la table de rcheevos. Un succès qui les lit n'est plus signalé non pris en charge. Cela vaut pour les cœurs Libretro et pour `read_achievement_memory()`, que RavenEmu utilise.
+  - Les registres d'E/S se lisent par le même code que les lectures du CPU, sans effet de bord sur l'émulation.
+  - Le détail de la carte, ses limites et ses tests sont dans [docs/retroachievements.md](docs/retroachievements.md).
+
+### Corrigé
+
+- **Libretro, Game Boy : première fenêtre de ROM figée.** Elle n'était copiée qu'au démarrage, au reset et au chargement d'un état. Le MBC1 en mode 1 et le MMM01 la commutent pourtant en cours de partie : un succès y lisait alors l'ancienne banque. Les deux fenêtres sont maintenant recopiées à chaque image.
+- **GBA : horloge des ROM Pokémon modifiées** ([#28](https://github.com/GhostPunishR/RavenCore/pull/28)). Les pilotes compatibles CFRU (Pokémon Unbound, par exemple) peuvent omettre le marqueur de la bibliothèque Seiko : l'horloge n'était alors pas détectée. Une ROM qui porte l'identité de Rouge Feu et un groupe de références aux trois ports du pilote série active l'horloge. Le Rouge Feu d'origine, sans horloge, reste sans. Le forçage explicite garde la priorité.
+
+### Modifié
+
+- **Lecture de la ROM pour les succès environ 250 fois plus rapide.** Chaque contrôleur de cartouche indique la banque visible dans chaque fenêtre, et la fenêtre se copie d'un bloc. La lecture du CPU passe par ce même calcul. Lire les deux fenêtres prend 0,3 µs au lieu de 76 sur un PC. Le MBC6 et le menu du MMM01 se lisent encore octet par octet.
+
+### Compatibilité des états instantanés
+
+- **GBA : format 16** et **GB/GBC : format 11**, inchangés.
+- **API C : version 0**, inchangée.
+
+### Tests
+
+- `gb_raven_core` :
+  - registres d'E/S égaux à ce qu'une ROM de test en recopie par le CPU ;
+  - banque paginée choisie par un MBC5 et première fenêtre commutée par un MBC1 en mode 1.
+- `gb_cartridge_mbc` : pour chaque contrôleur et chaque banque choisie, la copie d'une fenêtre est, octet pour octet, la lecture du CPU. Le test échoue si la copie oublie le décalage dans la banque.
+- `libretro_smoke_gb` et `libretro_smoke_gbc` : la carte contient les deux fenêtres de ROM et les E/S, et suit un changement de banque à l'image suivante. Le test échoue si la première fenêtre n'est plus recopiée à chaque image.
+
 ## 0.7.1 - 2026-10-18
 
 Cette version active RetroAchievements dans les cœurs Libretro ([#27](https://github.com/GhostPunishR/RavenCore/pull/27)). L'API et le format des états ne changent pas.

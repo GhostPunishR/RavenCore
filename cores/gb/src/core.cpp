@@ -63,8 +63,9 @@ public:
         const auto ram = m.cartridge->achievement_ram();
         const std::span<const std::uint8_t> wram = m.bus.wram;
         std::size_t count = 0;
-        // Copie par blocs (un frontend Libretro relit tout l'espace à chaque
-        // image) ; la ROM passe par le contrôleur, octet par octet.
+        // Copie par blocs : un frontend Libretro relit tout l'espace à chaque
+        // image. La ROM se lit fenêtre de 16 Kio par fenêtre, telle que le
+        // contrôleur de cartouche la présente au CPU.
         const auto copy = [&](std::span<const std::uint8_t> source, std::uint64_t base, std::uint64_t a) {
             const auto offset = static_cast<std::size_t>(a - base);
             const auto length = std::min(out.size() - count, source.size() - offset);
@@ -75,20 +76,26 @@ public:
         while (count < out.size()) {
             const auto a = static_cast<std::uint64_t>(address) + count;
             const auto before = count;
-            if (a < 0x8000) out[count++] = static_cast<std::uint8_t>(m.cartridge->read_rom(static_cast<int>(a)));
+            if (a < 0x8000) {
+                const auto length = std::min<std::size_t>(out.size() - count, 0x4000 - (a & 0x3fff));
+                m.cartridge->read_rom_window(static_cast<int>(a), out.subspan(count, length));
+                count += length;
+            }
             else if (a < 0xa000) copy(std::span(m.ppu.vram).first(0x2000), 0x8000, a);
             else if (a < 0xc000 && a - 0xa000 < ram.size())
                 copy(ram.first(std::min<std::size_t>(ram.size(), 0x2000)), 0xa000, a);
             else if (a >= 0xc000 && a < 0xe000) copy(wram.first(0x2000), 0xc000, a);
             else if (a >= 0xe000 && a < 0xfe00) copy(wram.first(0x1e00), 0xe000, a);
             else if (a >= 0xfe00 && a < 0xfea0) copy(m.ppu.oam, 0xfe00, a);
+            else if (a >= 0xff00 && a < 0xff80) out[count++] = static_cast<std::uint8_t>(m.bus.read_io(static_cast<int>(a)));
             else if (a >= 0xff80 && a < 0xffff) copy(m.bus.hram, 0xff80, a);
             else if (a == 0xffff) out[count++] = static_cast<std::uint8_t>(m.interrupts.enable);
             else if (a >= 0x10000 && a < 0x16000 && gb::is_cgb_hardware(m.hardware_mode))
                 copy(wram.subspan(0x2000, 0x6000), 0x10000, a);
             else if (a >= 0x16000 && a < 0x34000 && a - 0x14000 < ram.size())
                 copy(ram.first(std::min<std::size_t>(ram.size(), 0x20000)).subspan(0x2000), 0x16000, a);
-            // Unsupported IO/mapper memory invalidates dependent achievements.
+            // Hors de l'espace (zone inutilisée FEA0-FEFF, banques absentes) :
+            // la lecture s'arrête, et un succès qui en dépend est signalé.
             if (count == before) break;
         }
         return count;

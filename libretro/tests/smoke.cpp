@@ -198,15 +198,17 @@ int main() {
         return 1;
     }
 #else
-    // ROM 0, VRAM, WRAM, OAM (0x80 puis 0x20 octets), HRAM, et sur GBC les
-    // banques 2 à 7 de la WRAM (0x4000 puis 0x2000 octets).
+    // Les deux fenêtres de ROM, VRAM, WRAM, OAM (0x80 puis 0x20 octets),
+    // registres d'E/S, HRAM, et sur GBC les banques 2 à 7 de la WRAM (0x4000
+    // puis 0x2000 octets).
 #if defined(RAVENEMU_LIBRETRO_GBC)
-    constexpr std::size_t expected_regions = 8;
+    constexpr std::size_t expected_regions = 10;
 #else
-    constexpr std::size_t expected_regions = 6;
+    constexpr std::size_t expected_regions = 8;
 #endif
-    if (memory_map.size() != expected_regions || !mapped(0x0134) || *mapped(0x0134) != rom[0x134] || mapped(0x4000) ||
-        !mapped(0xc000) || mapped(0xa000) || mapped(0xff00) || !mapped(0xfe9f) || mapped(0xfea0)) {
+    if (memory_map.size() != expected_regions || !mapped(0x0134) || *mapped(0x0134) != rom[0x134] ||
+        !mapped(0x7fff) || !mapped(0xc000) || mapped(0xa000) || !mapped(0xff00) || !mapped(0xff7f) ||
+        !mapped(0xfe9f) || mapped(0xfea0) || mapped(0xfeff)) {
         std::cerr << "Game Boy achievement memory map missing or wrong\n";
         return 1;
     }
@@ -350,6 +352,48 @@ int main() {
     if (!retro_load_game(&game)) return 1;
     if (!memory_map_valid() || !mapped(0x16000) || !mapped(0x1bfff) || mapped(0x1c000)) {
         std::cerr << "Cartridge RAM banks not in the achievement memory map\n";
+        return 1;
+    }
+    retro_unload_game();
+
+    // Les fenêtres de ROM suivent la banque choisie par le jeu à chaque image.
+    // MBC5, banques remplies de leur numéro : LD A,5 ; LD ($2000),A ; JR $
+    auto banked_rom = ravenemu::testing::minimal_game_boy_rom();
+    banked_rom.resize(16U * 0x4000U);
+    for (std::size_t bank = 1; bank < 16; ++bank)
+        std::fill_n(banked_rom.begin() + static_cast<std::ptrdiff_t>(bank * 0x4000U), 0x4000,
+                    static_cast<std::uint8_t>(bank));
+    banked_rom[0x147] = 0x19;
+    banked_rom[0x148] = 0x03;
+    const std::uint8_t select_bank[] = {0x3e, 0x05, 0xea, 0x00, 0x20, 0x18, 0xfe};
+    std::copy(std::begin(select_bank), std::end(select_bank), banked_rom.begin() + 0x100);
+    game.data = banked_rom.data();
+    game.size = banked_rom.size();
+    if (!retro_load_game(&game) || !mapped(0x4000) || *mapped(0x4000) != 1) return 1;
+    retro_run();
+    if (*mapped(0x4000) != 5 || *mapped(0x7fff) != 5) {
+        std::cerr << "Switchable ROM bank not followed in the achievement memory map\n";
+        return 1;
+    }
+    retro_unload_game();
+    // MBC1 de 1 Mio en mode 1 : la première fenêtre passe à la banque $20.
+    // LD A,1 ; LD ($6000),A ; LD ($4000),A ; JR $, aussi présent en banque $20.
+    auto mbc1_rom = ravenemu::testing::minimal_game_boy_rom();
+    mbc1_rom.resize(64U * 0x4000U);
+    for (std::size_t bank = 1; bank < 64; ++bank)
+        std::fill_n(mbc1_rom.begin() + static_cast<std::ptrdiff_t>(bank * 0x4000U), 0x4000,
+                    static_cast<std::uint8_t>(bank));
+    mbc1_rom[0x147] = 0x01;
+    mbc1_rom[0x148] = 0x05;
+    const std::uint8_t mode_1[] = {0x3e, 0x01, 0xea, 0x00, 0x60, 0xea, 0x00, 0x40, 0x18, 0xfe};
+    std::copy(std::begin(mode_1), std::end(mode_1), mbc1_rom.begin() + 0x100);
+    std::copy(std::begin(mode_1), std::end(mode_1), mbc1_rom.begin() + 0x20 * 0x4000 + 0x100);
+    game.data = mbc1_rom.data();
+    game.size = mbc1_rom.size();
+    if (!retro_load_game(&game) || !mapped(0x3000) || *mapped(0x3000) != 0) return 1;
+    retro_run();
+    if (*mapped(0x3000) != 0x20) {
+        std::cerr << "First ROM window not followed when MBC1 switches it\n";
         return 1;
     }
     retro_unload_game();

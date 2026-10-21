@@ -67,17 +67,18 @@ constexpr std::array<AchievementRegion, 3> achievement_regions{{
 }};
 #else
 // Console addresses, plus the extra banks RetroAchievements places above
-// 0xFFFF. Echo RAM maps onto WRAM. ROM bank 0 is copied as mapped at power-on
-// and after a reset or a state load only: reading it through the mapper every
-// frame would cost about 2% of a frame. The switchable ROM bank and the I/O
-// registers are not exposed.
+// 0xFFFF. Echo RAM maps onto WRAM. Both ROM windows are copied as the
+// cartridge maps them, every frame: MBC1 in its second mode and MMM01 also
+// switch the first one. A plain bank is one copy of 16 KiB.
 constexpr std::size_t achievement_space = 0x34000;
-constexpr std::array<AchievementRegion, 8> achievement_regions{{
-    {0x00000, 0x04000, 0x00000, 0, false},                         // ROM bank 0
+constexpr std::array<AchievementRegion, 10> achievement_regions{{
+    {0x00000, 0x04000, 0x00000, 0, true},                          // ROM, first window
+    {0x04000, 0x04000, 0x04000, 0, true},                          // ROM, switchable bank
     {0x08000, 0x02000, 0x08000, RETRO_MEMDESC_VIDEO_RAM, true},    // VRAM
     {0x0a000, 0x02000, 0x0a000, RETRO_MEMDESC_SAVE_RAM, true},     // cartridge RAM, bank 0
     {0x0c000, 0x02000, 0x0c000, RETRO_MEMDESC_SYSTEM_RAM, true},   // WRAM, banks 0 and 1
     {0x0fe00, 0x000a0, 0x0fe00, RETRO_MEMDESC_VIDEO_RAM, true},    // OAM
+    {0x0ff00, 0x00080, 0x0ff00, 0, true},                          // I/O registers, as the CPU reads them
     {0x0ff80, 0x00080, 0x0ff80, RETRO_MEMDESC_SYSTEM_RAM, true},   // HRAM, then IE
     {0x10000, 0x06000, 0x10000, RETRO_MEMDESC_SYSTEM_RAM, true},   // GBC WRAM, banks 2 to 7
     {0x16000, 0x1e000, 0x16000, RETRO_MEMDESC_SAVE_RAM, true},     // cartridge RAM, banks 1 to 15

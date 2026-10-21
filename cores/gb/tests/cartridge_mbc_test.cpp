@@ -516,9 +516,59 @@ void mbc3_hostile_battery_timestamp_test() {
     }
 }
 
+// Ce que les succès copient d'un bloc (read_rom_window) est, octet pour octet,
+// ce que lit le CPU (read_rom) : pour chaque contrôleur, chaque banque choisie,
+// des départs alignés ou non, et une ROM dont chaque octet diffère de ses voisins.
+void rom_windows_match_cpu_reads_test() {
+    const auto pattern = [](std::size_t offset) {
+        return static_cast<std::uint8_t>((offset >> 14) * 37U + offset * 13U + (offset >> 8));
+    };
+    const auto same_as_cpu = [](const Cartridge& cartridge, const char* what) {
+        for (const int window : {0x0000, 0x4000})
+            for (const auto& [offset, length] : {std::pair{0x0000, 0x4000}, {0x0123, 0x0100}, {0x3ff0, 0x0010}}) {
+                std::vector<std::uint8_t> block(static_cast<std::size_t>(length));
+                cartridge.read_rom_window(window + offset, block);
+                for (int index = 0; index < length; ++index)
+                    check(block[static_cast<std::size_t>(index)] == cartridge.read_rom(window + offset + index), what);
+            }
+    };
+    const std::array<std::pair<int, int>, 8> writes{{
+        {0x2000, 0x05}, {0x2100, 0x1f}, {0x2000, 0x00}, {0x3000, 0x01},
+        {0x4000, 0x01}, {0x6000, 0x01}, {0x2000, 0x21}, {0x4000, 0x03},
+    }};
+    for (const int type : {0x00, 0x01, 0x05, 0x11, 0x19, 0x22, 0xfe, 0xff}) {
+        std::vector<std::uint8_t> rom(type == 0x00 ? 0x8000U : 0x100000U);
+        for (std::size_t offset = 0; offset < rom.size(); ++offset) rom[offset] = pattern(offset);
+        rom[0x143] = 0x00;
+        rom[0x147] = static_cast<std::uint8_t>(type);
+        rom[0x148] = type == 0x00 ? 0x00 : 0x05;
+        rom[0x149] = 0x00;
+        finalize_header_checksum(rom, 0);
+        auto cartridge = create(std::move(rom));
+        same_as_cpu(*cartridge, "fenêtre de ROM différente de la lecture du CPU au démarrage");
+        for (const auto& [address, value] : writes) {
+            cartridge->write_control(address, value);
+            same_as_cpu(*cartridge, "fenêtre de ROM différente de la lecture du CPU après un changement de banque");
+        }
+    }
+    // MMM01 : menu lu octet par octet, puis banques après le mapping.
+    auto image = make_mmm01();
+    for (std::size_t offset = 2; offset < image.size(); ++offset)
+        if (const auto in_bank = offset % Cartridge::rom_bank_size; in_bank > 1 && (in_bank < 0x100 || in_bank > 0x14f))
+            image[offset] = pattern(offset);
+    auto mmm01 = create(std::move(image));
+    check(mmm01->header().mbc == MbcType::mmm01, "cartouche MMM01 de test non reconnue");
+    same_as_cpu(*mmm01, "menu MMM01 différent de la lecture du CPU");
+    mmm01->write_control(0x2000, 0x30);
+    mmm01->write_control(0x4000, 0x20);
+    mmm01->write_control(0x0000, 0x40);
+    same_as_cpu(*mmm01, "banques MMM01 différentes de la lecture du CPU");
+}
+
 } // namespace ravenemu::cgb::testing
 
 int main() {
+    ravenemu::cgb::testing::rom_windows_match_cpu_reads_test();
     ravenemu::cgb::testing::legacy_mapper_state_validation_test();
     ravenemu::cgb::testing::mbc3_hostile_battery_timestamp_test();
     ravenemu::cgb::testing::mbc3_export_preserves_latch_test();
