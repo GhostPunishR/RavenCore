@@ -27,6 +27,9 @@ class Machine {
 public:
     void load_cartridge(const Cartridge& cartridge);
     void load_firmware(std::span<const std::uint8_t> bytes) { memory_.load_firmware(bytes); }
+    [[nodiscard]] bool firmware_dirty() const noexcept { return memory_.firmware_dirty(); }
+    [[nodiscard]] FirmwareSnapshot snapshot_firmware() const { return memory_.snapshot_firmware(); }
+    void acknowledge_firmware_saved(std::uint64_t generation) noexcept { memory_.acknowledge_firmware_saved(generation); }
     void set_input(InputState state) noexcept { memory_.set_input(state); }
     void set_key(Key key, bool pressed) { memory_.set_key(key, pressed); }
     void set_touch_position(std::uint16_t x, std::uint16_t y, bool pressed = true) { memory_.set_touch_position(x,y,pressed); }

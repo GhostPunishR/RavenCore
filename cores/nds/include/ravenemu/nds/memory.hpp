@@ -45,6 +45,9 @@ public:
     void load_bios(Processor cpu, std::span<const std::uint8_t> bytes);
     void load_firmware(std::span<const std::uint8_t> bytes) { spi_.load_firmware(bytes); }
     [[nodiscard]] const Firmware& firmware() const noexcept { return spi_.firmware(); }
+    [[nodiscard]] bool firmware_dirty() const noexcept { return firmware().dirty(); }
+    [[nodiscard]] FirmwareSnapshot snapshot_firmware() const { return firmware().snapshot(); }
+    void acknowledge_firmware_saved(std::uint64_t generation) noexcept { spi_.acknowledge_firmware_saved(generation); }
     void clear_ram() noexcept; // remet aussi les périphériques à zéro ; conserve BIOS/firmware
     [[nodiscard]] VideoFrame render_frame() const { return video_.render_frame(display_control_, graphics_power_, display_control_b_); }
     [[nodiscard]] bool dma_pending(Processor cpu) const noexcept;

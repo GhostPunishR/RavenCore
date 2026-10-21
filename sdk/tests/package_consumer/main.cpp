@@ -184,6 +184,26 @@ int main() {
         !nds.memory().firmware().settings()) return 1;
     nds.memory().write16(ravenemu::nds::Processor::arm7,0x040001c0,0x8900);
     if (nds_spi_byte(0x9f) != 0xff || nds_spi_byte(0) != 0x20 || nds_spi_byte(0) != 0x40 || nds_spi_byte(0) != 0x12) return 1;
+    const auto nds_firmware_before = nds.snapshot_firmware();
+    if (nds.firmware_dirty()) return 1;
+    nds.memory().write16(ravenemu::nds::Processor::arm7,0x040001c0,0);
+    nds.memory().write16(ravenemu::nds::Processor::arm7,0x040001c0,0x8100);
+    static_cast<void>(nds_spi_byte(6)); // WREN, CS haut après la commande
+    nds.memory().write16(ravenemu::nds::Processor::arm7,0x040001c0,0x8900);
+    for (const auto value : {0x0a,1,0x20,0}) static_cast<void>(nds_spi_byte(static_cast<std::uint8_t>(value)));
+    nds.memory().write16(ravenemu::nds::Processor::arm7,0x040001c0,0x8100);
+    static_cast<void>(nds_spi_byte(0xa5));
+    if (!nds.memory().firmware().busy()) return 1;
+    nds.advance_cycles(368654);
+    if (!nds.firmware_dirty() || nds.memory().firmware().bytes()[0x12000] != 0xa5) return 1;
+    const auto nds_firmware_after = nds.snapshot_firmware();
+    nds.acknowledge_firmware_saved(nds_firmware_before.generation);
+    if (!nds.firmware_dirty()) return 1;
+    nds.acknowledge_firmware_saved(nds_firmware_after.generation);
+    if (nds.firmware_dirty()) return 1;
+    ravenemu::nds::Machine nds_restored;
+    nds_restored.load_firmware(nds_firmware_after.data);
+    if (nds_restored.memory().firmware().bytes()[0x12000] != 0xa5 || nds_restored.firmware_dirty()) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

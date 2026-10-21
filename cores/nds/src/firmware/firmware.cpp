@@ -65,12 +65,25 @@ Firmware::Firmware(std::span<const std::uint8_t> bytes) {
     if (bytes.size() != 0x40000 && bytes.size() != 0x80000)
         throw RomLoadError("NDS : firmware DS attendu de 256 ou 512 Kio");
     bytes_.assign(bytes.begin(), bytes.end());
+    refresh_settings();
+}
+
+void Firmware::refresh_settings() noexcept {
+    settings_.reset();
+    if (bytes_.empty()) return;
+    const std::span<const std::uint8_t> bytes = bytes_;
     const auto offset = static_cast<std::uint32_t>(read16(bytes, 0x20)) * 8U;
     if (offset < 0x200 || offset > bytes.size() - 0x200) return;
     auto first = read_settings(bytes, offset);
     auto second = read_settings(bytes, offset + 0x100);
     if (!first || (second && second->counter == ((first->counter + 1U) & 0x7fU))) settings_ = second;
     else settings_ = first;
+}
+
+FirmwareSnapshot Firmware::snapshot() const {
+    if (bytes_.empty()) throw Error("NDS : aucun firmware à sauvegarder");
+    if (busy()) throw Error("NDS : opération flash en cours, sauvegarde firmware différée");
+    return {bytes_, generation_};
 }
 
 } // namespace ravenemu::nds

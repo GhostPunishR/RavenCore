@@ -13,10 +13,13 @@ void Spi::reset() noexcept {
     pending_touchscreen_.reset();
     firmware_session_ = {};
     pending_firmware_session_ = {};
+    firmware_.reset_serial(); // une opération déjà lancée reste autonome
 }
 
 void Spi::load_firmware(std::span<const std::uint8_t> bytes) {
     Firmware prepared{bytes}; // valider et allouer avant de toucher au bus actif
+    // Un acquittement appartenant à l'ancienne image ne doit pas nettoyer la nouvelle.
+    prepared.generation_ = prepared.saved_generation_ = firmware_.generation_ + 1U;
     firmware_ = std::move(prepared);
     reset();
 }
@@ -52,7 +55,7 @@ void Spi::validate_write(unsigned offset, std::uint32_t value, unsigned width) c
     if (device == 0x200U) return;
     if (device != 0x100U) throw Error("NDS : périphérique SPI Powerman/réservé non pris en charge");
     auto session = firmware_session_;
-    if ((control ^ control_) & 0x300U) session.deselect();
+    if ((control ^ control_) & 0x300U) session = {};
     static_cast<void>(firmware_.exchange(session, static_cast<std::uint8_t>(value >> ((2U - offset) * 8U))));
 }
 
@@ -61,7 +64,8 @@ void Spi::write(unsigned offset, std::uint32_t value, unsigned width, const Inpu
     const auto next = proposed_control(offset, value, width);
     if (!(next & 0x8000U) || ((next ^ control_) & 0x300U)) {
         touchscreen_.deselect();
-        firmware_session_.deselect();
+        if (remaining_) firmware_session_ = {}; // byte incomplet : abandon du paquet
+        else firmware_.deselect(firmware_session_);
         remaining_ = 0; // annulation sans IRQ
     }
     control_ = next;
@@ -79,17 +83,25 @@ void Spi::write(unsigned offset, std::uint32_t value, unsigned width, const Inpu
 }
 
 bool Spi::advance_cycles(std::uint64_t cycles) noexcept {
-    if (!remaining_) return false;
-    if (cycles < remaining_) { remaining_ -= static_cast<std::uint32_t>(cycles); return false; }
+    if (!remaining_) { firmware_.advance_cycles(cycles); return false; }
+    if (cycles < remaining_) {
+        firmware_.advance_cycles(cycles);
+        remaining_ -= static_cast<std::uint32_t>(cycles);
+        return false;
+    }
+    const auto elapsed = remaining_;
+    firmware_.advance_cycles(elapsed);
     remaining_ = 0;
     data_ = received_;
     if ((control_ & 0x300U) == 0x100U) {
         firmware_session_ = pending_firmware_session_;
-        if (!(control_ & 0x800U)) firmware_session_.deselect();
+        if (!(control_ & 0x800U)) firmware_.deselect(firmware_session_);
     } else {
         touchscreen_ = pending_touchscreen_;
         if (!(control_ & 0x800U)) touchscreen_.deselect();
     }
+    // Une écriture démarre seulement à la fin du dernier octet et de CS.
+    firmware_.advance_cycles(cycles - elapsed);
     return (control_ & 0x4000U) != 0;
 }
 

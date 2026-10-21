@@ -1084,8 +1084,12 @@ octets, poids fort en premier ; les lectures bouclent à la capacité physique.
 | `03` READ | Adresse 24 bits puis flux continu |
 | `0b` FAST | Même lecture, avec un octet muet après l'adresse |
 | `9f` RDID | Modèle M45PE20 `20 40 12` pour 256 Kio, M25PE40 `20 80 13` pour 512 Kio |
-| `05` RDSR | Statut répété : WEL bit 1, WIP nul dans ce modèle sans écriture |
+| `05` RDSR | Statut répété : WEL bit 1, WIP bit 0 pendant une opération flash |
 | `06` WREN / `04` WRDI | Active/désactive WEL à la remontée de CS |
+| `02` PP | Programme 1..256 octets d'une page : bits de 1 vers 0 seulement |
+| `0a` PW | Écrit 1..256 octets d'une page : bits vers 0 ou 1, voisins conservés |
+| `db` PE | Efface une page de 256 octets à `0xff` |
+| `d8` SE | Efface un secteur de 64 Kio à `0xff` |
 | `b9` DP / `ab` RDP | Sommeil/réveil à la remontée de CS ; les commandes ordinaires sont ignorées pendant le sommeil |
 
 Ce choix d'identifiant modélise un composant documenté selon la capacité ; il
@@ -1096,10 +1100,31 @@ transfert prépare seulement une petite session, sans recopier l'image flash.
 Une session n'est appliquée qu'à la fin du transfert ; annulation et copie
 de machine conservent des curseurs indépendants.
 
-Écriture de page, programmation et effacement restent **explicitement refusés**
-avant mutation, même avec WEL activé. Le firmware est donc pour l'instant lu
-seulement ; ces opérations ne sont pas simulées comme des succès. Les délais
-analogiques de mise sous tension, sommeil et réveil restent à implémenter.
+PP/PW/PE/SE exigent WREN. Sans WEL, la commande est ignorée. Le transfert de
+commande/adresse/données ne modifie pas encore la flash : une commande complète
+est lancée à la remontée de CS. WIP est alors actif, WEL reste actif jusqu'à la
+fin et les octets deviennent visibles atomiquement au terme du délai. Pendant
+WIP, seule RDSR est acceptée ; WREN, sommeil et lectures sont ignorés. Finir le
+cycle flash ne produit aucune IRQ supplémentaire : IF.23 concerne les bytes SPI.
+
+Les durées déterministes utilisent les valeurs typiques GBATEK, arrondies au
+cycle commun supérieur : PP 1,2 ms (40 217 cycles), PW 11 ms (368 654), PE 10 ms
+(335 140), SE 1 s (33 513 982). Les avances groupées et fractionnées ne débitent
+pas le temps du dernier byte SPI sur une opération qui n'a pas encore commencé.
+Les tolérances selon le composant et les délais analogiques de mise sous tension,
+sommeil et réveil restent à implémenter.
+
+PE/SE alignent l'adresse sur la page/le secteur ; les adresses d'écriture sont
+miroitées à la capacité du composant. Le modèle fixe `/W` bas : les 256 premières
+pages, soit 64 Kio, sont protégées, même à travers un miroir. Une commande sur
+cette zone ne modifie ni les octets ni WIP ; WEL est conservé dans ce modèle,
+ce détail n'étant pas validé sur console. Aucun forçage de la broche n'est exposé.
+Les flux PP/PW doivent tenir dans la page à partir de l'adresse initiale. Le
+retour en début de page pour les flux trop longs reste à valider ; le byte
+excédentaire est diagnostiqué avant toute mutation de ce transfert. L'hôte peut
+réinitialiser le bus pour abandonner le paquet déjà accumulé. Un effacement
+exige exactement trois octets d'adresse ; les paquets incomplets sont ignorés.
+
 Un strobe firmware sans image ou une commande inconnue hors sommeil produit
 un diagnostic, sans modifier les registres ni les octets de l'image.
 
@@ -1112,7 +1137,10 @@ si son compteur suit immédiatement le premier modulo 128 ; sinon la première.
 Avec une seule copie valide, celle-ci est utilisée. Aucune copie valide ne
 produit aucun réglage de remplacement. `firmware().settings()` est alors vide,
 mais les octets restent accessibles par SPI. La copie RAM de boot n'inclut
-ni compteur ni CRC, conformément au format de la console.
+ni compteur ni CRC, conformément au format de la console. Après une modification
+effective de la flash, le cache des réglages et de l'étalonnage est recalculé.
+Une nouvelle copie valide peut ainsi devenir courante ; un CRC invalidé fait
+revenir à l'autre copie. Cette mise à jour ne réécrit pas la RAM du jeu en cours.
 
 Un étalonnage exige deux points ADC 12 bits distincts par axe et deux points
 écran distincts et valides. Un étalonnage dégénéré n'empêche pas de lire le
@@ -1137,10 +1165,38 @@ conservant les entrées physiques et les IRQ déjà acquises. Un chargement refu
 conserve aussi le transfert en attente. La RAM et les autres périphériques ne
 changent pas : charger le firmware **avant la cartouche** permet d'obtenir la
 copie RAM correspondante au prochain démarrage direct. `clear_ram()` et le
-rechargement de cartouche conservent l'image, réinitialisent sommeil/WEL/busy
-et les entrées physiques. `clear_ram()` seul ne prépare pas les réglages RAM.
-Le lancement du code de boot firmware, les écritures persistantes et le menu
-de recalibrage ne sont pas encore implémentés.
+rechargement de cartouche conservent l'image et son état de sauvegarde,
+réinitialisent sommeil/WEL et les entrées physiques. Un paquet SPI non terminé
+est abandonné ; une opération flash déjà lancée reste autonome et termine avec
+les cycles suivants, même après reset du bus ou changement de périphérique.
+Désactiver SPI au milieu d'un byte abandonne le paquet entier sans programmer
+son préfixe. Remplacer explicitement l'image abandonne aussi l'ancienne opération
+interne ; un remplacement refusé conserve celle-ci. `clear_ram()` seul ne prépare
+pas les réglages RAM. Le boot firmware et son menu de recalibrage restent à développer.
+
+`Machine` et `Memory` exposent `firmware_dirty()`, `snapshot_firmware()` et
+`acknowledge_firmware_saved(generation)`. Le snapshot possède ses octets, au format
+brut de l'image chargée (256/512 Kio), et un jeton de génération. Aucun trailer
+n'est ajouté. L'hôte écrit ce fichier firmware séparément des sauvegardes de jeux,
+puis acquitte exactement ce jeton **après** une écriture réussie. Un acquittement
+ancien ne nettoie pas une modification plus récente ni une image remplacée.
+Lire un snapshot ne le marque pas sauvegardé. Un cycle terminé sans changement
+d'octets ne salit pas l'image. Copie et reset conservent indépendamment les générations.
+
+Un snapshot sans image ou pendant WIP est refusé : l'hôte doit laisser finir
+l'opération avant de sauvegarder/fermer. Les bytes d'un paquet encore sous CS
+ne sont pas des écritures validées et ne figurent pas dans le snapshot. Le cœur
+n'écrit aucun fichier lui-même ; le rechargement utilise `load_firmware(snapshot.data)`.
+Les adaptateurs NDS SDK/Libretro et leur persistance automatique restent à développer.
+
+```cpp
+if (machine.firmware_dirty() && !machine.memory().firmware().busy()) {
+    auto saved = machine.snapshot_firmware();
+    // L'hôte écrit saved.data dans son fichier firmware et vérifie le succès.
+    // Seulement après cette réussite :
+    machine.acknowledge_firmware_saved(saved.generation);
+}
+```
 
 Cette implémentation C++ indépendante suit
 [GBATEK, Firmware Serial Flash](https://mgba-emu.github.io/gbatek/ds.html#dsfirmwareserialflashmemory),
@@ -1238,6 +1294,14 @@ les vecteurs d'abandon décrits plus haut. Les instructions déjà terminées
 d'un `run_steps` restent appliquées. Le chargement d'une nouvelle cartouche
 réinitialise les deux CPU. Aucun CPU ne conserve de référence persistante au
 bus : copier une machine produit une mémoire et des CPU indépendants.
+
+`nds_firmware_write` vérifie WREN/WEL/WIP, PP/PW, délais, PE/SE, alignements,
+zone protégée et miroirs, paquets incomplets/trop longs, annulations, grandes
+avances et fractionnements, copies et reset pendant WIP. Il contrôle l'export
+possédé, les générations/acquittements et le remplacement d'image, la sélection
+des réglages après écriture et la restauration de l'étalonnage après rechargement.
+Un programme ARM7 fait WREN, programme la flash, attend RDSR puis relit le byte et
+le publie à ARM9. Les fixtures synthétiques CRC sont partagées par les tests.
 
 `nds_firmware` vérifie taille/propriété des images, offsets 256/512 Kio, versions,
 CRC indépendants, sélection et wrap des compteurs, étalonnages valides/dégénérés,
@@ -1371,7 +1435,7 @@ vérifiés. Une ROM ARM9 configure son DMA, attend l'IRQ et produit les 256×192
 pixels, avec copies et chargements refusés/réussis.
 
 Prochains jalons : compléter les instructions et durées CPU/bus, le démarrage,
-les lectures cartouche et sauvegardes, Powerman et les écritures firmware,
+les lectures cartouche et sauvegardes, Powerman et le démarrage firmware,
 puis 3D et audio.
 L'ordonnanceur actuel reste un modèle fonctionnel à coût uniforme.
 

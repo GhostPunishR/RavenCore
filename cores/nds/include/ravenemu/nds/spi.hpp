@@ -7,7 +7,7 @@
 
 namespace ravenemu::nds {
 
-/** Bus SPI ARM7 : transferts asynchrones 8 bits, tactile et lecture du firmware.
+/** Bus SPI ARM7 : transferts asynchrones 8 bits, tactile et flash firmware.
  * Powerman et mode 16 bits restent diagnostiqués au premier strobe.
  * Aucune référence au bus, aux CPU ou aux entrées hôte n'est conservée.
  */
@@ -16,6 +16,7 @@ public:
     void reset() noexcept; // conserve l'image du firmware, réinitialise les sessions
     void load_firmware(std::span<const std::uint8_t> bytes);
     [[nodiscard]] const Firmware& firmware() const noexcept { return firmware_; }
+    void acknowledge_firmware_saved(std::uint64_t generation) noexcept { firmware_.acknowledge_saved(generation); }
     [[nodiscard]] std::uint8_t read_byte(unsigned offset) const noexcept;
     void validate_write(unsigned offset, std::uint32_t value, unsigned width) const;
     void write(unsigned offset, std::uint32_t value, unsigned width, const InputState& input);
