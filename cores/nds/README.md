@@ -13,7 +13,7 @@ nds/
 ├── include/ravenemu/nds/  # contrats publics
 ├── src/
 │   ├── bios/             # images et fenêtres BIOS
-│   ├── cartridge/        # cartouches .nds
+│   ├── cartridge/        # images .nds et port cartouche RAW/post-boot
 │   ├── cpu/              # ARM, Thumb, état, PSR et exceptions
 │   ├── dma/              # canaux, transferts immédiats et VBlank/HBlank
 │   ├── firmware/         # image fournie par l'hôte, réglages CRC et étalonnage
@@ -37,7 +37,10 @@ Le chargeur lit le titre, le code du jeu et les descripteurs ARM9/ARM7 en
 little-endian, possède les octets de la ROM et fournit les deux exécutables.
 Il refuse les en-têtes et programmes tronqués, les tailles nulles, les plages
 débordantes et les entrées hors du programme. Le bit Thumb de l'entrée est
-conservé. Les images DSi sont explicitement refusées.
+conservé. Les images DSi sont explicitement refusées. `Cartridge::rom()` expose
+une vue constante de toute l'image. Les copies partagent un stockage immuable
+possédé par la bibliothèque : copier une machine ne duplique pas une grande ROM,
+et les transferts matériels restent indépendants.
 
 Référence du format : [GBATEK, DS Cartridge Header](https://problemkaputt.de/gbatek.htm#dscartridgeheader).
 Cette validation est structurelle : CRC, logo, signatures et chiffrement KEY1
@@ -50,6 +53,84 @@ cmake -S . -B build -DBUILD_TESTING=ON
 cmake --build build --parallel 4
 ctest --test-dir build -R '^nds_' --output-on-failure
 ```
+
+## Port cartouche, ressources et DMA
+
+`Gamecard`, déclaré dans `<ravenemu/nds/gamecard.hpp>`, conserve le média et son
+état de transfert. `Machine::load_cartridge()` l'installe automatiquement en mode
+de données principal pour le démarrage direct. `Memory::load_gamecard()` permet
+aussi de brancher seulement le média, avec `Gamecard::Mode::raw` pour les premiers
+échanges non chiffrés. Les lectures ne dépendent plus de la durée de vie du buffer
+ou de l'objet `Cartridge` fourni par l'hôte.
+
+| Registre | Comportement |
+| --- | --- |
+| `0x040001a0` AUXSPICNT | Activation du slot, sélection ROM/SPI, IRQ de fin ; masque `0xe043` |
+| `0x040001a4` ROMCTRL | Taille du bloc, débit, gaps, RESB, busy et DRQ |
+| `0x040001a8..1af` | Huit octets de commande, premier octet/opcode à l'adresse basse |
+| `0x04100010` CARD_DATA | Mot reçu little-endian, accès 32 bits uniquement |
+| `0x04000204` EXMEMCNT/STAT | Propriétaire du slot DS via bit 11 ; écriture partagée par ARM9 |
+
+Le mode RAW accepte `00` (en-tête, répété tous les 4 Kio), `90` (identifiant) et
+`9f` (dummy `ff`). Le mode principal accepte `b7` et son adresse big-endian sur
+quatre octets, ainsi que `b8` pour l'identifiant. Les blocs console de 0, 4 et
+512..16 384 octets sont pris en charge. B7 accepte une adresse non alignée,
+boucle dans le bloc courant de 4 Kio, et redirige les adresses physiques sous
+`0x8000` vers `0x8000 + (adresse & 0x1ff)`.
+
+La capacité physique du modèle est une puissance de deux de 8 à 512 Mio,
+assez grande pour le dump et pour la capacité déclarée à l'octet d'en-tête `0x14`.
+Les adresses sont ramenées à cette capacité, et les octets absents d'un dump
+réduit sont `ff`. Une capacité non prise en charge est refusée avant de remplacer
+la machine. L'identifiant modélise un composant Macronix (`c2`), selon la capacité ;
+il ne prétend pas identifier le fabricant réel à partir du dump. Sans média,
+une commande retourne des mots `ffffffff` dans ce modèle.
+
+Le modèle de transfert utilise un octet par clock cartouche : diviseur 5 ou 8
+de l'horloge commune, huit clocks de commande, gap1, puis quatre clocks par mot.
+Gap2 s'ajoute entre blocs de 512 octets. DRQ n'est levé qu'au terme du délai.
+Un mot prêt bloque la production jusqu'à consommation ; `peek32` inspecte sans
+consommer. Lire trop tôt rend le dernier mot sans avancer. Le dernier mot lu
+efface busy/DRQ et demande IF.19 si AUXSPICNT.14 est activé. Un bloc sans données
+termine après sa commande et son gap1, sans produire DRQ. IME/IE conservent les
+mêmes contrats que les autres sources. Écritures de commandes/ROMCTRL pendant
+busy ignorées ; désactiver le slot ou passer en SPI abandonne sans IRQ différée.
+
+Le DMA cartouche utilise le mode 5 sur ARM9, 2 sur ARM7. Il exige CARD_DATA en
+source fixe et des mots de 32 bits ; chaque DRQ autorise **un seul mot**, même
+avec un compteur programmé plus grand. Le réglage usuel est compteur 1 avec
+répétition. Un canal armé après l'apparition de DRQ peut encore lire le mot prêt.
+La destination est validée avant toute consommation ; un échec conserve le
+mot et le canal fautif. Les accès DMA contournent les TCM ARM9. Les IRQ de fin
+DMA et de fin de bloc cartouche restent distinctes.
+
+EXMEM bit 11 choisit ARM9 (0) ou ARM7 (1). Les bits 0..6 sont locaux à chaque CPU ;
+7/11/15 sont partagés et modifiables seulement par ARM9. Les bits 13/14 sont lus
+à un dans ce modèle NDS, les bits réservés à zéro. Les réglages de slot GBA et
+de priorité sont mémorisés mais ne fournissent pas de bus GBA ni de timings RAM.
+Le CPU non propriétaire lit zéro et ses écritures sont ignorées, sans retirer
+de donnée. Changer de propriétaire pendant busy est diagnostiqué avant mutation,
+ce cas n'étant pas encore validé matériellement. La sélection peut changer une
+fois le bloc terminé ou abandonné.
+
+Le démarrage direct prépare un slot activé avec RESB libéré en mode principal.
+`clear_ram()` remet les registres/transferts dans cet état et conserve média et
+mode ; un chargement refusé préserve aussi le transfert courant. En RAW, RESB
+doit être libéré explicitement avant un transfert. Son bit reste ensuite à un
+jusqu'au reset hôte du modèle ; les astuces physiques de reset par EXMEM ne sont
+pas émulées. Copie et remplacement de média isolent les curseurs, délais et DMA.
+
+Les commandes/réponses du mode principal sont traitées déchiffrées, comme attendu
+après le démarrage direct. Les bits KEY2 de données/commande sont mémorisés ;
+ils n'implémentent pas le chiffrement du fil physique. La séquence KEY1 de boot,
+l'application des semences KEY2, les registres de semence, DSi et NAND restent
+explicitement hors périmètre. AUXSPI de sauvegarde est aussi refusé au strobe.
+Les timings fins, l'open-bus et les variantes de fabricants restent à valider.
+Cette implémentation C++ originale suit
+[GBATEK, Cartridge Protocol](https://mgba-emu.github.io/gbatek/ds.html#dscartridgeprotocol),
+[I/O Ports](https://mgba-emu.github.io/gbatek/ds.html#dscartridgeioports),
+[Memory Control](https://mgba-emu.github.io/gbatek/ds.html#dsmemorycontrolcartridgesandmainram)
+et [DMA](https://mgba-emu.github.io/gbatek/ds.html#dsdmatransfers), sans code d'émulateur importé.
 
 ## Mémoire et chargement direct
 
@@ -1295,6 +1376,13 @@ d'un `run_steps` restent appliquées. Le chargement d'une nouvelle cartouche
 réinitialise les deux CPU. Aucun CPU ne conserve de référence persistante au
 bus : copier une machine produit une mémoire et des CPU indépendants.
 
+`nds_gamecard` vérifie RAW et B7/B8, commandes et octets, tailles, débits/gaps,
+DRQ/busy, inspection, IRQ, alignements, mirroring et dumps réduits. Il couvre
+les droits EXMEM et les refus atomiques, slots vides, copies, reset et remplacement
+de média. Les deux CPU sont testés avec DMA, compteurs, répétition, erreurs sans
+consommation, armement tardif et TCM. Quatre programmes synthétiques ARM9/ARM7
+lisent leurs ressources par CPU ou DMA ; ARM9 en tire la couleur de l'écran.
+
 `nds_firmware_write` vérifie WREN/WEL/WIP, PP/PW, délais, PE/SE, alignements,
 zone protégée et miroirs, paquets incomplets/trop longs, annulations, grandes
 avances et fractionnements, copies et reset pendant WIP. Il contrôle l'export
@@ -1435,12 +1523,12 @@ vérifiés. Une ROM ARM9 configure son DMA, attend l'IRQ et produit les 256×192
 pixels, avec copies et chargements refusés/réussis.
 
 Prochains jalons : compléter les instructions et durées CPU/bus, le démarrage,
-les lectures cartouche et sauvegardes, Powerman et le démarrage firmware,
+les sauvegardes cartouche, les variantes du protocole ROM, Powerman et le démarrage firmware,
 puis 3D et audio.
 L'ordonnanceur actuel reste un modèle fonctionnel à coût uniforme.
 
 Aucun jeu commercial n'est validé à ce stade. Les programmes synthétiques
-peuvent déjà réagir aux boutons et modifier le rendu, lire le firmware fourni
+peuvent déjà lire leurs ressources cartouche par CPU/DMA, réagir aux boutons et modifier le rendu, lire le firmware fourni
 et mesurer le tactile à partir de pixels étalonnés. La bibliothèque native
 NDS est installée avec le paquet C++, mais les adaptateurs `Core`, `sdk::System`
 et Libretro NDS restent à développer.

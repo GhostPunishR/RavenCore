@@ -45,6 +45,7 @@ void Machine::load_cartridge(const Cartridge& cartridge) {
 
     Memory prepared = memory_;
     prepared.clear_ram();
+    prepared.load_gamecard(cartridge); // image immuable conservée pour les lectures de ressources
     prepared.set_wram_control(3); // toute la WRAM partagée à l'ARM7
     // Préparer les réglages du démarrage direct, avant les exécutables : une
     // section RAM explicitement fournie par la cartouche garde la priorité.

@@ -18,6 +18,7 @@
 #include <ravenemu/nds/spi.hpp>
 #include <ravenemu/nds/touchscreen.hpp>
 #include <ravenemu/nds/firmware.hpp>
+#include <ravenemu/nds/gamecard.hpp>
 #include <ravenemu/nds/dma.hpp>
 #include <ravenemu/nds/lcd_timing.hpp>
 #include <ravenemu/nds/video.hpp>
@@ -204,6 +205,21 @@ int main() {
     ravenemu::nds::Machine nds_restored;
     nds_restored.load_firmware(nds_firmware_after.data);
     if (nds_restored.memory().firmware().bytes()[0x12000] != 0xa5 || nds_restored.firmware_dirty()) return 1;
+    scheduled_rom.resize(0x9000,0xff);
+    scheduled_put(0x8000,0x12345678);
+    nds.load_cartridge(ravenemu::nds::Cartridge{scheduled_rom});
+    const auto card_cpu = ravenemu::nds::Processor::arm9;
+    nds.memory().write32(card_cpu,0x040000b0,0x04100010);
+    nds.memory().write32(card_cpu,0x040000b4,0x02003000);
+    nds.memory().write32(card_cpu,0x040000b8,0xed000001); // DMA cartouche, source fixe, un mot
+    nds.memory().write16(card_cpu,0x040001a0,0xc000);
+    nds.memory().write32(card_cpu,0x040001a8,0x800000b7);
+    nds.memory().write32(card_cpu,0x040001ac,0);
+    nds.memory().write32(card_cpu,0x040001a4,0xa7000000);
+    nds.advance_cycles(60);
+    if (!nds.memory().dma_pending(card_cpu) || !nds.memory().step_dma(card_cpu) ||
+        nds.memory().read32(card_cpu,0x02003000) != 0x12345678 ||
+        (nds.memory().peek32(card_cpu,0x040001a4) & 0x80800000U)) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string>
 #include <vector>
@@ -31,12 +32,13 @@ class Cartridge {
 public:
     explicit Cartridge(std::span<const std::uint8_t> rom);
     [[nodiscard]] const CartridgeHeader& header() const noexcept { return header_; }
+    [[nodiscard]] std::span<const std::uint8_t> rom() const noexcept { return rom_ ? std::span<const std::uint8_t>{*rom_} : std::span<const std::uint8_t>{}; }
     [[nodiscard]] std::span<const std::uint8_t> arm9_image() const noexcept;
     [[nodiscard]] std::span<const std::uint8_t> arm7_image() const noexcept;
 
 private:
     CartridgeHeader header_;
-    std::vector<std::uint8_t> rom_;
+    std::shared_ptr<const std::vector<std::uint8_t>> rom_; // média immuable partagé, état du bus indépendant
 };
 
 } // namespace ravenemu::nds

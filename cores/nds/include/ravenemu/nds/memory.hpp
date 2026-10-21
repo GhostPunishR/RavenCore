@@ -6,6 +6,7 @@
 #include <ravenemu/nds/ipc.hpp>
 #include <ravenemu/nds/input.hpp>
 #include <ravenemu/nds/spi.hpp>
+#include <ravenemu/nds/gamecard.hpp>
 #include <ravenemu/nds/dma.hpp>
 #include <ravenemu/nds/lcd_timing.hpp>
 #include <ravenemu/nds/video.hpp>
@@ -26,6 +27,7 @@ namespace ravenemu::nds {
 class Memory {
 public:
     Memory();
+    void load_gamecard(const Cartridge& cartridge, Gamecard::Mode mode = Gamecard::Mode::main_data);
     void set_input(InputState state) noexcept;
     void set_key(Key key, bool pressed);
     // Pixels d'origine (0,0) ; exige un étalonnage valide pour un contact.
@@ -103,6 +105,11 @@ private:
     [[nodiscard]] const InterruptController& controller(Processor cpu) const noexcept;
     void apply_ipc_interrupts(Ipc::Interrupts sources) noexcept;
     void apply_input_interrupts(Input::Events events) noexcept;
+    [[nodiscard]] Processor gamecard_owner() const noexcept { return (exmem_shared_ & 0x800U) ? Processor::arm7 : Processor::arm9; }
+    void apply_gamecard_events(Gamecard::Events events) noexcept;
+    void pause_gamecard_dma() noexcept;
+    [[nodiscard]] std::uint32_t read_gamecard_data(Processor cpu) noexcept;
+    void validate_exmem_write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width) const;
     [[nodiscard]] std::uint32_t peek(Processor cpu, std::uint32_t address, unsigned width, Access access = Access::data) const;
     [[nodiscard]] std::uint32_t read(Processor cpu, std::uint32_t address, unsigned width);
     void validate_write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width, Access access = Access::data) const;
@@ -118,6 +125,9 @@ private:
     Ipc ipc_;
     Input input_;
     Spi spi_;
+    Gamecard gamecard_;
+    std::array<std::uint8_t, 2> exmem_local_{};
+    std::uint16_t exmem_shared_{};
     DmaController arm9_dma_{Processor::arm9};
     DmaController arm7_dma_{Processor::arm7};
     std::array<std::uint8_t, 16> dma_fill_{};

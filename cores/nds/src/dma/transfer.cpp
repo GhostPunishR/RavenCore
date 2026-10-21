@@ -26,6 +26,16 @@ bool Memory::step_dma(Processor cpu) {
     try {
         if (((transfer->control >> 23U) & 3U) == 3U) throw Error("mode source DMA réservé");
         const auto width = (transfer->control & 0x04000000U) ? 4U : 2U;
+        const auto mode = cpu == Processor::arm9 ? (transfer->control >> 27U) & 7U : (transfer->control >> 28U) & 3U;
+        const bool card_mode = mode == (cpu == Processor::arm9 ? 5U : 2U);
+        const bool card_source = transfer->source == 0x04100010;
+        if (card_mode && (width != 4 || !card_source || ((transfer->control >> 23U) & 3U) != 2U))
+            throw Error("DMA cartouche : port CARD_DATA, source fixe et mots 32 bits requis");
+        if (card_source && !card_mode) throw Error("DMA CARD_DATA : mode cartouche requis");
+        if (card_mode && (cpu != gamecard_owner() || !gamecard_.ready())) {
+            dma(cpu).pause(DmaController::Event::gamecard);
+            return false;
+        }
         const bool display = cpu == Processor::arm9 && ((transfer->control >> 27U) & 7U) == 4;
         if (display && (width != 4 || transfer->destination != 0x04000068 ||
                         transfer->source < 0x02000000 || transfer->source > 0x02fffffc))
@@ -34,7 +44,7 @@ bool Memory::step_dma(Processor cpu) {
         // RAM, VRAM affectée au CPU, et DMAFILL ARM9 en source.
         // Valider les deux extrémités avant toute écriture ou avancée de canal.
         for (unsigned i = 0; i < width; ++i) {
-            if (!fill && !video_.read_byte(cpu, transfer->source + i)) static_cast<void>(index(cpu, transfer->source + i));
+            if (!fill && !card_source && !video_.read_byte(cpu, transfer->source + i)) static_cast<void>(index(cpu, transfer->source + i));
             const auto destination = transfer->destination + i;
             const bool graphics_register = cpu == Processor::arm9 &&
                 ((destination >= 0x0400004c && destination <= 0x0400004f) ||
@@ -45,6 +55,7 @@ bool Memory::step_dma(Processor cpu) {
         const auto value = peek(cpu, transfer->source, width, Access::external);
         write(cpu, transfer->destination, value, width, Access::external);
         controller(cpu).request(dma(cpu).complete_unit());
+        if (card_source) static_cast<void>(read_gamecard_data(cpu)); // après l'écriture réussie et l'avancée du canal
         return true;
     } catch (const Error& error) {
         throw DmaTransferError(cpu, *transfer, error.what());

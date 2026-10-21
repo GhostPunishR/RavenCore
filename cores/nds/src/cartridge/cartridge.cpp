@@ -45,17 +45,17 @@ Cartridge::Cartridge(std::span<const std::uint8_t> rom) {
     if (rom.size() < 0x200) throw RomLoadError("NDS : en-tête tronqué");
     if (rom[0x12] != 0) throw RomLoadError("NDS : images DSi non prises en charge");
     header_ = {text(rom.first(12)), text(rom.subspan(12, 4)), executable(rom, 0x20), executable(rom, 0x30)};
-    rom_.assign(rom.begin(), rom.end());
+    rom_ = std::make_shared<const std::vector<std::uint8_t>>(rom.begin(), rom.end());
 }
 
 std::span<const std::uint8_t> Cartridge::arm9_image() const noexcept {
-    if (rom_.empty()) return {}; // objet déplacé
-    return std::span<const std::uint8_t>{rom_}.subspan(header_.arm9.rom_offset, header_.arm9.size);
+    if (!rom_) return {}; // objet déplacé
+    return rom().subspan(header_.arm9.rom_offset, header_.arm9.size);
 }
 
 std::span<const std::uint8_t> Cartridge::arm7_image() const noexcept {
-    if (rom_.empty()) return {};
-    return std::span<const std::uint8_t>{rom_}.subspan(header_.arm7.rom_offset, header_.arm7.size);
+    if (!rom_) return {};
+    return rom().subspan(header_.arm7.rom_offset, header_.arm7.size);
 }
 
 } // namespace ravenemu::nds

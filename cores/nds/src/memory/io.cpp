@@ -19,6 +19,12 @@ void Memory::apply_ipc_interrupts(Ipc::Interrupts sources) noexcept {
 }
 
 std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address) const noexcept {
+    if (address >= 0x040001a0 && address <= 0x040001af)
+        return cpu == gamecard_owner() ? gamecard_.read_byte(address - 0x040001a0U) : std::uint8_t{0};
+    if (address >= 0x04000204 && address <= 0x04000207) {
+        const auto value = 0x6000U | exmem_shared_ | exmem_local_[cpu == Processor::arm9 ? 0U : 1U];
+        return static_cast<std::uint8_t>(value >> ((address - 0x04000204U) * 8U));
+    }
     if (cpu == Processor::arm7 && address >= 0x040001c0 && address <= 0x040001c3)
         return spi_.read_byte(address - 0x040001c0U);
     if (cpu == Processor::arm9) {
@@ -77,6 +83,14 @@ std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address
 }
 
 void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t value) noexcept {
+    if (address >= 0x04000204 && address <= 0x04000207) {
+        if (address == 0x04000204) {
+            exmem_local_[cpu == Processor::arm9 ? 0U : 1U] = value & 0x7fU;
+            if (cpu == Processor::arm9) exmem_shared_ = static_cast<std::uint16_t>((exmem_shared_ & ~0x80U) | (value & 0x80U));
+        } else if (address == 0x04000205 && cpu == Processor::arm9)
+            exmem_shared_ = static_cast<std::uint16_t>((exmem_shared_ & 0x80U) | ((static_cast<unsigned>(value) << 8U) & 0x8800U));
+        return;
+    }
     if (cpu == Processor::arm9) {
         if (address >= 0x04000064 && address <= 0x04000067) {
             video_.write_capture(address & 3U, value);
@@ -125,6 +139,7 @@ void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t va
     }
     if (address >= 0x040000b0 && address <= 0x040000df) {
         dma(cpu).write_byte(address - 0x040000b0U, value);
+        if (cpu == gamecard_owner() && gamecard_.ready()) dma(cpu).trigger(DmaController::Event::gamecard);
         return;
     }
     if (cpu == Processor::arm9 && address >= 0x040000e0 && address <= 0x040000ef) {

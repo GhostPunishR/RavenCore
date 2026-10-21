@@ -24,6 +24,9 @@ void Memory::clear_ram() noexcept {
     ipc_.reset();
     input_.reset();
     spi_.reset();
+    gamecard_.reset();
+    exmem_local_ = {};
+    exmem_shared_ = 0;
     arm9_dma_.reset();
     arm7_dma_.reset();
     dma_fill_ = {};
@@ -67,6 +70,10 @@ std::uint32_t Memory::peek(Processor cpu, std::uint32_t address, unsigned width,
         if (width != 4) throw Error("NDS : FIFO IPC limitée aux accès 32 bits");
         return ipc_.peek(cpu);
     }
+    if (address >= 0x04100010 && address <= 0x04100013) {
+        if (width != 4) throw Error("NDS : port de données cartouche limité aux accès 32 bits");
+        return cpu == gamecard_owner() ? gamecard_.peek_data() : 0;
+    }
     std::uint32_t value{};
     for (unsigned i = 0; i < width; ++i) {
         const auto io = io_byte(cpu, address + i);
@@ -81,6 +88,8 @@ std::uint32_t Memory::peek(Processor cpu, std::uint32_t address, unsigned width,
 
 std::uint32_t Memory::read(Processor cpu, std::uint32_t address, unsigned width) {
     const auto value = peek(cpu, address, width); // valider avant tout effet
+    if (address == 0x04100010 && !(cpu == Processor::arm9 && cp15_.read_byte(address, false)))
+        return read_gamecard_data(cpu);
     if (address == 0x04100000 && !(cpu == Processor::arm9 && cp15_.read_byte(address, false))) {
         const auto received = ipc_.receive(cpu);
         apply_ipc_interrupts(received.interrupts);
@@ -93,6 +102,18 @@ void Memory::validate_write(Processor cpu, std::uint32_t address, std::uint32_t 
     if ((address & (width - 1U)) != 0) throw Error("NDS : accès RAM non aligné");
     if (cpu == Processor::arm9 && access != Access::external && cp15_.maps_write(address)) return;
     if (address == 0x04000188 && width == 4) return;
+    if (address >= 0x04100010 && address <= 0x04100013) {
+        if (width != 4) throw Error("NDS : port de données cartouche limité aux accès 32 bits");
+        return;
+    }
+    if (address >= 0x040001a0 && address <= 0x040001af) {
+        if (cpu == gamecard_owner()) gamecard_.validate_write(address - 0x040001a0U,value,width);
+        return;
+    }
+    if (address >= 0x04000204 && address <= 0x04000207) {
+        validate_exmem_write(cpu,address,value,width);
+        return;
+    }
     if (cpu == Processor::arm7 && address >= 0x040001c0 && address <= 0x040001c3) {
         spi_.validate_write(address - 0x040001c0U, value, width);
         return;
@@ -112,6 +133,15 @@ void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, un
     }
     // STRB ARM9 vers VRAM/palettes/OAM est ignoré ; la VRAM ARM7 accepte les octets.
     if (width == 1 && cpu == Processor::arm9 && video_.read_byte(cpu, address)) return;
+    if (address == 0x04100010) return; // CARD_DATA en lecture seule
+    if (address >= 0x040001a0 && address <= 0x040001af) {
+        if (cpu == gamecard_owner()) {
+            gamecard_.write(address - 0x040001a0U,value,width);
+            if (!gamecard_.ready()) pause_gamecard_dma();
+            apply_gamecard_events({});
+        }
+        return;
+    }
     if (cpu == Processor::arm7 && address >= 0x040001c0 && address <= 0x040001c3) {
         spi_.write(address - 0x040001c0U, value, width, input_.state());
         return;
@@ -158,9 +188,14 @@ void Memory::write_words(Processor cpu, std::uint32_t address, std::span<const s
     if ((address & 3U) != 0) throw Error("NDS : accès RAM non aligné");
     const auto available = (std::uint64_t{0x100000000} - address) / 4U;
     if (values.size() > available) throw Error("NDS : plage RAM débordante");
+    std::optional<Gamecard> staged_gamecard;
     for (std::size_t i = 0; i < values.size(); ++i) {
         const auto current = address + static_cast<std::uint32_t>(i * 4);
-        validate_write(cpu, current, values[i], 4);
+        const bool tcm = cpu == Processor::arm9 && cp15_.maps_write(current);
+        if (!tcm && cpu == gamecard_owner() && current >= 0x040001a0 && current <= 0x040001ac) {
+            if (!staged_gamecard) staged_gamecard = gamecard_;
+            staged_gamecard->write(current - 0x040001a0U,values[i],4);
+        } else validate_write(cpu, current, values[i], 4);
     }
     for (std::size_t i = 0; i < values.size(); ++i)
         write32(cpu, address + static_cast<std::uint32_t>(i * 4), values[i]);

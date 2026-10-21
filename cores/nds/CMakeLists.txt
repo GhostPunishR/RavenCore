@@ -1,8 +1,10 @@
 add_library(nds_raven_core STATIC
     src/cartridge/cartridge.cpp
+    src/cartridge/gamecard.cpp
     src/memory/bus.cpp
     src/memory/io.cpp
     src/memory/input.cpp
+    src/memory/gamecard.cpp
     src/input/input.cpp
     src/firmware/firmware.cpp
     src/spi/spi.cpp
@@ -43,6 +45,10 @@ target_link_libraries(nds_raven_core PUBLIC ravenemu_common)
 set_target_properties(nds_raven_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(BUILD_TESTING)
+    add_executable(nds_gamecard_tests tests/gamecard_test.cpp)
+    target_include_directories(nds_gamecard_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_gamecard_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_gamecard COMMAND nds_gamecard_tests)
     add_executable(nds_firmware_write_tests tests/firmware_write_test.cpp)
     target_include_directories(nds_firmware_write_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_firmware_write_tests PRIVATE nds_raven_core)

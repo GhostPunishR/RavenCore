@@ -12,7 +12,7 @@ namespace ravenemu::nds {
 // Quatre canaux par CPU ; registres programmés et compteurs internes séparés.
 class DmaController {
 public:
-    enum class Event { vblank, hblank, display_fifo };
+    enum class Event { vblank, hblank, display_fifo, gamecard };
     struct Transfer {
         unsigned channel{};
         std::uint32_t source{}, destination{}, remaining{}, control{};
@@ -43,7 +43,8 @@ private:
     std::array<Channel, 4> channels_{};
     [[nodiscard]] std::uint32_t address_mask(unsigned channel, bool source) const noexcept;
     [[nodiscard]] std::uint32_t count_mask(unsigned channel) const noexcept;
-    [[nodiscard]] static unsigned event_mode(Event event) noexcept;
+    [[nodiscard]] unsigned event_mode(Event event) const noexcept;
+    [[nodiscard]] bool supports(Event event) const noexcept { return processor_ == Processor::arm9 || event == Event::vblank || event == Event::gamecard; }
     [[nodiscard]] unsigned timing(std::uint32_t control) const noexcept;
 };
 
