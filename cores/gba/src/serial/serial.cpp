@@ -25,6 +25,7 @@ bool Serial::linked() const noexcept { return hub_ != nullptr && hub_->players()
 
 void Serial::control_write(int value) {
     const auto requested = (value & 0x80) != 0;
+    if (requested) activity_ = true;
     // Hors transfert, le bit Start suit l'écriture ; pendant un transfert,
     // il reste levé jusqu'à la fin.
     const auto in_flight = remaining_ != idle || join_in_ != idle;
@@ -172,10 +173,7 @@ void Serial::refresh_status() noexcept {
     case Mode::multiplayer: {
         // SI : 0 pour le parent ; 1 pour un enfant, comme sans câble (ligne
         // tirée à 1). SD : toutes les consoles reliées sont en multijoueur.
-        auto ready = true;
-        if (is_linked)
-            for (int player = 0; player < LinkHub::max_players; ++player)
-                if (const auto* other = hub_->serial(player); other && other->mode() != Mode::multiplayer) ready = false;
+        const auto ready = !is_linked || hub_->all_multiplayer();
         const auto child = !is_linked || player_ != 0;
         control = (control & ~0x7c) | (child ? 0x04 : 0) | (ready ? 0x08 : 0) | (player_ << 4);
         break;
@@ -184,8 +182,7 @@ void Serial::refresh_status() noexcept {
     case Mode::normal32: {
         // SI : la ligne SO du partenaire, haute sans câble. Le mode normal ne
         // relie que deux consoles, les joueurs 0 et 1.
-        const auto* partner = is_linked && player_ < 2 ? hub_->serial(player_ ^ 1) : nullptr;
-        const auto low = partner != nullptr && partner->so_low();
+        const auto low = is_linked && player_ < 2 && hub_->partner_so_low(*this);
         control = (control & ~0x04) | (low ? 0 : 0x04);
         break;
     }
@@ -336,6 +333,17 @@ int LinkHub::players() const noexcept {
     auto count = 0;
     for (const auto& slot : slots_) count += slot.serial ? 1 : 0;
     return count;
+}
+
+bool LinkHub::all_multiplayer() const noexcept {
+    for (const auto& slot : slots_)
+        if (slot.serial && slot.serial->mode() != Serial::Mode::multiplayer) return false;
+    return true;
+}
+
+bool LinkHub::partner_so_low(const Serial& self) const noexcept {
+    const auto* partner = serial(self.player() ^ 1);
+    return partner != nullptr && partner->so_low();
 }
 
 std::int64_t LinkHub::now(const Serial& serial) const noexcept {

@@ -151,6 +151,7 @@ public:
 };
 
 class Core;
+class RemoteLink;
 
 /**
  * Câble link entre cœurs d'un même processus, par exemple deux jeux sur un
@@ -189,6 +190,17 @@ public:
     [[nodiscard]] virtual bool connect_link_endpoint(LinkEndpoint*) noexcept { return false; }
     /** Câble de `players`, ce cœur en tête : voir connect_link_cable(). */
     [[nodiscard]] virtual std::unique_ptr<LinkCable> create_link_cable(std::span<Core* const> players);
+    /**
+     * Câble vers une console d'un autre appareil (voir RemoteLink) ; nullptr
+     * le retire. GBA : `player` 0 est le parent des jeux multijoueurs, l'autre
+     * appareil prend 1. Faux pour une console qui ne se relie pas ainsi.
+     * Le câble doit survivre au cœur ou lui être retiré avant.
+     */
+    [[nodiscard]] virtual bool connect_remote_link(RemoteLink*, int /*player*/) { return false; }
+    /** Répond aux transferts du partenaire distant entre deux images, sans attendre la suivante. */
+    virtual void service_remote_link() {}
+    /** Le jeu s'est servi de son port link ces dernières secondes : un partenaire est bienvenu. */
+    [[nodiscard]] virtual bool link_wanted() const noexcept { return false; }
     [[nodiscard]] virtual bool connect_infrared_endpoint(InfraredEndpoint*) noexcept { return false; }
     [[nodiscard]] virtual bool rumble_active() const noexcept { return false; }
     /** Inclinaison cartouche en unités brutes autour du repos (0, 0). */

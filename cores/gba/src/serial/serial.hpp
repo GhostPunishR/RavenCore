@@ -8,10 +8,11 @@
 #include <limits>
 #include <optional>
 #include <span>
+#include <utility>
 
 namespace ravenemu::gba {
 
-class LinkHub;
+class SerialLink;
 
 /**
  * Port série (GBATEK, « GBA Communication Ports ») : modes normal (8 ou
@@ -69,10 +70,13 @@ public:
     [[nodiscard]] Mode mode() const noexcept;
     [[nodiscard]] int player() const noexcept { return player_; }
     [[nodiscard]] bool linked() const noexcept;
-    void attach(LinkHub* hub, int player) noexcept {
-        hub_ = hub;
-        player_ = hub ? player : 0;
+    void attach(SerialLink* link, int player) noexcept {
+        hub_ = link;
+        player_ = link ? player : 0;
     }
+    [[nodiscard]] SerialLink* link() const noexcept { return hub_; }
+    /** Un transfert a été demandé depuis le dernier appel. Hors état instantané. */
+    [[nodiscard]] bool take_activity() noexcept { return std::exchange(activity_, false); }
     // Recalcule les bits d'état de SIOCNT (SI, SD, numéro de joueur).
     void refresh_status() noexcept;
     // Lecture par le CPU de SIODATA32/SIOMULTI0-3, SIOCNT, SIODATA8 et RCNT,
@@ -129,7 +133,8 @@ private:
     static constexpr int serial_interrupt = 7;
     Bus& bus_;
     InterruptController& interrupts_;
-    LinkHub* hub_{};
+    SerialLink* hub_{};
+    bool activity_{};
     int player_{};
     std::int64_t clock_{};
     int remaining_{idle};             // cycles avant la fin du transfert en cours
@@ -151,31 +156,52 @@ inline void serial_rcnt_write(Serial* serial) {
 }
 
 /**
+ * Ce qui relie un port série à ceux d'autres consoles : le câble local
+ * (LinkHub) ou un câble vers un autre appareil (RemoteSerialLink).
+ */
+class SerialLink {
+public:
+    virtual ~SerialLink() = default;
+    [[nodiscard]] virtual int players() const noexcept = 0;
+    // Ligne SD en multijoueur : toutes les consoles reliées sont en mode multijoueur.
+    [[nodiscard]] virtual bool all_multiplayer() const noexcept = 0;
+    // Ligne SI en mode normal : le partenaire de `self` tire sa ligne SO.
+    [[nodiscard]] virtual bool partner_so_low(const Serial& self) const noexcept = 0;
+    // Rend le numéro du transfert, ou 0 si le câble est déjà pris : la
+    // console transfère alors seule.
+    [[nodiscard]] virtual std::uint32_t start(Serial& master, Serial::Mode mode, int duration) = 0;
+    virtual void capture(Serial& participant) = 0;
+    // Fin du transfert, à l'instant où `caller` l'atteint le premier.
+    virtual void finish(const Serial& caller) = 0;
+    // Recalcule les bits d'état des consoles reliées.
+    virtual void refresh() noexcept = 0;
+};
+
+/**
  * Câble link entre 2 à 4 consoles d'un même processus : les machines
  * avancent par tranches, à tour de rôle, et le câble traduit l'instant d'un
  * transfert d'une horloge à l'autre. Le joueur 0 est le parent.
  */
-class LinkHub {
+class LinkHub final : public SerialLink {
 public:
     static constexpr int max_players = 4;
     // `origin` : valeur de l'horloge série du joueur à l'instant 0 du câble.
     void attach(int player, Serial& serial, std::int64_t origin) noexcept;
     void detach_all() noexcept;
-    [[nodiscard]] int players() const noexcept;
+    [[nodiscard]] int players() const noexcept override;
+    [[nodiscard]] bool all_multiplayer() const noexcept override;
+    [[nodiscard]] bool partner_so_low(const Serial& self) const noexcept override;
     [[nodiscard]] Serial* serial(int player) const noexcept {
         return player >= 0 && player < max_players ? slots_[static_cast<std::size_t>(player)].serial : nullptr;
     }
     // Joueur qui a lancé le dernier transfert : il avance en premier, si
     // bien que les autres apprennent le départ avant de l'atteindre.
     [[nodiscard]] int first() const noexcept { return first_; }
-    void refresh() noexcept;
+    void refresh() noexcept override;
 
-    // Rend le numéro du transfert, ou 0 si le câble est déjà pris : la
-    // console transfère alors seule.
-    [[nodiscard]] std::uint32_t start(Serial& master, Serial::Mode mode, int duration);
-    void capture(Serial& participant);
-    // Fin du transfert, à l'instant où `caller` l'atteint le premier.
-    void finish(const Serial& caller);
+    [[nodiscard]] std::uint32_t start(Serial& master, Serial::Mode mode, int duration) override;
+    void capture(Serial& participant) override;
+    void finish(const Serial& caller) override;
 
 private:
     [[nodiscard]] std::int64_t now(const Serial& serial) const noexcept;

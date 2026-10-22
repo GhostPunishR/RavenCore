@@ -3,6 +3,8 @@
 #include "interrupt/interrupt_controller.hpp"
 #include <ravenemu/link_endpoint.hpp>
 
+#include <utility>
+
 namespace ravenemu::cgb {
 
 class SerialPort final : public LinkPort {
@@ -47,6 +49,8 @@ public:
     }
 
     [[nodiscard]] bool outgoing_bit_high() const noexcept override { return (data_ & 0x80) != 0; }
+    [[nodiscard]] int transfer_bits_remaining() const noexcept override { return bits_remaining_; }
+    [[nodiscard]] std::uint8_t transfer_data() const noexcept override { return static_cast<std::uint8_t>(data_); }
 
     void set_cgb_mode(bool enabled) noexcept {
         cgb_mode_ = enabled;
@@ -82,7 +86,11 @@ public:
             return;
         }
         bits_remaining_ = 8;
+        activity_ = true;
     }
+
+    /** Un transfert a été demandé depuis le dernier appel. Hors état instantané. */
+    [[nodiscard]] bool take_activity() noexcept { return std::exchange(activity_, false); }
 
     [[nodiscard]] bool transfer_active() const noexcept { return (control_ & 0x80) != 0; }
     [[nodiscard]] bool fast_clock() const noexcept { return cgb_mode_ && (control_ & 0x02) != 0; }
@@ -141,6 +149,7 @@ private:
     int control_{};
     int bits_remaining_{};
     int serial_divider_{};
+    bool activity_{};
     LinkEndpoint* endpoint_{};
 };
 

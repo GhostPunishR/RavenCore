@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 
 namespace ravenemu {
 
@@ -10,6 +11,10 @@ public:
     virtual ~LinkPort() = default;
     [[nodiscard]] virtual bool outgoing_bit_high() const noexcept = 0;
     virtual void clock_external_bit(bool incoming_high) noexcept = 0;
+    /** Bits encore à échanger dans le transfert en cours : 8 au premier. */
+    [[nodiscard]] virtual int transfer_bits_remaining() const noexcept { return 0; }
+    /** Octet du registre de données, entier tant que le premier bit n'est pas parti. */
+    [[nodiscard]] virtual std::uint8_t transfer_data() const noexcept { return 0xff; }
 };
 
 /**
@@ -22,6 +27,8 @@ public:
     [[nodiscard]] virtual bool attach(LinkPort& port) noexcept = 0;
     virtual void detach(LinkPort& port) noexcept = 0;
     [[nodiscard]] virtual bool exchange_bit(LinkPort& source, bool outgoing_high) noexcept = 0;
+    /** Laisse un transport extérieur livrer ce qu'il a reçu ; rien pour un câble local. */
+    virtual void poll() noexcept {}
 };
 
 /** Câble local déterministe reliant au plus deux machines dans un processus. */

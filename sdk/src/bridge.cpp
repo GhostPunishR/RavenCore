@@ -2,6 +2,7 @@
 #include <ravenemu/core.hpp>
 #include <ravenemu/gb/core.hpp>
 #include <ravenemu/gbc/core.hpp>
+#include <ravenemu/remote_link.hpp>
 
 #include <array>
 #include <algorithm>
@@ -29,11 +30,17 @@ struct ravenemu_bridge {
     std::vector<std::uint8_t> state_cache;
     bool state_cache_valid = false;
     ravenemu_link* link = nullptr;
+    ravenemu_remote_link* remote = nullptr;
 };
 
 struct ravenemu_link {
     std::vector<ravenemu_bridge*> handles;
     std::unique_ptr<ravenemu::LinkCable> cable;
+};
+
+struct ravenemu_remote_link {
+    ravenemu_bridge* handle = nullptr;
+    std::unique_ptr<ravenemu::RemoteLink> link;
 };
 
 namespace {
@@ -122,6 +129,10 @@ ravenemu_bridge* ravenemu_create(int system) {
 }
 void ravenemu_destroy(ravenemu_bridge* handle) {
     if (handle && handle->link) unplug(*handle->link);
+    if (handle && handle->remote) {
+        static_cast<void>(handle->core->connect_remote_link(nullptr, 0));
+        handle->remote->handle = nullptr;
+    }
     delete handle;
 }
 const char* ravenemu_last_error(void) { return error_message.c_str(); }
@@ -328,7 +339,7 @@ ravenemu_link* ravenemu_link_create(ravenemu_bridge* const* handles, size_t coun
         std::vector<ravenemu::Core*> cores;
         for (size_t i = 0; i < count; ++i) {
             if (!handles[i] || !handles[i]->core) throw std::invalid_argument("Null handle");
-            if (handles[i]->link) throw std::invalid_argument("Handle already linked");
+            if (handles[i]->link || handles[i]->remote) throw std::invalid_argument("Handle already linked");
             cores.push_back(handles[i]->core.get());
         }
         auto link = std::make_unique<ravenemu_link>();
@@ -364,5 +375,77 @@ int ravenemu_link_run_frame(ravenemu_link* link, uint32_t* const* argb, size_t p
         link->cable->run_frame(frames, true);
         for (size_t i = 0; i < link->handles.size(); ++i) copy_frame(*link->handles[i], argb[i]);
     });
+}
+ravenemu_remote_link* ravenemu_remote_link_create(ravenemu_bridge* handle, int player,
+                                                  ravenemu_remote_send send, void* user) {
+    ravenemu_remote_link* result = nullptr;
+    attempt([&] {
+        if (!handle || !handle->core) throw std::invalid_argument("Null handle");
+        if (!send) throw std::invalid_argument("Null send callback");
+        if (handle->link || handle->remote) throw std::invalid_argument("Handle already linked");
+        if (player < 0 || player > 1) throw std::invalid_argument("Invalid player");
+        const auto family = handle->core->console() == ravenemu::Console::game_boy_advance
+            ? ravenemu::RemoteLink::Family::game_boy_advance : ravenemu::RemoteLink::Family::game_boy;
+        auto remote = std::make_unique<ravenemu_remote_link>();
+        remote->link = std::make_unique<ravenemu::RemoteLink>(family, [send, user](std::span<const std::uint8_t> bytes) {
+            send(user, bytes.data(), bytes.size());
+        });
+        if (!handle->core->connect_remote_link(remote->link.get(), player))
+            throw std::invalid_argument("This console takes no remote link cable");
+        machine_may_change(handle);
+        remote->handle = handle;
+        handle->remote = remote.get();
+        result = remote.release();
+    });
+    return result;
+}
+void ravenemu_remote_link_destroy(ravenemu_remote_link* link) {
+    if (!link) return;
+    link->link->set_connected(false);
+    if (auto* handle = link->handle) {
+        machine_may_change(handle);
+        static_cast<void>(handle->core->connect_remote_link(nullptr, 0));
+        handle->remote = nullptr;
+    }
+    delete link;
+}
+int ravenemu_remote_link_receive(ravenemu_remote_link* link, const uint8_t* message, size_t size) {
+    if (!link || !message) return 0;
+    try {
+        return link->link->receive(std::span<const std::uint8_t>(message, size)) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+void ravenemu_remote_link_set_connected(ravenemu_remote_link* link, int connected) {
+    if (!link) return;
+    try {
+        link->link->set_connected(connected != 0);
+    } catch (...) {
+    }
+}
+int ravenemu_remote_link_state(const ravenemu_remote_link* link) {
+    if (!link) return RAVENEMU_REMOTE_UNPLUGGED;
+    try {
+        switch (link->link->state()) {
+        case ravenemu::RemoteLink::State::unplugged: return RAVENEMU_REMOTE_UNPLUGGED;
+        case ravenemu::RemoteLink::State::waiting: return RAVENEMU_REMOTE_WAITING;
+        case ravenemu::RemoteLink::State::plugged: return RAVENEMU_REMOTE_PLUGGED;
+        case ravenemu::RemoteLink::State::incompatible: return RAVENEMU_REMOTE_INCOMPATIBLE;
+        }
+    } catch (...) {
+    }
+    return RAVENEMU_REMOTE_UNPLUGGED;
+}
+int ravenemu_remote_link_service(ravenemu_remote_link* link) {
+    return attempt([&] {
+        if (!link || !link->handle) throw std::invalid_argument("Remote link cable without console");
+        if (!link->handle->loaded) return;
+        machine_may_change(link->handle);
+        link->handle->core->service_remote_link();
+    });
+}
+int ravenemu_link_wanted(const ravenemu_bridge* handle) {
+    return handle && handle->core && handle->loaded && handle->core->link_wanted() ? 1 : 0;
 }
 } // extern "C"

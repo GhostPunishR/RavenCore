@@ -1,4 +1,5 @@
 #include "machine/machine.hpp"
+#include "serial/remote_serial_link.hpp"
 
 #include "ravenemu/sha256.hpp"
 
@@ -29,14 +30,14 @@ public:
         loaded_rom_ = std::move(image);
         rom_traits_ = traits;
         rom_hash_ = detail::sha256(rom);
-        machine_ = std::move(replacement);
+        install(std::move(replacement));
     }
     void reset() override {
         require_loaded();
         auto replacement = new_machine(loaded_rom_, rom_traits_);
         replacement->cartridge.keep_battery_of(machine_->cartridge);
         configure_measurement(*replacement, measuring_time_);
-        machine_ = std::move(replacement);
+        install(std::move(replacement));
     }
     void run_frame(std::span<std::int32_t> framebuffer, bool render_video) override {
         require_loaded();
@@ -44,13 +45,40 @@ public:
             throw std::invalid_argument("Framebuffer trop petit");
         machine_->ppu.render_enabled = render_video;
         try {
-            machine_->run_frame();
+            if (remote_) run_remote_frame();
+            else machine_->run_frame();
         } catch (...) {
             machine_->ppu.render_enabled = true;
             throw;
         }
         machine_->ppu.render_enabled = true;
+        // Un transfert demandé, un mode multijoueur ou un esclave qui attend : le jeu cherche un partenaire.
+        auto& serial = machine_->serial;
+        if (serial.take_activity() || serial.transferring() || serial.mode() == Serial::Mode::multiplayer ||
+            serial.ready_for(Serial::Mode::normal8))
+            frames_since_link_use_ = 0;
+        else if (frames_since_link_use_ < link_use_frames)
+            ++frames_since_link_use_;
         if (render_video) std::copy(machine_->ppu.frame.begin(), machine_->ppu.frame.end(), framebuffer.begin());
+    }
+    [[nodiscard]] bool connect_remote_link(RemoteLink* link, int player) override {
+        if (link == nullptr) {
+            remote_.reset();  // le port redevient seul
+            return true;
+        }
+        if (player < 0 || player > 1) return false;
+        remote_.reset();
+        remote_ = std::make_unique<RemoteSerialLink>(*link, player);
+        if (machine_) remote_->attach(machine_->serial);
+        return true;
+    }
+    void service_remote_link() override {
+        if (!remote_ || !machine_) return;
+        remote_->attach(machine_->serial);
+        remote_->service();
+    }
+    [[nodiscard]] bool link_wanted() const noexcept override {
+        return machine_ != nullptr && frames_since_link_use_ < link_use_frames;
     }
     void set_button(Button button, bool pressed) override {
         if (machine_) machine_->bus.keypad.set_button(button, pressed);
@@ -406,7 +434,7 @@ public:
             save->mark_restored_after(previous ? previous->generation() : 0);
         }
         configure_measurement(m, measuring_time_);
-        machine_ = std::move(replacement);
+        install(std::move(replacement));
     }
 
 private:
@@ -449,7 +477,29 @@ private:
     void require_loaded() const {
         if (!machine_) throw std::logic_error("Aucune ROM chargée");
     }
+    // L'ancienne machine disparaît : le câble distant oublie son port sans y toucher.
+    void install(std::unique_ptr<Machine> replacement) noexcept {
+        if (remote_) remote_->forget();
+        machine_ = std::move(replacement);
+    }
+    // Une image par tranches, comme le câble local : entre deux, la console
+    // répond aux transferts du partenaire distant, au plus tard une tranche après.
+    void run_remote_frame() {
+        auto& machine = *machine_;
+        remote_->attach(machine.serial);
+        machine.bus.diagnostics.begin_frame();
+        constexpr auto frame_cycles = Ppu::cycles_per_frame();
+        auto position = frame_cycles - machine.ppu.cycles_until_next_frame();
+        while (position < frame_cycles) {
+            remote_->service();
+            position += machine.run_for(std::min(remote_slice, frame_cycles - position));
+        }
+    }
 
+    static constexpr int remote_slice = 1024;
+    // Trois secondes sans usage du port : le jeu ne cherche plus de partenaire.
+    static constexpr int link_use_frames = 180;
+    int frames_since_link_use_{link_use_frames};
     std::optional<GbaSaveType> forced_;
     std::optional<bool> forced_rtc_;
     SensorInput sensor_input_{};
@@ -459,6 +509,8 @@ private:
     std::array<std::uint8_t, 32> rom_hash_{};
     std::optional<std::int64_t> clock_override_;
     bool measuring_time_{};
+    // Après la machine : détruit avant elle, il rend son port seul.
+    std::unique_ptr<RemoteSerialLink> remote_;
 };
 
 /**

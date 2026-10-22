@@ -14,4 +14,11 @@ if(BUILD_TESTING)
     target_compile_options(ravenemu_c_api_tests PRIVATE ${RAVENEMU_WARNING_OPTIONS})
     target_compile_definitions(ravenemu_c_api_tests PRIVATE RAVENEMU_VERSION="${PROJECT_VERSION}")
     add_test(NAME ravenemu_c_api COMMAND ravenemu_c_api_tests)
+
+    add_executable(ravenemu_remote_link_tests tests/remote_link_test.cpp)
+    target_link_libraries(ravenemu_remote_link_tests PRIVATE ravenemu_c_api)
+    target_include_directories(ravenemu_remote_link_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/cores/common/tests/support)
+    target_compile_options(ravenemu_remote_link_tests PRIVATE ${RAVENEMU_WARNING_OPTIONS})
+    add_test(NAME ravenemu_remote_link COMMAND ravenemu_remote_link_tests)
 endif()
