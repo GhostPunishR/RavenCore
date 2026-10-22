@@ -7,6 +7,7 @@ add_library(nds_raven_core STATIC
     src/memory/input.cpp
     src/memory/gamecard.cpp
     src/memory/power.cpp
+    src/maths/math_unit.cpp
     src/input/input.cpp
     src/firmware/firmware.cpp
     src/spi/spi.cpp
@@ -50,6 +51,10 @@ target_link_libraries(nds_raven_core PUBLIC ravenemu_common)
 set_target_properties(nds_raven_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(BUILD_TESTING)
+    add_executable(nds_maths_tests tests/maths_test.cpp)
+    target_include_directories(nds_maths_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_maths_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_maths COMMAND nds_maths_tests)
     add_executable(nds_powerman_tests tests/powerman_test.cpp)
     target_include_directories(nds_powerman_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_powerman_tests PRIVATE nds_raven_core)

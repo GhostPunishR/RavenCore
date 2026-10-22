@@ -280,6 +280,15 @@ int main() {
     if (nds.cpu_state(ravenemu::nds::Processor::arm7).waiting_for_interrupt ||
         nds.cpu_state(ravenemu::nds::Processor::arm7).instructions != before_halt ||
         nds.memory().irq_pending(ravenemu::nds::Processor::arm7)) return 1;
+    nds.memory().write16(card_cpu,0x04000280,0);
+    nds.memory().write32(card_cpu,0x04000290,100);
+    nds.memory().write32(card_cpu,0x04000298,7);
+    nds.memory().write32(card_cpu,0x040002b8,144);
+    nds.advance_cycles(13);
+    if (nds.memory().read32(card_cpu,0x040002b4) != 12 || !(nds.memory().read16(card_cpu,0x04000280) & 0x8000U)) return 1;
+    nds.advance_cycles(5);
+    if (nds.memory().read16(card_cpu,0x04000280) != 0 || nds.memory().read32(card_cpu,0x040002a0) != 14 ||
+        nds.memory().read32(card_cpu,0x040002a8) != 2) return 1;
     nds.set_battery_low(true);
     const auto pm_byte = [&](std::uint8_t value, bool last) {
         nds.memory().write16(ravenemu::nds::Processor::arm7,0x040001c0,last ? 0x8002 : 0x8802);

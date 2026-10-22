@@ -19,6 +19,8 @@ void Memory::apply_ipc_interrupts(Ipc::Interrupts sources) noexcept {
 }
 
 std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address) const noexcept {
+    if (cpu == Processor::arm9 && address >= 0x04000280 && address <= 0x040002bf)
+        return math_.read_byte(address - 0x04000280U);
     if (address >= 0x04000300 && address <= 0x04000303) return power_byte(cpu,address - 0x04000300U);
     if (address >= 0x040001a0 && address <= 0x040001af)
         return cpu == gamecard_owner() ? gamecard_.read_byte(address - 0x040001a0U) : std::uint8_t{0};

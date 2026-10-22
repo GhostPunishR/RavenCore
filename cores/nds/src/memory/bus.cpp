@@ -17,6 +17,7 @@ void Memory::clear_ram() noexcept {
     std::fill(ram_.begin(), ram_.end(), 0);
     wram_control_ = 0;
     cp15_.reset();
+    math_.reset();
     arm9_interrupts_.reset();
     arm7_interrupts_.reset();
     arm9_timers_ = {};
@@ -136,6 +137,10 @@ void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, un
     if (cpu == Processor::arm9 && access != Access::external && cp15_.maps_write(address)) {
         for (unsigned i = 0; i < width; ++i)
             cp15_.write_byte(address + i, static_cast<std::uint8_t>(value >> (i * 8U)));
+        return;
+    }
+    if (cpu == Processor::arm9 && address >= 0x04000280 && address <= 0x040002bf) {
+        math_.write(address - 0x04000280U,value,width);
         return;
     }
     // STRB ARM9 vers VRAM/palettes/OAM est ignoré ; la VRAM ARM7 accepte les octets.

@@ -21,6 +21,7 @@ nds/
 │   ├── interrupts/       # contrôleurs IME/IE/IF indépendants
 │   ├── ipc/              # synchronisation et FIFO ARM9/ARM7
 │   ├── machine/          # assemblage des deux CPU et chargement
+│   ├── maths/            # division et racine carrée matérielles ARM9
 │   ├── memory/           # bus RAM, miroirs et WRAM
 │   ├── spi/              # bus ARM7, Powerman, flash partagée et convertisseur tactile
 │   ├── timers/           # compteurs, préscalers et cascade
@@ -1370,6 +1371,59 @@ au strobe actif, avec un diagnostic et sans mutation. Le périphérique firmware
 est décrit ci-dessous. Le SPI auxiliaire des EEPROM, flash et FRAM cartouche est décrit plus
 haut ; le DMA SPI reste à développer. Copie, `clear_ram()` et rechargement conservent les mêmes
 contrats que les autres périphériques, sans IRQ différée après reset.
+
+## Division et racine carrée ARM9
+
+`MathUnit` (`<ravenemu/nds/math_unit.hpp>`, `src/maths/`) fournit les deux
+calculateurs autonomes, accessibles uniquement depuis ARM9. Cette implémentation
+C++ originale suit [GBATEK, DS Maths](https://mgba-emu.github.io/gbatek/ds.html#dsmaths),
+sans code ni dépendance d'un autre émulateur.
+
+| Registre | Fonction |
+| --- | --- |
+| `0x04000280` DIVCNT | Mode 0..3, DIV0 en bit 14, busy en bit 15 |
+| `0x04000290` DIV_NUMER | Numérateur signé sur 64 bits |
+| `0x04000298` DIV_DENOM | Dénominateur signé sur 64 bits |
+| `0x040002a0` DIV_RESULT | Quotient sur 64 bits, lecture seule |
+| `0x040002a8` DIVREM_RESULT | Reste signé sur 64 bits, lecture seule |
+| `0x040002b0` SQRTCNT | Paramètre 32/64 bits, busy en bit 15 |
+| `0x040002b4` SQRT_RESULT | Plancher de la racine, 32 bits non signés, lecture seule |
+| `0x040002b8` SQRT_PARAM | Paramètre non signé sur 64 bits |
+
+Les modes DIV 0, 1 et 2 calculent respectivement 32/32, 64/32 et 64/64 bits.
+Le mode réservé 3 reproduit le mode 1. Le quotient est tronqué vers zéro ;
+le reste a le signe du numérateur. DIV0 examine les **64 bits bruts** du
+dénominateur, même si le mode arithmétique ignore son mot haut. Les divisions
+par zéro et `MIN/-1`, dont l'inversion du mot haut du quotient en mode 0,
+reproduisent les résultats documentés. Les calculs utilisent des magnitudes
+non signées afin d'éviter tout débordement signé indéfini en C++. SQRT utilise
+uniquement des entiers, y compris pour `UINT64_MAX`.
+
+Chaque écriture d'un contrôle 16 bits ou d'un opérande relance l'unité concernée,
+y compris pendant busy. Les accès 8/16/32 bits et STM/LDM respectent les voies
+little-endian. Les mots hauts des paramètres restent lisibles en mode 32 bits.
+Les résultats et octets réservés des contrôles ignorent les écritures ; les
+trous `0x04000284..28f` restent non mappés. Une écriture multiple refusée est
+validée avant de modifier les paramètres ou de relancer le calcul. La DTCM
+conserve sa priorité habituelle sur ces adresses.
+
+La division dure **18 cycles communs en mode 0, 34 dans les autres modes** ;
+SQRT dure **13 cycles communs** dans les deux modes. Ce sont les unités à
+33,51 MHz de GBATEK, pas les créneaux CPU ARM9 à fréquence double. Les deux
+calculateurs avancent en parallèle avec `advance_cycles()` et l'ordonnanceur,
+y compris pendant WFI, sans produire d'IRQ. Les simples `step()` sans avance
+d'horloge ne terminent pas une opération. Dans ce modèle, les résultats
+précédents restent visibles pendant busy et DIV0 est actualisé à la relance ;
+le logiciel doit attendre la fin du calcul. Les lectures anticipées et les
+waitstates de bus ne sont pas validés sur matériel réel.
+
+Les copies conservent les résultats et délais en cours. Reset ou chargement
+réussi effacent les deux unités ; un chargement refusé les préserve. L'extinction
+Powerman arrête aussi leur horloge. `nds_maths` couvre les signes, débordements,
+DIV0, les carrés limites, les délais et relances, les accès, copies et resets.
+Il compare plus de mille divisions à un oracle signé indépendant, vérifie
+le plancher sur 512 paramètres pseudo-aléatoires et exécute un programme ARM9
+qui attend busy puis publie les résultats en RAM pendant que l'ARM7 tourne.
 
 ## Powerman, batterie et extinction
 

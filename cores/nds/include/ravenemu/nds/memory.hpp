@@ -10,6 +10,7 @@
 #include <ravenemu/nds/dma.hpp>
 #include <ravenemu/nds/lcd_timing.hpp>
 #include <ravenemu/nds/video.hpp>
+#include <ravenemu/nds/math_unit.hpp>
 
 #include <cstddef>
 #include <array>
@@ -142,6 +143,7 @@ private:
                Access access = Access::data, bool from_bios = false);
     void write_words(Processor cpu, std::uint32_t address, std::span<const std::uint32_t> values, bool from_bios);
     Cp15 cp15_;
+    MathUnit math_;
     std::vector<std::uint8_t> ram_;
     std::vector<std::uint8_t> arm9_bios_;
     std::vector<std::uint8_t> arm7_bios_;
