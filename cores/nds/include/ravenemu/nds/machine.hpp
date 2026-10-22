@@ -26,6 +26,8 @@ struct BootEntries {
 class Machine {
 public:
     void load_cartridge(const Cartridge& cartridge);
+    // Redémarre le média courant sans remplacer sa sauvegarde ni le firmware.
+    void reset();
     void load_backup(BackupType type, std::span<const std::uint8_t> bytes = {}, std::uint8_t status = 0) {
         memory_.load_backup(type,bytes,status);
     }
@@ -67,10 +69,12 @@ public:
     void run_steps(Processor cpu, std::size_t instructions);
 
 private:
+    void boot_cartridge(const Cartridge& cartridge, bool retain_media);
     static void prepare_boot_memory(Memory& memory, const Cartridge& cartridge);
     SchedulerState scheduler_;
     Memory memory_;
     std::optional<BootEntries> entries_;
+    std::optional<Cartridge> cartridge_;
     Cpu arm9_{Processor::arm9};
     Cpu arm7_{Processor::arm7};
 };

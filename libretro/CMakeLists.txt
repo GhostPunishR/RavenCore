@@ -1,11 +1,11 @@
-# Three independent shared Libretro adapters over the RavenCore engines.
+# Independent shared Libretro adapters over the RavenCore engines.
 
 # Only the Libretro interface is exported. The statically linked engines keep
 # their C++ symbols internal, so they cannot clash with another core loaded
 # by the same frontend. Windows already exports only `dllexport` symbols.
 set(RAVENEMU_LIBRETRO_EXPORTS "${CMAKE_CURRENT_SOURCE_DIR}/link.T")
 
-foreach(system IN ITEMS gb gbc gba)
+foreach(system IN ITEMS gb gbc gba nds)
     set(target "ravenemu_${system}_libretro")
     add_library(${target} SHARED src/libretro.cpp)
     string(TOUPPER "${system}" system_upper)
@@ -18,6 +18,8 @@ foreach(system IN ITEMS gb gbc gba)
         target_link_libraries(${target} PRIVATE gb_raven_core)
     elseif(system STREQUAL "gbc")
         target_link_libraries(${target} PRIVATE gbc_raven_core)
+    elseif(system STREQUAL "nds")
+        target_link_libraries(${target} PRIVATE nds_raven_core)
     else()
         target_link_libraries(${target} PRIVATE gba_raven_core)
     endif()
@@ -28,7 +30,12 @@ foreach(system IN ITEMS gb gbc gba)
     endif()
     target_compile_options(${target} PRIVATE ${RAVENEMU_WARNING_OPTIONS})
     if(BUILD_TESTING)
-        add_executable(libretro_smoke_${system} tests/smoke.cpp)
+        if(system STREQUAL "nds")
+            add_executable(libretro_smoke_${system} tests/nds_smoke.cpp)
+            target_include_directories(libretro_smoke_${system} PRIVATE ${PROJECT_SOURCE_DIR}/cores/nds/tests)
+        else()
+            add_executable(libretro_smoke_${system} tests/smoke.cpp)
+        endif()
         target_include_directories(libretro_smoke_${system} PRIVATE
             include ${PROJECT_SOURCE_DIR}/cores/common/tests/support)
         target_compile_definitions(libretro_smoke_${system} PRIVATE

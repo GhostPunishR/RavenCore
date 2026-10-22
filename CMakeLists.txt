@@ -8,7 +8,7 @@ if(PROJECT_IS_TOP_LEVEL AND NOT RAVENEMU_MULTI_CONFIG AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-option(RAVENEMU_BUILD_LIBRETRO "Build the three Libretro frontend adapters" ON)
+option(RAVENEMU_BUILD_LIBRETRO "Build the Libretro frontend adapters" ON)
 option(RAVENEMU_INSTALL "Install the engines, the C API and the CMake package" ${PROJECT_IS_TOP_LEVEL})
 include(CTest)
 

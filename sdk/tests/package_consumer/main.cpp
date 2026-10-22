@@ -309,6 +309,12 @@ int main() {
         return 1;
     } catch (const ravenemu::RomLoadError&) {
     }
+    auto nds_core = ravenemu::sdk::make_core(ravenemu::sdk::System::nintendo_ds);
+    if (!nds_core || nds_core->console() != ravenemu::Console::nintendo_ds || nds_core->supports_save_states() ||
+        nds_core->video_spec().width != 256 || nds_core->video_spec().height != 384) return 1;
+    nds_core->load_rom(scheduled_rom,{});
+    std::vector<std::int32_t> nds_presented_frame(256 * 384);
+    nds_core->run_frame(nds_presented_frame,true); nds_core->reset();
     using ravenemu::sdk::System;
     for (const auto system : {System::game_boy, System::game_boy_color, System::game_boy_advance}) {
         if (!ravenemu::sdk::make_core(system)) return 1;

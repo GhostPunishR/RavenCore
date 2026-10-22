@@ -32,6 +32,93 @@ nds/
 Les en-têtes installés restent dans `include/ravenemu/nds/` ; les helpers des
 décodeurs CPU restent privés. Cette page centralise la documentation NDS.
 
+## Frontend C++ et Libretro
+
+`nds::make_core()` dans `<ravenemu/nds/core.hpp>` crée un `nds::FrontendCore`
+compatible avec l'interface commune `ravenemu::Core`. Le SDK expose aussi
+`sdk::System::nintendo_ds`. Le rendu convertit RGB555 en ARGB8888 et empile
+l'écran supérieur puis l'écran tactile : **256×384**, cadence
+`33513982 / (2130 × 263)` Hz. Les rétroéclairages désactivés et l'extinction
+Powerman donnent des écrans noirs. Sauter une présentation ne saute pas
+l'exécution de la machine.
+
+```cpp
+ravenemu::nds::CoreOptions options;
+options.backup_type = ravenemu::nds::BackupType::eeprom_64k;
+options.firmware = firmware_bytes; // image fournie par l'application
+auto core = ravenemu::nds::make_core(options);
+core->load_rom(rom_bytes, save_bytes);
+core->set_key(ravenemu::nds::Key::x, true);
+if (core->touch_available()) core->set_touch_position(128, 96, true);
+std::vector<std::int32_t> pixels(core->video_spec().pixel_count());
+core->run_frame(pixels, true);
+```
+
+Les spans BIOS/firmware de `CoreOptions` sont copiés par la fabrique. Les
+contacts utilisent les pixels du seul écran inférieur, et exigent un firmware
+dont l'étalonnage est valide ; aucun firmware ou BIOS de remplacement n'est
+inventé. Sans firmware, les boutons restent utilisables et le contact est
+indisponible. Les BIOS facultatifs sont utilisés pour les appels et vecteurs
+réels ; ce démarrage direct ne remplace pas toutes leurs fonctions.
+
+La cible `ravenemu_nds_libretro` produit un quatrième cœur partagé, accompagné
+de `ravenemu_nds_libretro.info`. Il charge `.nds`, lit les douze boutons du
+joypad, utilise L2 maintenu pour fermer le capot et projette `RETRO_DEVICE_POINTER`
+sur la moitié inférieure de la vidéo. Un pointeur sur l'écran supérieur ou
+hors vidéo relâche le stylet. Dans le dossier système du frontend, il lit
+facultativement `bios9.bin` (4 Kio), `bios7.bin` (16 Kio) et `firmware.bin`
+(256/512 Kio). Un fichier présent mais invalide produit un diagnostic.
+
+L'option `ravenemu_nds_save_type`, appliquée au chargement, accepte `none`,
+`eeprom512`, `eeprom8k`, `eeprom64k`, `flash256k`, `flash512k`, `flash1m`,
+`fram8k` et `fram32k`. Le défaut est `none` ; aucune taille n'est devinée à
+partir de la ROM. La mémoire `RETRO_MEMORY_SAVE_RAM` reste à adresse stable
+pendant la session et conserve une image brute du média. L'import du frontend
+a lieu avant la première image ; les générations dirty sont acquittées après
+copie. Pendant une écriture interne en cours, le snapshot est temporairement
+indisponible et la copie précédente est conservée. Les bits non volatils de
+protection, métadonnées séparées de l'API native, ne sont pas persistés dans
+le fichier brut Libretro. Les modifications du firmware ne sont pas écrites
+automatiquement sur disque.
+
+`Machine::reset()` et le reset du frontend redémarrent les exécutables en
+conservant le média, le firmware et les sauvegardes, y compris une opération
+interne déjà acceptée et son état dirty. Un chargement de nouvelle ROM remplace
+la sauvegarde selon les octets fournis. Les chargements refusés dans l'adaptateur
+C++ conservent la machine précédente. Libretro décharge son ancien contenu
+avant tout nouveau chargement, comme les autres adaptateurs du dépôt.
+
+Les savestates NDS restent indisponibles : `supports_save_states()` vaut faux,
+les appels C++ lèvent `SaveStateError` et `retro_serialize_size()` renvoie zéro.
+L'adaptateur ne déclare pas RetroAchievements. `read_audio()` renvoie zéro :
+le format stéréo annoncé est réservé au futur moteur audio. Une erreur CPU/bus
+arrête l'exécution et est transmise au message/log Libretro ; reset permet de
+réessayer. Elle n'est plus masquée par une image figée sans diagnostic.
+
+### Essayer le homebrew original
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build --target ravenemu_nds_libretro nds_homebrew_demo -j4
+build/cores/nds/nds_homebrew_demo build/raven_nds_demo.nds
+retroarch -L build/libretro/ravenemu_nds_libretro.so build/raven_nds_demo.nds
+```
+
+La croix déplace un carré rouge sur l'écran supérieur vert ; A le recentre,
+X le rend blanc. L'écran inférieur est bleu sans contact et change de couleur
+selon la mesure ADC X lorsque le tactile est disponible. Ce petit programme
+ARM9/ARM7 est assemblé depuis des opcodes originaux dans les fixtures de tests ;
+il n'appelle pas de BIOS et n'embarque aucun contenu Nintendo. Son en-tête est
+destiné au démarrage direct RavenCore, pas au démarrage authentifié sur console.
+
+`nds_frontend` contrôle les pixels, boutons, tactile, rétroéclairages, extinction,
+save RAM, resets et erreurs. `libretro_smoke_nds` utilise la vraie bibliothèque
+partagée et des callbacks de frontend : il vérifie chargement, import de save,
+géométrie, entrées, erreurs et absence de savestate fictive. Les tests de tactile
+utilisent un firmware synthétique avec CRC/étalonnage. Il s'agit d'une validation
+automatisée sans interface graphique RetroArch ; ni le temps réel ni la
+compatibilité des jeux commerciaux ne sont validés par cette démonstration.
+
 ## Cartouches et tests
 
 Le chargeur lit le titre, le code du jeu et les descripteurs ARM9/ARM7 en
@@ -1468,8 +1555,8 @@ par les API de snapshot et d'acquittement après extinction.
 Les images RGB555 représentent toujours la sortie des moteurs vidéo : Powerman
 ne change ni les pixels ni POWCNT1. L'hôte doit appliquer les rétroéclairages
 et l'état éteint à leur présentation. Le clignotement LED et les commandes
-d'amplificateurs sont mémorisés ; leur restitution dépend des futurs adaptateurs
-et de l'audio. Les variantes Lite/DSi, les effets analogiques du rétroéclairage,
+d'amplificateurs sont mémorisés ; leur restitution visuelle/sonore reste à
+développer. Les variantes Lite/DSi, les effets analogiques du rétroéclairage,
 la décharge réelle de batterie et la corruption d'une flash lors d'une coupure
 électrique ne sont pas simulés. Sleep et POWCNT2 restent à implémenter.
 
@@ -1600,7 +1687,8 @@ Un snapshot sans image ou pendant WIP est refusé : l'hôte doit laisser finir
 l'opération avant de sauvegarder/fermer. Les bytes d'un paquet encore sous CS
 ne sont pas des écritures validées et ne figurent pas dans le snapshot. Le cœur
 n'écrit aucun fichier lui-même ; le rechargement utilise `load_firmware(snapshot.data)`.
-Les adaptateurs NDS SDK/Libretro et leur persistance automatique restent à développer.
+Les adaptateurs NDS C++/Libretro sont disponibles ; la persistance automatique
+des modifications du firmware dans ces adaptateurs reste à développer.
 
 ```cpp
 if (machine.firmware_dirty() && !machine.memory().firmware().busy()) {
@@ -1864,5 +1952,6 @@ Aucun jeu commercial n'est validé à ce stade. Les programmes synthétiques
 peuvent déjà lire leurs ressources cartouche par CPU/DMA, écrire puis relire une
 EEPROM, une flash ou une FRAM, réagir aux boutons et modifier le rendu, lire le firmware fourni
 et mesurer le tactile à partir de pixels étalonnés. La bibliothèque native
-NDS est installée avec le paquet C++, mais les adaptateurs `Core`, `sdk::System`
-et Libretro NDS restent à développer.
+NDS et l'adaptateur `Core` sont installés avec le paquet C++ ; le SDK C++ et
+Libretro exposent maintenant ce premier parcours interactif. L'API C NDS,
+l'audio, la 3D et la compatibilité commerciale restent à développer.

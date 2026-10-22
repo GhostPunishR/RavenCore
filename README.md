@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/GhostPunishR/RavenCore?label=Version)](https://github.com/GhostPunishR/RavenCore/releases)
 [![Licence AGPL-3.0](https://img.shields.io/badge/Licence-AGPL--3.0-663399?logo=gnu&logoColor=white)](LICENSE)
 
-Moteurs d'émulation **Game Boy, Game Boy Color et Game Boy Advance** écrits en **C++20**, sans cœur tiers.
+Moteurs d'émulation **Game Boy, Game Boy Color, Game Boy Advance et Nintendo DS** écrits en **C++20**, sans cœur tiers.
 
 Ce sont les cœurs maison de [RavenEmu](https://github.com/GhostPunishR/RavenEmu). Ce dépôt permet de les utiliser hors de l'application Android : dans **RetroArch** (Libretro), ou dans votre propre projet via une **API C** ou **C++**.
 
@@ -14,9 +14,9 @@ Ce sont les cœurs maison de [RavenEmu](https://github.com/GhostPunishR/RavenEmu
 | **RavenGB** | Game Boy | Avancé |
 | **RavenGBC** | Game Boy Color | Avancé |
 | **RavenGBA** | Game Boy Advance | Expérimental |
-| **RavenNDS** | Nintendo DS | Fondations expérimentales, aucun jeu exécutable |
+| **RavenNDS** | Nintendo DS | Expérimental : homebrew 2D interactif testé via Libretro, aucun jeu commercial validé |
 
-Le développement de **RavenNDS** a commencé : [chargeur de cartouches, bus RAM et premier interpréteur ARM/Thumb](cores/nds/README.md). Des programmes synthétiques s'exécutent sur ARM9/ARM7 ; aucun jeu NDS ne tourne encore.
+**RavenNDS** dispose d'un [adaptateur C++ et Libretro avec deux écrans, boutons et tactile](cores/nds/README.md#frontend-c-et-libretro). Le homebrew original fourni teste ce parcours ; la compatibilité commerciale, la 3D et l'audio restent à développer.
 
 **Sommaire :** [Compiler](#compiler) · [RetroArch](#utiliser-avec-retroarch) · [Intégrer](#intégrer-dans-un-projet) · [Tests](#tests) · [Limites](#état-et-limites) · [Versions](#versions) · [Contribuer](#contribuer) · [Licence](#licence)
 
@@ -45,6 +45,15 @@ Pour ne compiler que les moteurs, ajoutez `-DRAVENEMU_BUILD_LIBRETRO=OFF -DBUILD
 | `ravenemu_gb_libretro.so` | Game Boy (DMG) |
 | `ravenemu_gbc_libretro.so` | Game Boy Color, compatible Game Boy |
 | `ravenemu_gba_libretro.so` | Game Boy Advance |
+| `ravenemu_nds_libretro.so` | Nintendo DS, expérimental (branche de développement NDS) |
+
+Pour NDS, les deux écrans sont empilés en 256×384. Le pointeur agit sur l'écran
+inférieur et L2 maintenu ferme le capot. Le tactile exige un `firmware.bin`
+valide dans le dossier système du frontend. `bios9.bin` et `bios7.bin` sont
+utilisés s'ils sont présents ; ils sont nécessaires aux programmes qui appellent
+le BIOS. Aucun de ces fichiers n'est fourni. L'option `ravenemu_nds_save_type`
+choisit explicitement la mémoire de sauvegarde au chargement (`none` par défaut).
+Les savestates, RetroAchievements et l'audio NDS ne sont pas disponibles.
 
 Les cœurs gèrent la vibration (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) et les capteurs des cartouches, pilotés au stick analogique gauche :
 
@@ -63,7 +72,7 @@ La sauvegarde et l'horloge d'un jeu GBA sont détectées automatiquement. Si la 
 | `ravenemu_gba_rtc` | `auto`, `enabled`, `disabled` |
 | `ravenemu_gba_solar_light` | Pourcentage de plein soleil : `50` par défaut, de `0` à `100` par pas de 10 |
 
-Les cœurs déclarent à RetroArch la mémoire que surveille RetroAchievements : les succès s'activent comme avec les autres cœurs, et RetroArch applique lui-même les règles du mode Hardcore. RetroAchievements n'a pas encore testé RavenCore.
+Les cœurs GB/GBC/GBA déclarent à RetroArch la mémoire que surveille RetroAchievements : les succès s'activent comme avec les autres cœurs, et RetroArch applique lui-même les règles du mode Hardcore. RetroAchievements n'a pas encore testé RavenCore.
 
 > Les binaires publiés visent uniquement **Linux x86-64**. Les cœurs ne sont pas proposés par le téléchargeur intégré de RetroArch.
 
@@ -119,7 +128,7 @@ ctest --test-dir build --output-on-failure
   - le câble link avec une autre application ou une autre machine, le mode UART et l'adaptateur sans fil ;
   - l'exception d'instruction indéfinie.
 - **Capteurs** : ceux des cartouches GBA suivent les mesures publiées par GBATEK, mais n'ont pas encore été essayés en jeu. Le sens des axes d'inclinaison (GBA et MBC7) et l'échelle du gyroscope restent à confirmer.
-- **RetroAchievements** : les cœurs Libretro exposent une copie de la mémoire du jeu, rafraîchie à chaque image, vérifiée avec le code de rcheevos qu'utilise RetroArch mais pas encore en jeu dans RetroArch. Sur Game Boy, la banque de ROM paginée et les registres d'E/S ne sont pas exposés, et la banque 0 de la ROM l'est telle qu'au démarrage. Les codes de triche ne sont pas pris en charge. L'intégration de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte.
+- **RetroAchievements** : les cœurs Libretro GB/GBC/GBA exposent une copie de la mémoire du jeu, rafraîchie à chaque image, vérifiée avec le code de rcheevos qu'utilise RetroArch mais pas encore en jeu dans RetroArch. Sur Game Boy, la banque de ROM paginée et les registres d'E/S ne sont pas exposés, et la banque 0 de la ROM l'est telle qu'au démarrage. Les codes de triche ne sont pas pris en charge. L'intégration de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte.
 - **États instantanés** : un état ne se recharge pas dans une version plus ancienne que celle qui l'a créé. Les changements de format sont listés dans le [journal des modifications](CHANGELOG.md).
 
 ## Versions

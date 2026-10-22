@@ -5,6 +5,11 @@
 #elif defined(RAVENEMU_LIBRETRO_GBC)
 #include <ravenemu/gbc/core.hpp>
 #elif defined(RAVENEMU_LIBRETRO_GBA)
+#elif defined(RAVENEMU_LIBRETRO_NDS)
+#include <ravenemu/nds/core.hpp>
+#include <ravenemu/nds/lcd_timing.hpp>
+#include <filesystem>
+#include <fstream>
 #else
 #error "Choose exactly one Libretro core"
 #endif
@@ -41,6 +46,31 @@ std::vector<std::int32_t> native_frame;
 std::vector<std::uint32_t> output_frame;
 std::size_t state_capacity = 0;
 bool pending_save_import = false;
+#if defined(RAVENEMU_LIBRETRO_NDS)
+bool execution_failed = false;
+void report_nds_error(const char* detail) {
+    if (!env_cb) return;
+    retro_message message{detail,300};
+    env_cb(RETRO_ENVIRONMENT_SET_MESSAGE,&message);
+    retro_log_callback logger{};
+    if (env_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE,&logger) && logger.log)
+        logger.log(RETRO_LOG_ERROR,"RavenNDS: %s\n",detail);
+}
+
+std::vector<std::uint8_t> optional_system_file(const char* name, std::size_t maximum) {
+    const char* directory = nullptr;
+    if (!env_cb || !env_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY,&directory) || !directory) return {};
+    const auto path = std::filesystem::path(directory) / name;
+    if (!std::filesystem::exists(path)) return {};
+    const auto size = std::filesystem::file_size(path);
+    if (!size || size > maximum) throw ravenemu::Error(std::string("NDS : taille invalide pour ") + name);
+    std::ifstream file(path,std::ios::binary);
+    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
+    if (!file.read(reinterpret_cast<char*>(bytes.data()),static_cast<std::streamsize>(bytes.size())))
+        throw ravenemu::Error(std::string("NDS : lecture impossible de ") + name);
+    return bytes;
+}
+#endif
 retro_set_rumble_state_t rumble_cb = nullptr;
 bool rumble_on = false;
 // Sensors of the loaded cartridge, driven by the left analog stick.
@@ -58,7 +88,10 @@ struct AchievementRegion {
     std::uint64_t flags;
     bool every_frame;
 };
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(RAVENEMU_LIBRETRO_NDS)
+constexpr std::size_t achievement_space = 0;
+constexpr std::array<AchievementRegion,0> achievement_regions{};
+#elif defined(RAVENEMU_LIBRETRO_GBA)
 constexpr std::size_t achievement_space = 0x58000;
 constexpr std::array<AchievementRegion, 3> achievement_regions{{
     {0x00000, 0x08000, 0x0300'0000, RETRO_MEMDESC_SYSTEM_RAM, true},  // IWRAM
@@ -102,6 +135,29 @@ constexpr const char* extensions = "gbc|gb";
 constexpr unsigned width = 160, height = 144;
 constexpr double fps = 4'194'304.0 / 70'224.0;
 std::unique_ptr<ravenemu::Core> new_core() { return ravenemu::gbc::make_core(); }
+#elif defined(RAVENEMU_LIBRETRO_NDS)
+constexpr const char* label = "RavenNDS (experimental)";
+constexpr const char* extensions = "nds";
+constexpr unsigned width = 256, height = 384;
+constexpr double fps = static_cast<double>(ravenemu::nds::timer_clock_hz) / ravenemu::nds::LcdTiming::frame_cycles;
+std::unique_ptr<ravenemu::Core> new_core() {
+    ravenemu::nds::CoreOptions config;
+    using ravenemu::nds::BackupType;
+    const std::pair<std::string_view,BackupType> choices[]{
+        {"none",BackupType::none},{"eeprom512",BackupType::eeprom_512},{"eeprom8k",BackupType::eeprom_8k},
+        {"eeprom64k",BackupType::eeprom_64k},{"flash256k",BackupType::flash_256k},
+        {"flash512k",BackupType::flash_512k},{"flash1m",BackupType::flash_1m},
+        {"fram8k",BackupType::fram_8k},{"fram32k",BackupType::fram_32k}
+    };
+    retro_variable variable{"ravenemu_nds_save_type",nullptr};
+    if (env_cb && env_cb(RETRO_ENVIRONMENT_GET_VARIABLE,&variable) && variable.value)
+        for (const auto& choice : choices) if (choice.first == variable.value) config.backup_type = choice.second;
+    const auto bios9 = optional_system_file("bios9.bin",0x1000);
+    const auto bios7 = optional_system_file("bios7.bin",0x4000);
+    const auto firmware = optional_system_file("firmware.bin",0x80000);
+    config.arm9_bios = bios9; config.arm7_bios = bios7; config.firmware = firmware;
+    return ravenemu::nds::make_core(config);
+}
 #else
 constexpr const char* label = "RavenGBA (experimental)";
 constexpr const char* extensions = "gba";
@@ -184,6 +240,16 @@ void update_options() {
     if (core && env_cb && env_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
         apply_solar_option(*core);
 }
+#elif defined(RAVENEMU_LIBRETRO_NDS)
+void apply_options(ravenemu::Core&) {}
+void declare_options() {
+    retro_variable variables[]{
+        {"ravenemu_nds_save_type","Cartridge save type (reload content); none|eeprom512|eeprom8k|eeprom64k|flash256k|flash512k|flash1m|fram8k|fram32k"},
+        {nullptr,nullptr}
+    };
+    env_cb(RETRO_ENVIRONMENT_SET_VARIABLES,variables);
+}
+void update_options() {}
 #else
 void apply_options(ravenemu::Core&) {}
 void declare_options() {}
@@ -243,9 +309,19 @@ void set_input_descriptors() {
         {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select"},
         {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start"},
     };
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(RAVENEMU_LIBRETRO_GBA) || defined(RAVENEMU_LIBRETRO_NDS)
     descriptors.push_back({0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L"});
     descriptors.push_back({0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R"});
+#endif
+#if defined(RAVENEMU_LIBRETRO_NDS)
+    descriptors.push_back({0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_X,"X"});
+    descriptors.push_back({0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_Y,"Y"});
+    descriptors.push_back({0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_L2,"Close lid (hold)"});
+    if (static_cast<ravenemu::nds::FrontendCore&>(*core).touch_available()) {
+        descriptors.push_back({0,RETRO_DEVICE_POINTER,0,RETRO_DEVICE_ID_POINTER_X,"Touch X (lower screen)"});
+        descriptors.push_back({0,RETRO_DEVICE_POINTER,0,RETRO_DEVICE_ID_POINTER_Y,"Touch Y (lower screen)"});
+        descriptors.push_back({0,RETRO_DEVICE_POINTER,0,RETRO_DEVICE_ID_POINTER_PRESSED,"Touch"});
+    }
 #endif
     if (sensors.tilt) {
         descriptors.push_back({0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
@@ -261,6 +337,9 @@ void set_input_descriptors() {
     env_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, descriptors.data());
 }
 void clear_game() {
+#if defined(RAVENEMU_LIBRETRO_NDS)
+    execution_failed = false;
+#endif
     // Never leave a gamepad motor running after the game that started it.
     if (rumble_cb && rumble_on) rumble_cb(0, RETRO_RUMBLE_STRONG, 0);
     rumble_cb = nullptr;
@@ -350,7 +429,7 @@ void retro_set_environment(retro_environment_t callback) {
     env_cb = callback;
     // The memory map declared with each game exposes the RetroAchievements
     // address space (see declare_achievement_memory).
-    bool achievements = true;
+    bool achievements = achievement_space != 0;
     if (!env_cb) return;
     env_cb(RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS, &achievements);
     declare_options();
@@ -407,10 +486,12 @@ bool retro_load_game(const struct retro_game_info* game) {
                 pending_save_import = true;
             }
         }
-        const auto state_bytes = machine->save_state().size();
-        if (state_bytes > std::numeric_limits<std::uint32_t>::max() - 65544ULL)
-            throw std::runtime_error("Save state exceeds limits");
-        state_capacity = state_bytes + 65544U;
+        if (machine->supports_save_states()) {
+            const auto state_bytes = machine->save_state().size();
+            if (state_bytes > std::numeric_limits<std::uint32_t>::max() - 65544ULL)
+                throw std::runtime_error("Save state exceeds limits");
+            state_capacity = state_bytes + 65544U;
+        }
         core = std::move(machine);
         sensors = core->cartridge_sensors();
         set_input_descriptors();
@@ -418,23 +499,61 @@ bool retro_load_game(const struct retro_game_info* game) {
         retro_rumble_interface rumble{};
         if (env_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumble)) rumble_cb = rumble.set_rumble_state;
         return true;
-    } catch (const std::exception&) { clear_game(); return false; }
+    } catch (const std::exception& error) {
+#if defined(RAVENEMU_LIBRETRO_NDS)
+        report_nds_error(error.what());
+#else
+        static_cast<void>(error);
+#endif
+        clear_game(); return false;
+    }
 }
 bool retro_load_game_special(unsigned, const struct retro_game_info*, std::size_t) { return false; }
 void retro_unload_game(void) { clear_game(); }
 void retro_reset(void) {
     if (!core) return;
-    try { import_save_ram_once(); core->reset(); update_save_ram(); update_rumble(); refresh_achievement_memory(true); }
-    catch (const std::exception&) {}
+    try {
+        import_save_ram_once(); core->reset(); update_save_ram(); update_rumble(); refresh_achievement_memory(true);
+#if defined(RAVENEMU_LIBRETRO_NDS)
+        execution_failed = false;
+#endif
+    } catch (const std::exception& error) {
+#if defined(RAVENEMU_LIBRETRO_NDS)
+        report_nds_error(error.what());
+#else
+        static_cast<void>(error);
+#endif
+    }
 }
 void retro_run(void) {
     if (!core) return;
+#if defined(RAVENEMU_LIBRETRO_NDS)
+    if (execution_failed) { refresh_video(); return; }
+#endif
     try {
         import_save_ram_once();
         if (poll_cb) poll_cb();
         if (input_cb) for (const auto& key : keys)
             core->set_button(key.button,
                 input_cb(0, RETRO_DEVICE_JOYPAD, 0, key.id) != 0);
+#if defined(RAVENEMU_LIBRETRO_NDS)
+        auto& nds = static_cast<ravenemu::nds::FrontendCore&>(*core);
+        nds.set_key(ravenemu::nds::Key::x,input_cb && input_cb(0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_X));
+        nds.set_key(ravenemu::nds::Key::y,input_cb && input_cb(0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_Y));
+        nds.set_lid_closed(input_cb && input_cb(0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_L2));
+        bool touched = false;
+        if (input_cb && nds.touch_available() && input_cb(0,RETRO_DEVICE_POINTER,0,RETRO_DEVICE_ID_POINTER_PRESSED)) {
+            const int x = input_cb(0,RETRO_DEVICE_POINTER,0,RETRO_DEVICE_ID_POINTER_X);
+            const int y = input_cb(0,RETRO_DEVICE_POINTER,0,RETRO_DEVICE_ID_POINTER_Y);
+            // Le pointeur couvre l'image 256x384 entière. Seule sa moitié basse est tactile.
+            if (x >= -32767 && y >= 0) {
+                const auto px = static_cast<std::uint16_t>((x + 32767) * 255 / 65534);
+                const auto py = static_cast<std::uint16_t>(y * 191 / 32767);
+                nds.set_touch_position(px,py,true); touched = true;
+            }
+        }
+        if (!touched) nds.set_touch_position(0,0,false);
+#endif
         if ((sensors.tilt || sensors.rotation) && input_cb) {
             const int stick_x = input_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
                                          RETRO_DEVICE_ID_ANALOG_X);
@@ -457,8 +576,15 @@ void retro_run(void) {
         refresh_achievement_memory(false);
         refresh_video();
         refresh_audio();
-    } catch (const std::exception&) {
+    } catch (const std::exception& error) {
         // Never propagate an exception through Libretro's C ABI.
+#if defined(RAVENEMU_LIBRETRO_NDS)
+        execution_failed = true;
+        report_nds_error(error.what());
+        refresh_video();
+#else
+        static_cast<void>(error);
+#endif
     }
 }
 std::size_t retro_serialize_size(void) { return core ? state_capacity : 0; }
@@ -480,7 +606,7 @@ bool retro_serialize(void* data, std::size_t size) {
     } catch (const std::exception&) { return false; }
 }
 bool retro_unserialize(const void* data, std::size_t size) {
-    if (!core || !data || size < 8) return false;
+    if (!core || !core->supports_save_states() || !data || size < 8) return false;
     const auto* bytes = static_cast<const std::uint8_t*>(data);
     if (bytes[0] != 'R' || bytes[1] != 'V' || bytes[2] != 'L' || bytes[3] != '1')
         return false;

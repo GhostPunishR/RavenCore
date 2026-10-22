@@ -42,6 +42,7 @@ jobs:
           test -f build/libretro/ravenemu_gb_libretro.so
           test -f build/libretro/ravenemu_gbc_libretro.so
           test -f build/libretro/ravenemu_gba_libretro.so
+          test -f build/libretro/ravenemu_nds_libretro.so
           # Only the Libretro interface may leave a core.
           for core in build/libretro/*_libretro.so; do
             extra=$(nm -D --defined-only "$core" | awk '{print $3}' | grep -v '^retro_' || true)
@@ -166,7 +167,7 @@ jobs:
       - name: Verify Libretro libraries
         run: |
           nm="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
-          for system in gb gbc gba; do
+          for system in gb gbc gba nds; do
             core="build/libretro/ravenemu_${system}_libretro.so"
             test -f "$core"
             extra=$("$nm" -D --defined-only "$core" | awk '{print $3}' | grep -v '^retro_' || true)

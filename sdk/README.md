@@ -28,6 +28,16 @@ Aucune ROM commerciale ni BIOS n'est nécessaire pour les tests synthétiques.
 
 ## Utiliser le paquet CMake
 
+Le SDK C++ expose aussi `sdk::System::nintendo_ds`, ainsi que la fabrique
+`nds::make_core(CoreOptions)` pour choisir une sauvegarde et fournir BIOS/firmware.
+Le cœur NDS produit une image ARGB8888 de 256×384 avec les deux écrans empilés.
+L'interface typée `nds::FrontendCore` expose les douze touches, le capot et le
+tactile étalonné. `Core::supports_save_states()` vaut `false` sur NDS ; les
+autres cœurs conservent leur support. L'audio NDS n'est pas encore produit.
+Cette intégration concerne le C++ et Libretro : l'API C `bridge.h` reste limitée
+à GB/GBC/GBA. Les exemples et limites NDS sont centralisés dans
+[la documentation du cœur](../cores/nds/README.md#frontend-c-et-libretro).
+
 Installer les moteurs, l'API C et leurs en-têtes, puis les consommer depuis un autre projet :
 
 ```sh

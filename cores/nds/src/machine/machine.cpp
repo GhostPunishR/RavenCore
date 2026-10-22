@@ -33,6 +33,16 @@ ProgramEntry entry(const Executable& image) {
 } // namespace
 
 void Machine::load_cartridge(const Cartridge& cartridge) {
+    boot_cartridge(cartridge,false);
+}
+
+void Machine::reset() {
+    if (!cartridge_) throw Error("NDS : aucune cartouche chargée");
+    boot_cartridge(*cartridge_,true);
+}
+
+void Machine::boot_cartridge(const Cartridge& cartridge, bool retain_media) {
+    auto retained_cartridge = cartridge; // allocations avant toute mutation
     const auto& header = cartridge.header();
     const auto arm9 = cartridge.arm9_image();
     const auto arm7 = cartridge.arm7_image();
@@ -45,7 +55,7 @@ void Machine::load_cartridge(const Cartridge& cartridge) {
 
     Memory prepared = memory_;
     prepared.clear_ram();
-    prepared.load_gamecard(cartridge); // image immuable conservée pour les lectures de ressources
+    if (!retain_media) prepared.load_gamecard(cartridge);
     prepared.set_wram_control(3); // toute la WRAM partagée à l'ARM7
     // Préparer l'environnement avant les exécutables : les segments fournis
     // explicitement par la cartouche gardent la priorité dans la RAM commune.
@@ -61,6 +71,7 @@ void Machine::load_cartridge(const Cartridge& cartridge) {
     arm7_cpu.reset_direct_boot(entries.arm7.address, entries.arm7.thumb);
     memory_ = std::move(prepared);
     entries_ = entries;
+    cartridge_ = std::move(retained_cartridge);
     arm9_ = arm9_cpu;
     arm7_ = arm7_cpu;
     scheduler_ = {};

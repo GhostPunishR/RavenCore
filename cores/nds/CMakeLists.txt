@@ -1,4 +1,5 @@
 add_library(nds_raven_core STATIC
+    src/core.cpp
     src/cartridge/cartridge.cpp
     src/cartridge/gamecard.cpp
     src/cartridge/backup.cpp
@@ -51,6 +52,12 @@ target_link_libraries(nds_raven_core PUBLIC ravenemu_common)
 set_target_properties(nds_raven_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(BUILD_TESTING)
+    add_executable(nds_frontend_tests tests/frontend_test.cpp)
+    target_include_directories(nds_frontend_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_frontend_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_frontend COMMAND nds_frontend_tests)
+    add_executable(nds_homebrew_demo tests/homebrew_export.cpp)
+    target_link_libraries(nds_homebrew_demo PRIVATE nds_raven_core)
     add_executable(nds_maths_tests tests/maths_test.cpp)
     target_include_directories(nds_maths_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_maths_tests PRIVATE nds_raven_core)

@@ -18,6 +18,7 @@ namespace ravenemu {
 enum class Console : std::uint8_t {
     game_boy = 0,
     game_boy_advance = 2,
+    nintendo_ds = 3,
 };
 
 enum class Button : std::uint8_t {
@@ -175,6 +176,7 @@ public:
     [[nodiscard]] virtual AudioSpec audio_spec() const noexcept = 0;
     [[nodiscard]] virtual FramebufferFormat framebuffer_format() const noexcept = 0;
     [[nodiscard]] virtual bool supports_video_frame_skipping() const noexcept { return false; }
+    [[nodiscard]] virtual bool supports_save_states() const noexcept { return true; }
 
     virtual void load_rom(
         std::span<const std::uint8_t> rom,
