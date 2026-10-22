@@ -5,6 +5,7 @@
 #include "support/firmware_fixture.hpp"
 
 #include <bit>
+#include <algorithm>
 
 using namespace ravenemu::nds;
 using namespace ravenemu::nds::test_support;
@@ -53,7 +54,17 @@ void frontend() {
     expect_failure<std::invalid_argument>([&] { core->set_touch_position(256,0,true); }, "contact hors écran accepté");
     expect_failure<ravenemu::SaveStateError>([&] { static_cast<void>(core->save_state()); }, "savestate fictive");
     expect_failure<ravenemu::SaveStateError>([&] { core->load_state({}); }, "chargement de savestate fictive");
-    std::array<std::int16_t,4> audio{1,2,3,4}; check(core->read_audio(audio) == 0 && audio[0] == 1, "audio inventé");
+    std::array<std::int16_t,8192> audio{};
+    auto samples = core->read_audio(audio);
+    check(samples > 0 && std::all_of(audio.begin(),audio.begin() + samples,[](auto value) { return value == 0; }), "silence initial absent");
+    core->set_button(ravenemu::Button::b,true); core->run_frame(frame,false);
+    samples = core->read_audio(audio);
+    check(samples >= 1094 && samples <= 1098 && std::any_of(audio.begin(),audio.begin() + samples,[](auto value) { return value != 0; }),
+          "B ne produit pas le PSG pendant le saut vidéo");
+    for (std::size_t i = 0; i < samples; i += 2) check(audio[i] == audio[i + 1], "PSG centré non stéréo");
+    core->set_button(ravenemu::Button::b,false); frames(*core,frame);
+    core->read_audio(audio); core->run_frame(frame,false); samples = core->read_audio(audio);
+    check(samples > 0 && std::all_of(audio.begin(),audio.begin() + samples,[](auto value) { return value == 0; }), "B relâché reste sonore");
     check(core->has_battery_ram() && core->snapshot_battery_ram()->data == battery, "import sauvegarde");
     auto invalid = rom; put32(invalid,0x28,0x04000000);
     expect_failure<ravenemu::RomLoadError>([&] { core->load_rom(invalid,{}); }, "ROM invalide acceptée");

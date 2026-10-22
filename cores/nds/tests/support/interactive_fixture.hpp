@@ -5,7 +5,7 @@
 namespace ravenemu::nds::test_support {
 
 // Homebrew original sans BIOS : croix = déplacer le carré ; A = recentrer ;
-// X = carré blanc ; contact tactile = couleur de l'écran inférieur selon ADC X.
+// X = carré blanc ; B = tonalité PSG ; contact = couleur inférieure selon ADC X.
 inline std::vector<std::uint8_t> interactive_cartridge() {
     Program p;
     const auto write = [&](std::uint32_t address, std::uint32_t value) { p.load(1,value); p.store(1,address); };
@@ -43,12 +43,18 @@ inline std::vector<std::uint8_t> interactive_cartridge() {
     branch(p,frame);
 
     Program a7;
+    a7.load(1,0x807f); a7.store(1,0x04000500);
+    a7.load(1,0xed68); a7.store(1,0x04000488); // PSG ~440 Hz, huit pas par période
+    a7.load(1,0xe3400000); a7.store(1,0x04000480); // canal 8, duty 50 %, centré, muet
+    const auto sound_loop = static_cast<unsigned>(a7.code.size());
+    a7.load(0,0x04000130); a7.code.insert(a7.code.end(),{0xe1d010b0,0xe3110002,0x03a01018,0x13a01000});
+    a7.load(0,0x04000480); a7.code.push_back(0xe5c01000); // volume uniquement : ne pas redémarrer le canal
     a7.load(0,0x04000136); a7.code.push_back(0xe1d020b0); a7.store(2,0x02001010);
     a7.load(0,0x040001c0); a7.load(5,0x8a01); a7.code.push_back(0xe1c050b0);
     a7.spi_byte(0xd0); a7.spi_byte(0,2);
     a7.load(5,0x8201); a7.code.push_back(0xe1c050b0); a7.spi_byte(0,3);
     a7.code.insert(a7.code.end(),{0xe1a02402,0xe1822003,0xe1a021a2}); a7.store(2,0x02001014);
-    branch(a7,0);
+    branch(a7,sound_loop);
     auto rom = cartridge_image(p.finish(),a7.finish());
     constexpr char title[] = "RAVEN DEMO";
     for (unsigned i = 0; i < sizeof(title) - 1; ++i) rom[i] = static_cast<std::uint8_t>(title[i]);

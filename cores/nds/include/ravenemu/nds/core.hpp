@@ -12,7 +12,7 @@ struct CoreOptions {
 };
 
 /** Adaptateur à deux écrans empilés : haut puis tactile, 256 x 384 ARGB8888.
- * Démarrage direct expérimental. Audio et savestates non implémentés.
+ * Démarrage direct expérimental. Audio PCM16 stéréo ; savestates indisponibles.
  */
 class FrontendCore : public ravenemu::Core {
 public:

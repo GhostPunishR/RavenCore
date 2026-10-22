@@ -4,6 +4,7 @@
 #include "support/firmware_fixture.hpp"
 
 #include <array>
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
@@ -20,6 +21,12 @@ bool pointer_pressed{}, achievements{true}, touch_descriptor{}, x_descriptor{}, 
 std::int16_t pointer_x{}, pointer_y{};
 unsigned messages{}, frames{}, polls{};
 std::string system_directory;
+std::vector<std::int16_t> audio;
+unsigned audio_calls{};
+std::size_t audio_batch(const std::int16_t* data, std::size_t count) {
+    audio.insert(audio.end(),data,data + count * 2); ++audio_calls; return count;
+}
+void audio_sample(std::int16_t left, std::int16_t right) { audio.push_back(left); audio.push_back(right); }
 const char* save_type = "fram8k";
 
 bool environment(unsigned command, void* data) {
@@ -73,6 +80,7 @@ bool load(const std::vector<std::uint8_t>& rom) {
 
 int main() {
     retro_set_environment(environment); retro_set_video_refresh(video);
+    retro_set_audio_sample_batch(audio_batch);
     retro_set_input_poll(poll); retro_set_input_state(input); retro_init();
     retro_system_info info{}; retro_get_system_info(&info);
     check(info.library_name && std::string(info.valid_extensions) == "nds" && !info.need_fullpath && !achievements,
@@ -94,6 +102,15 @@ int main() {
     check(frame[88 * 256 + 120] == 0x00ff00 && frame[88 * 256 + 122] == 0xff0000, "croix Libretro ne déplace pas le sprite");
     keys[RETRO_DEVICE_ID_JOYPAD_X] = true; run(); keys[RETRO_DEVICE_ID_JOYPAD_X] = false;
     check(frame[88 * 256 + 122] == 0xffffff, "X Libretro non transmis à ARM7");
+    check(audio_calls > 0 && std::ranges::all_of(audio,[](auto value) { return value == 0; }), "silence Libretro absent");
+    audio.clear(); keys[RETRO_DEVICE_ID_JOYPAD_B] = true; run(1);
+    check(audio.size() >= 1094 && audio.size() <= 1098 && std::ranges::any_of(audio,[](auto value) { return value != 0; }),
+          "callback audio batch NDS absent ou muet");
+    retro_set_audio_sample_batch(nullptr); retro_set_audio_sample(audio_sample); audio.clear(); run(1);
+    check(audio.size() >= 1094 && audio.size() <= 1098 && std::ranges::any_of(audio,[](auto value) { return value != 0; }),
+          "callback audio unitaire NDS absent");
+    for (std::size_t i = 0; i < audio.size(); i += 2) check(audio[i] == audio[i + 1], "canaux stéréo Libretro inversés");
+    keys[RETRO_DEVICE_ID_JOYPAD_B] = false; retro_set_audio_sample_batch(audio_batch);
     retro_reset(); run();
     check(retro_get_memory_data(RETRO_MEMORY_SAVE_RAM) == save && save[123] == 0x5a && frame[88 * 256 + 120] == 0xff0000,
           "reset perd sauvegarde, pointeur stable ou état initial");

@@ -76,7 +76,7 @@ public:
         auto input = machine_->input_state(); input.lid_closed = closed; machine_->set_input(input);
     }
     bool powered_off() const noexcept override { return machine_->powered_off(); }
-    std::size_t read_audio(std::span<std::int16_t>) override { return 0; }
+    std::size_t read_audio(std::span<std::int16_t> output) override { return machine_->memory().read_audio(output); }
     bool has_battery_ram() const noexcept override { return machine_->entries() && backup_type_ != BackupType::none; }
     bool battery_ram_dirty() const noexcept override { return has_battery_ram() && machine_->backup_dirty(); }
     std::optional<BatterySnapshot> snapshot_battery_ram() override {

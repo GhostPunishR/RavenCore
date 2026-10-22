@@ -66,12 +66,13 @@ void bios_write_origin() {
     }
     // L'adresse de fetch, pas celle de la donnée source, autorise POSTFLG.
     Memory memory; std::vector<std::uint8_t> bios(0x4000);
-    put32(bios,0x100,0xe8810005); // STMIA r1,{r0,r2} : second mot vers POWCNT2 non implémenté
+    put32(bios,0x100,0xe881000d); // STMIA r1,{r0,r2,r3} : troisième mot vers 04000308h non mappé
     memory.load_bios(arm7,bios);
     Cpu cpu{arm7}; cpu.reset(0x100,false); cpu.set_register(0,0x8001); cpu.set_register(1,post);
     const auto before = cpu.state();
     expect_failure<CpuExecutionError>([&] { cpu.step(memory); }, "STM BIOS invalide accepté");
     check(cpu.state() == before && memory.read32(arm7,post) == 0, "STM BIOS refusé modifie les flags ou demande HALT");
+    check(memory.read32(arm7,post + 4) == 1, "STM BIOS refusé modifie POWCNT2");
     memory.write32(arm7,base,0xe1a00000); cpu.reset(base,false); cpu.step(memory);
     check(!cpu.state().waiting_for_interrupt && cpu.state().instructions == 1, "STM refusé laisse une demande HALT");
 }

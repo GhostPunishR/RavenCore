@@ -11,6 +11,7 @@
 #include <ravenemu/nds/lcd_timing.hpp>
 #include <ravenemu/nds/video.hpp>
 #include <ravenemu/nds/math_unit.hpp>
+#include <ravenemu/nds/audio.hpp>
 
 #include <cstddef>
 #include <array>
@@ -69,10 +70,11 @@ public:
     // Une unité 16/32 bits, sans cycles. Renvoie false si aucun DMA déclenché en attente.
     // Un échec préserve l'unité fautive ; les unités déjà terminées restent appliquées.
     bool step_dma(Processor cpu);
-    // Avance timers, SPI, LCD, FIFO et capture vidéo, sans exécuter CPU ni unités DMA.
+    // Avance timers, SPI, audio, LCD, FIFO et capture vidéo, sans exécuter CPU ni unités DMA.
     // Une source vidéo non prise en charge peut lever Error ; les lignes terminées restent appliquées.
     // Les événements LCD peuvent déclencher les DMA VBlank/HBlank/FIFO vidéo.
     void advance_cycles(std::uint64_t cycles);
+    std::size_t read_audio(std::span<std::int16_t> output) noexcept { return audio_.read_samples(output); }
     [[nodiscard]] std::uint32_t cycles_until_frame() const noexcept { return lcd_.cycles_until_frame(); }
     // Sources : masque de bits IF, pas un numéro de source.
     void request_interrupt(Processor cpu, std::uint32_t sources) noexcept;
@@ -111,6 +113,7 @@ private:
     void write_power_byte(Processor cpu, unsigned offset, std::uint8_t value, bool from_bios) noexcept;
     enum class Access { data, instruction, external };
     void advance_clock(std::uint64_t cycles) noexcept; // horloges et événements sans capture
+    static std::uint8_t audio_source(const void* context, std::uint32_t address) noexcept;
     [[nodiscard]] DmaController& dma(Processor cpu) noexcept;
     [[nodiscard]] const DmaController& dma(Processor cpu) const noexcept;
     struct Timer {
@@ -144,6 +147,7 @@ private:
     void write_words(Processor cpu, std::uint32_t address, std::span<const std::uint32_t> values, bool from_bios);
     Cp15 cp15_;
     MathUnit math_;
+    Audio audio_;
     std::vector<std::uint8_t> ram_;
     std::vector<std::uint8_t> arm9_bios_;
     std::vector<std::uint8_t> arm7_bios_;
@@ -165,6 +169,7 @@ private:
     std::uint32_t display_control_{};
     std::uint32_t display_control_b_{};
     std::uint16_t graphics_power_{};
+    std::uint8_t sound_power_{1}; // POWCNT2 ; le bit Wi-Fi reste sans périphérique associé
     std::uint8_t wram_control_{};
     std::array<std::uint8_t,2> post_flags_{};
     std::uint8_t halt_control_{};

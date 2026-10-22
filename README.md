@@ -16,7 +16,7 @@ Ce sont les cœurs maison de [RavenEmu](https://github.com/GhostPunishR/RavenEmu
 | **RavenGBA** | Game Boy Advance | Expérimental |
 | **RavenNDS** | Nintendo DS | Expérimental : homebrew 2D interactif testé via Libretro, aucun jeu commercial validé |
 
-**RavenNDS** dispose d'un [adaptateur C++ et Libretro avec deux écrans, boutons et tactile](cores/nds/README.md#frontend-c-et-libretro). Le homebrew original fourni teste ce parcours ; la compatibilité commerciale, la 3D et l'audio restent à développer.
+**RavenNDS** dispose d'un [adaptateur C++ et Libretro avec deux écrans, boutons, tactile et audio stéréo](cores/nds/README.md#frontend-c-et-libretro). Le homebrew original fourni teste ce parcours ; la compatibilité commerciale, la 3D et la capture audio restent à développer.
 
 **Sommaire :** [Compiler](#compiler) · [RetroArch](#utiliser-avec-retroarch) · [Intégrer](#intégrer-dans-un-projet) · [Tests](#tests) · [Limites](#état-et-limites) · [Versions](#versions) · [Contribuer](#contribuer) · [Licence](#licence)
 
@@ -53,7 +53,7 @@ valide dans le dossier système du frontend. `bios9.bin` et `bios7.bin` sont
 utilisés s'ils sont présents ; ils sont nécessaires aux programmes qui appellent
 le BIOS. Aucun de ces fichiers n'est fourni. L'option `ravenemu_nds_save_type`
 choisit explicitement la mémoire de sauvegarde au chargement (`none` par défaut).
-Les savestates, RetroAchievements et l'audio NDS ne sont pas disponibles.
+Les savestates et RetroAchievements NDS ne sont pas disponibles. Le son NDS prend en charge PCM8/16, IMA-ADPCM, PSG et bruit ; la capture audio reste absente.
 
 Les cœurs gèrent la vibration (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) et les capteurs des cartouches, pilotés au stick analogique gauche :
 

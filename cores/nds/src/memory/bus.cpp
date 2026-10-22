@@ -18,6 +18,7 @@ void Memory::clear_ram() noexcept {
     wram_control_ = 0;
     cp15_.reset();
     math_.reset();
+    audio_.reset();
     arm9_interrupts_.reset();
     arm7_interrupts_.reset();
     arm9_timers_ = {};
@@ -36,6 +37,7 @@ void Memory::clear_ram() noexcept {
     display_control_ = 0;
     display_control_b_ = 0;
     graphics_power_ = 0;
+    sound_power_ = 1;
     post_flags_ = {};
     halt_control_ = 0;
     arm7_halt_requested_ = false;

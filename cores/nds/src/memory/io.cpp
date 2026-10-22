@@ -19,6 +19,10 @@ void Memory::apply_ipc_interrupts(Ipc::Interrupts sources) noexcept {
 }
 
 std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address) const noexcept {
+    if (cpu == Processor::arm7 && address >= 0x04000304 && address <= 0x04000307)
+        return address == 0x04000304 ? sound_power_ : std::uint8_t{0};
+    if (cpu == Processor::arm7 && address >= 0x04000400 && address <= 0x04000507)
+        return audio_.read_byte(address - 0x04000400U);
     if (cpu == Processor::arm9 && address >= 0x04000280 && address <= 0x040002bf)
         return math_.read_byte(address - 0x04000280U);
     if (address >= 0x04000300 && address <= 0x04000303) return power_byte(cpu,address - 0x04000300U);
@@ -86,6 +90,16 @@ std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address
 }
 
 void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t value, bool from_bios) noexcept {
+    if (cpu == Processor::arm7 && address >= 0x04000304 && address <= 0x04000307) {
+        if (address == 0x04000304) {
+            sound_power_ = value & 3U;
+            audio_.set_speakers_enabled((sound_power_ & 1U) != 0);
+        }
+        return;
+    }
+    if (cpu == Processor::arm7 && address >= 0x04000400 && address <= 0x04000507) {
+        audio_.write_byte(address - 0x04000400U,value); return;
+    }
     if (address >= 0x04000300 && address <= 0x04000303) {
         write_power_byte(cpu,address - 0x04000300U,value,from_bios);
         return;

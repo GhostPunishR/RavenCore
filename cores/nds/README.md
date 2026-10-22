@@ -90,8 +90,9 @@ avant tout nouveau chargement, comme les autres adaptateurs du dépôt.
 
 Les savestates NDS restent indisponibles : `supports_save_states()` vaut faux,
 les appels C++ lèvent `SaveStateError` et `retro_serialize_size()` renvoie zéro.
-L'adaptateur ne déclare pas RetroAchievements. `read_audio()` renvoie zéro :
-le format stéréo annoncé est réservé au futur moteur audio. Une erreur CPU/bus
+L'adaptateur ne déclare pas RetroAchievements. `read_audio()` fournit du PCM16
+stéréo entrelacé à 32 768 Hz ; il renvoie le nombre de valeurs, toujours pair.
+Une erreur CPU/bus
 arrête l'exécution et est transmise au message/log Libretro ; reset permet de
 réessayer. Elle n'est plus masquée par une image figée sans diagnostic.
 
@@ -105,7 +106,8 @@ retroarch -L build/libretro/ravenemu_nds_libretro.so build/raven_nds_demo.nds
 ```
 
 La croix déplace un carré rouge sur l'écran supérieur vert ; A le recentre,
-X le rend blanc. L'écran inférieur est bleu sans contact et change de couleur
+X le rend blanc, B maintenu produit une tonalité PSG d'environ 440 Hz.
+L'écran inférieur est bleu sans contact et change de couleur
 selon la mesure ADC X lorsque le tactile est disponible. Ce petit programme
 ARM9/ARM7 est assemblé depuis des opcodes originaux dans les fixtures de tests ;
 il n'appelle pas de BIOS et n'embarque aucun contenu Nintendo. Son en-tête est
@@ -114,10 +116,62 @@ destiné au démarrage direct RavenCore, pas au démarrage authentifié sur cons
 `nds_frontend` contrôle les pixels, boutons, tactile, rétroéclairages, extinction,
 save RAM, resets et erreurs. `libretro_smoke_nds` utilise la vraie bibliothèque
 partagée et des callbacks de frontend : il vérifie chargement, import de save,
-géométrie, entrées, erreurs et absence de savestate fictive. Les tests de tactile
+géométrie, entrées, callbacks audio batch/unitaires, erreurs et absence de savestate fictive. Les tests de tactile
 utilisent un firmware synthétique avec CRC/étalonnage. Il s'agit d'une validation
 automatisée sans interface graphique RetroArch ; ni le temps réel ni la
 compatibilité des jeux commerciaux ne sont validés par cette démonstration.
+
+## Audio ARM7
+
+L'implémentation C++ originale est regroupée dans `src/audio/`, avec un raccord
+au bus dans `src/memory/audio.cpp`. Elle suit les sections **DS Sound Channels,
+Control Registers et Notes** de [GBATEK](https://problemkaputt.de/gbatek.htm).
+Elle ne dépend d'aucun autre émulateur et n'en importe pas de code.
+
+- Les seize canaux exposent `SOUNDxCNT/SAD/TMR/PNT/LEN` à `04000400h..040004FFh`
+  sur ARM7. Les registres en écriture seule se lisent à zéro ; les bits réservés
+  sont masqués. Une transition 0→1 de Start initialise le canal.
+- PCM8 signé et PCM16 little-endian utilisent les longueurs et positions de
+  boucle en mots. Les modes manuel, boucle et one-shot sont distingués ; Busy
+  tombe au début de la dernière période et Hold conserve le dernier échantillon.
+- IMA-ADPCM lit l'en-tête, décode le demi-octet faible en premier, applique les
+  arrondis et saturations documentés, puis restaure prédicteur et index aux
+  boucles. Un index initial hors plage est borné à 88 dans ce modèle.
+- Les canaux 8–13 produisent les huit rapports cycliques PSG, les canaux 14–15
+  le bruit à registre de décalage 15 bits. Les délais initiaux sont de 3, 11 et
+  1 périodes respectivement pour PCM, ADPCM et PSG/bruit.
+- `SOUNDCNT` et `SOUNDBIAS` commandent volumes, panoramique, sorties directes
+  des canaux 1/3, exclusions du mélangeur, écrêtage et conversion DAC 10 bits.
+  La fréquence de chaque canal vaut `33513982 / (2 × (65536 − TMR))`.
+- Le lecteur sonore voit RAM principale, WRAM ARM7/partagée et VRAM affectée
+  à ARM7, indépendamment des TCM ARM9. Les autres sources renvoient actuellement
+  zéro ; cela ne constitue pas un modèle d'open-bus.
+- `POWCNT2` ARM7 à `04000304h` conserve les bits 0–1 et démarre à 1. Le bit 0
+  coupe la sortie représentant les haut-parleurs sans arrêter les canaux.
+  Il n'y a pas de sortie casque distincte ; le bit Wi-Fi est mémorisé mais
+  aucun périphérique réseau n'est émulé.
+
+La sortie utilise un accumulateur rationnel à 32 768 Hz, sans dérive liée au
+nombre d'images ni au découpage des appels. Le frontend reçoit environ 548
+trames stéréo par image. Une file bornée à 4096 trames abandonne les plus
+anciennes en cas de retard du consommateur. Reset et chargement d'une ROM
+effacent cette file et les canaux. Le son continue pendant un saut de présentation.
+Libretro utilise ses callbacks audio existants ; aucun réglage n'est nécessaire.
+
+Limites de ce premier moteur : capture `SNDCAP`, FIFO/préchargement sonore,
+arbitrage des accès mémoire, modulation PWM et filtrage analogique non émulés.
+La sortie rééchantillonne les valeurs instantanées ; elle n'est pas filtrée
+contre le repliement spectral. Les changements de format, de source ou de boucle
+pendant un son et le transitoire particulier de redémarrage avec Hold ne sont
+pas validés sur matériel. Le mute/amplificateur du circuit SPI Powerman reste
+mémorisé sans effet analogique ; le contrôle de sortie géré ici est POWCNT2.
+
+`nds_audio` vérifie les registres, sources RAM/WRAM/VRAM, décodages signés,
+vecteurs ADPCM, boucles, délais, Hold, PSG/bruit, volumes, panoramique, bias,
+alimentation, cadence, copie/reset et bornage de la file. `nds_frontend` et
+`libretro_smoke_nds` exécutent les instructions ARM7 du homebrew et vérifient
+la tonalité de B, sa stéréo et les callbacks. Aucun jeu commercial ni mesure
+comparative sur console réelle n'est inclus dans cette validation.
 
 ## Cartouches et tests
 
@@ -1437,7 +1491,7 @@ Ce ne sont pas des pixels : le logiciel doit utiliser son étalonnage firmware.
 Les valeurs de pression sont fournies explicitement par l'hôte, sans prétendre
 simuler une résistance électrique. Sans contact, X/Z1 donnent 0 et Y/Z2 `0xfff`.
 La batterie donne 0 (entrée câblée à GND). Microphone et températures donnent
-provisoirement 0 : aucun modèle audio/thermique n'est encore implémenté.
+provisoirement 0 : la capture microphone et les capteurs thermiques ne sont pas implémentés.
 
 ```cpp
 auto input = machine.input_state();
@@ -1558,7 +1612,7 @@ et l'état éteint à leur présentation. Le clignotement LED et les commandes
 d'amplificateurs sont mémorisés ; leur restitution visuelle/sonore reste à
 développer. Les variantes Lite/DSi, les effets analogiques du rétroéclairage,
 la décharge réelle de batterie et la corruption d'une flash lors d'une coupure
-électrique ne sont pas simulés. Sleep et POWCNT2 restent à implémenter.
+électrique ne sont pas simulés. Sleep reste à implémenter ; POWCNT2 est décrit dans la section audio.
 
 `nds_powerman` vérifie les 128 indices, les masques, les quatre débits, les IRQ,
 la désélection, les écritures annulées, les copies en cours de transfert et les
@@ -1944,8 +1998,8 @@ pixels, avec copies et chargements refusés/réussis.
 
 Prochains jalons : compléter les instructions et durées CPU/bus, le démarrage,
 les autres mémoires de sauvegarde cartouche et leur sélection automatique,
-les variantes du protocole ROM, Sleep/POWCNT2 et le démarrage firmware,
-puis 3D et audio.
+les variantes du protocole ROM, Sleep et le démarrage firmware,
+puis 3D et capture audio.
 L'ordonnanceur actuel reste un modèle fonctionnel à coût uniforme.
 
 Aucun jeu commercial n'est validé à ce stade. Les programmes synthétiques
@@ -1954,4 +2008,4 @@ EEPROM, une flash ou une FRAM, réagir aux boutons et modifier le rendu, lire le
 et mesurer le tactile à partir de pixels étalonnés. La bibliothèque native
 NDS et l'adaptateur `Core` sont installés avec le paquet C++ ; le SDK C++ et
 Libretro exposent maintenant ce premier parcours interactif. L'API C NDS,
-l'audio, la 3D et la compatibilité commerciale restent à développer.
+la capture audio, la 3D et la compatibilité commerciale restent à développer.

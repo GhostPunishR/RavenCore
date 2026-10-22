@@ -5,6 +5,7 @@
 namespace ravenemu::nds {
 
 void Memory::advance_clock(std::uint64_t cycles) noexcept {
+    audio_.advance_cycles(cycles,audio_source,this);
     math_.advance_cycles(cycles);
     apply_gamecard_events(gamecard_.advance_cycles(cycles));
     if (spi_.advance_cycles(cycles)) arm7_interrupts_.request(1U << 23U);
