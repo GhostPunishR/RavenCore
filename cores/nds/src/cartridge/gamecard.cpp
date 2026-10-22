@@ -16,8 +16,17 @@ void Gamecard::load(const Cartridge& cartridge, Mode mode) {
     while (prepared.capacity_ < rom.size() || prepared.capacity_ < declared) prepared.capacity_ *= 2U;
     const auto size_code = prepared.capacity_ == 0x20000000 ? 0xfeU : (prepared.capacity_ >> 20U) - 1U;
     prepared.chip_id_ = 0xc2U | (size_code << 8U) | (prepared.capacity_ >= 0x8000000 ? 0x80000000U : 0U);
+    prepared.backup_.generation_ = prepared.backup_.saved_generation_ = backup_.generation_ + 1U;
     prepared.reset();
     *this = std::move(prepared);
+}
+
+void Gamecard::load_backup(BackupType type, std::span<const std::uint8_t> bytes, std::uint8_t status) {
+    if (!cartridge_) throw Error("NDS : charger une cartouche avant sa sauvegarde");
+    if (busy() || backup_.busy() || spi_session_.phase != Backup::Session::Phase::command)
+        throw Error("NDS : remplacement de sauvegarde pendant un échange cartouche");
+    backup_.load(type,bytes,status);
+    spi_data_ = spi_received_ = 0;
 }
 
 void Gamecard::reset() noexcept {
@@ -27,11 +36,15 @@ void Gamecard::reset() noexcept {
     data_ = remaining_ = transferred_ = wait_ = base_ = offset_ = 0;
     active_command_ = 0;
     busy_ = ready_ = false;
+    spi_wait_ = 0;
+    spi_data_ = spi_received_ = 0;
+    spi_session_ = pending_spi_session_ = {};
+    backup_.write_enabled_ = false; // conserve les octets et l'écriture interne déjà lancée
 }
 
 std::uint8_t Gamecard::read_byte(unsigned offset) const noexcept {
-    if (offset < 2) return static_cast<std::uint8_t>(auxiliary_ >> (offset * 8U));
-    if (offset < 4) return 0;
+    if (offset < 2) return static_cast<std::uint8_t>((auxiliary_ | (spi_wait_ ? 0x80U : 0U)) >> (offset * 8U));
+    if (offset < 4) return offset == 2 ? spi_data_ : 0;
     if (offset < 8) {
         const auto value = control_ | (busy_ ? 0x80000000U : 0U) | (ready_ ? 0x800000U : 0U);
         return static_cast<std::uint8_t>(value >> ((offset - 4U) * 8U));
@@ -48,12 +61,21 @@ std::uint32_t Gamecard::merge(unsigned offset, std::uint32_t value, unsigned wid
     return previous;
 }
 
+std::uint16_t Gamecard::proposed_auxiliary(unsigned offset, std::uint32_t value, unsigned width) const noexcept {
+    const auto requested = static_cast<std::uint16_t>(merge(offset,value,width,0,2,auxiliary_) & 0xe043U);
+    // Pendant un octet, seul quitter le mode série activé interrompt le transfert.
+    return spi_wait_ && (requested & 0xa000U) == 0xa000U ? auxiliary_ : requested;
+}
+
 void Gamecard::validate_write(unsigned offset, std::uint32_t value, unsigned width) const {
     if ((width != 1 && width != 2 && width != 4) || offset >= 16 || width > 16 - offset || (offset & (width - 1U)))
         throw Error("NDS : accès aux registres cartouche invalide");
-    const auto auxiliary = merge(offset,value,width,0,2,auxiliary_) & 0xe043U;
-    if (offset <= 2 && offset + width > 2 && (auxiliary & 0xa000U) == 0xa000U)
-        throw Error("NDS : SPI des sauvegardes cartouche non pris en charge");
+    const auto auxiliary = proposed_auxiliary(offset,value,width);
+    if (offset <= 2 && offset + width > 2 && (auxiliary & 0xa000U) == 0xa000U && !spi_wait_) {
+        auto session = spi_session_;
+        if ((auxiliary_ & 0xa000U) != 0xa000U) session = {};
+        static_cast<void>(backup_.exchange(session,static_cast<std::uint8_t>(value >> ((2U - offset) * 8U))));
+    }
     const auto control = merge(offset,value,width,4,4,control_);
     if (!busy_ && (control & 0x8000U)) throw Error("NDS : application de semence KEY2 non prise en charge");
     const bool start = offset <= 7 && offset + width > 7 && (control & 0x80000000U);
@@ -69,7 +91,18 @@ void Gamecard::validate_write(unsigned offset, std::uint32_t value, unsigned wid
 
 void Gamecard::write(unsigned offset, std::uint32_t value, unsigned width) {
     validate_write(offset,value,width);
-    auxiliary_ = static_cast<std::uint16_t>(merge(offset,value,width,0,2,auxiliary_) & 0xe043U);
+    const auto next = proposed_auxiliary(offset,value,width);
+    if ((next & 0xa000U) != 0xa000U) {
+        if (spi_wait_) spi_session_ = {}; // octet incomplet : abandon de tout le paquet
+        else backup_.deselect(spi_session_);
+        spi_wait_ = 0;
+    }
+    auxiliary_ = next;
+    if (offset <= 2 && offset + width > 2 && (auxiliary_ & 0xa000U) == 0xa000U && !spi_wait_) {
+        pending_spi_session_ = spi_session_;
+        spi_received_ = backup_.exchange(pending_spi_session_,static_cast<std::uint8_t>(value >> ((2U - offset) * 8U)));
+        spi_wait_ = 64U << (auxiliary_ & 3U);
+    }
     if ((auxiliary_ & 0xa000U) != 0x8000U) { busy_ = ready_ = false; wait_ = remaining_ = 0; }
     if (offset < 8 && offset + width > 4 && !busy_) {
         const auto requested = merge(offset,value,width,4,4,control_);
@@ -78,6 +111,22 @@ void Gamecard::write(unsigned offset, std::uint32_t value, unsigned width) {
     }
     if (!busy_) for (unsigned i = 0; i < width; ++i) if (offset + i >= 8)
         command_[offset + i - 8U] = static_cast<std::uint8_t>(value >> (i * 8U));
+}
+
+void Gamecard::advance_spi(std::uint64_t cycles) noexcept {
+    if (!spi_wait_) { backup_.advance_cycles(cycles); return; }
+    if (cycles < spi_wait_) {
+        backup_.advance_cycles(cycles);
+        spi_wait_ -= static_cast<std::uint32_t>(cycles);
+        return;
+    }
+    const auto elapsed = spi_wait_;
+    backup_.advance_cycles(elapsed);
+    spi_wait_ = 0;
+    spi_data_ = spi_received_;
+    spi_session_ = pending_spi_session_;
+    if (!(auxiliary_ & 0x40U)) backup_.deselect(spi_session_);
+    backup_.advance_cycles(cycles - elapsed);
 }
 
 void Gamecard::start(std::uint32_t control) noexcept {
@@ -109,6 +158,7 @@ std::uint32_t Gamecard::reply_word() const noexcept {
 }
 
 Gamecard::Events Gamecard::advance_cycles(std::uint64_t cycles) noexcept {
+    advance_spi(cycles);
     if (!busy_ || ready_) return {};
     if (cycles < wait_) { wait_ -= static_cast<std::uint32_t>(cycles); return {}; }
     wait_ = 0;

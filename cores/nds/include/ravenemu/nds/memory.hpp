@@ -28,6 +28,13 @@ class Memory {
 public:
     Memory();
     void load_gamecard(const Cartridge& cartridge, Gamecard::Mode mode = Gamecard::Mode::main_data);
+    void load_backup(BackupType type, std::span<const std::uint8_t> bytes = {}, std::uint8_t status = 0) {
+        gamecard_.load_backup(type,bytes,status);
+    }
+    [[nodiscard]] const Backup& backup() const noexcept { return gamecard_.backup(); }
+    [[nodiscard]] bool backup_dirty() const noexcept { return backup().dirty(); }
+    [[nodiscard]] BackupSnapshot snapshot_backup() const { return backup().snapshot(); }
+    void acknowledge_backup_saved(std::uint64_t generation) noexcept { gamecard_.acknowledge_backup_saved(generation); }
     void set_input(InputState state) noexcept;
     void set_key(Key key, bool pressed);
     // Pixels d'origine (0,0) ; exige un étalonnage valide pour un contact.
@@ -50,7 +57,7 @@ public:
     [[nodiscard]] bool firmware_dirty() const noexcept { return firmware().dirty(); }
     [[nodiscard]] FirmwareSnapshot snapshot_firmware() const { return firmware().snapshot(); }
     void acknowledge_firmware_saved(std::uint64_t generation) noexcept { spi_.acknowledge_firmware_saved(generation); }
-    void clear_ram() noexcept; // remet aussi les périphériques à zéro ; conserve BIOS/firmware
+    void clear_ram() noexcept; // remet les périphériques à zéro ; conserve BIOS/firmware/cartouche/EEPROM
     [[nodiscard]] VideoFrame render_frame() const { return video_.render_frame(display_control_, graphics_power_, display_control_b_); }
     [[nodiscard]] bool dma_pending(Processor cpu) const noexcept;
     // Une unité 16/32 bits, sans cycles. Renvoie false si aucun DMA déclenché en attente.

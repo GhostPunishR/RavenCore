@@ -26,6 +26,12 @@ struct BootEntries {
 class Machine {
 public:
     void load_cartridge(const Cartridge& cartridge);
+    void load_backup(BackupType type, std::span<const std::uint8_t> bytes = {}, std::uint8_t status = 0) {
+        memory_.load_backup(type,bytes,status);
+    }
+    [[nodiscard]] bool backup_dirty() const noexcept { return memory_.backup_dirty(); }
+    [[nodiscard]] BackupSnapshot snapshot_backup() const { return memory_.snapshot_backup(); }
+    void acknowledge_backup_saved(std::uint64_t generation) noexcept { memory_.acknowledge_backup_saved(generation); }
     void load_firmware(std::span<const std::uint8_t> bytes) { memory_.load_firmware(bytes); }
     [[nodiscard]] bool firmware_dirty() const noexcept { return memory_.firmware_dirty(); }
     [[nodiscard]] FirmwareSnapshot snapshot_firmware() const { return memory_.snapshot_firmware(); }

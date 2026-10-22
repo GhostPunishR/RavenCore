@@ -79,7 +79,8 @@ void registers_and_raw_test() {
     expect_failure<ravenemu::Error>([&] { memory.write32(arm9,control,0xa7000000); }, "B7 accepté avant le mode principal");
     memory.write16(arm9,aux,0xffff);
     check(memory.read16(arm9,aux) == 0xe043, "masque AUXSPICNT");
-    expect_failure<ravenemu::Error>([&] { memory.write8(arm9,aux + 2,0x03); }, "sauvegarde SPI silencieusement simulée");
+    memory.write8(arm9,aux + 2,0x03); memory.advance_cycles(512);
+    check(memory.read8(arm9,aux + 2) == 0xff, "absence de sauvegarde ne renvoie pas HIGH-Z");
     memory.write16(arm9,aux,0xc000);
     expect_failure<ravenemu::Error>([&] { static_cast<void>(memory.read32(arm9,aux + 0x10)); }, "semences KEY2 implicitement prises en charge");
 }

@@ -13,7 +13,7 @@ nds/
 ├── include/ravenemu/nds/  # contrats publics
 ├── src/
 │   ├── bios/             # images et fenêtres BIOS
-│   ├── cartridge/        # images .nds et port cartouche RAW/post-boot
+│   ├── cartridge/        # images .nds, port RAW/post-boot et EEPROM AUXSPI
 │   ├── cpu/              # ARM, Thumb, état, PSR et exceptions
 │   ├── dma/              # canaux, transferts immédiats et VBlank/HBlank
 │   ├── firmware/         # image fournie par l'hôte, réglages CRC et étalonnage
@@ -66,6 +66,7 @@ ou de l'objet `Cartridge` fourni par l'hôte.
 | Registre | Comportement |
 | --- | --- |
 | `0x040001a0` AUXSPICNT | Activation du slot, sélection ROM/SPI, IRQ de fin ; masque `0xe043` |
+| `0x040001a2` AUXSPIDATA | Octet SPI reçu ; une écriture déclenche un échange |
 | `0x040001a4` ROMCTRL | Taille du bloc, débit, gaps, RESB, busy et DRQ |
 | `0x040001a8..1af` | Huit octets de commande, premier octet/opcode à l'adresse basse |
 | `0x04100010` CARD_DATA | Mot reçu little-endian, accès 32 bits uniquement |
@@ -124,13 +125,68 @@ Les commandes/réponses du mode principal sont traitées déchiffrées, comme at
 après le démarrage direct. Les bits KEY2 de données/commande sont mémorisés ;
 ils n'implémentent pas le chiffrement du fil physique. La séquence KEY1 de boot,
 l'application des semences KEY2, les registres de semence, DSi et NAND restent
-explicitement hors périmètre. AUXSPI de sauvegarde est aussi refusé au strobe.
+explicitement hors périmètre.
 Les timings fins, l'open-bus et les variantes de fabricants restent à valider.
 Cette implémentation C++ originale suit
 [GBATEK, Cartridge Protocol](https://mgba-emu.github.io/gbatek/ds.html#dscartridgeprotocol),
 [I/O Ports](https://mgba-emu.github.io/gbatek/ds.html#dscartridgeioports),
 [Memory Control](https://mgba-emu.github.io/gbatek/ds.html#dsmemorycontrolcartridgesandmainram)
 et [DMA](https://mgba-emu.github.io/gbatek/ds.html#dsdmatransfers), sans code d'émulateur importé.
+
+## Sauvegardes cartouche EEPROM
+
+`Backup`, dans `<ravenemu/nds/backup.hpp>`, modélise les EEPROM de 512 octets,
+8 Kio et 64 Kio : adresses 8+1 ou 16 bits, pages de 16/32/128 octets, lectures
+séquentielles et miroir à la capacité. Les écritures rebouclent dans la page ;
+les derniers octets reçus gagnent si une transaction dépasse sa taille.
+WREN/WRDI, RDSR, WRSR, WEL/WIP et protection du quart supérieur, de la moitié
+supérieure ou de toute la mémoire sont pris en charge. `/W` est câblé haut ;
+SRWD est mémorisé sur les grands profils sans verrouiller à lui seul WRSR.
+RDID retourne `ff` sur ces EEPROM, comme sur un périphérique absent.
+
+L'hôte choisit explicitement `BackupType::eeprom_512`, `eeprom_8k`, `eeprom_64k`
+ou `none`, **après** `load_cartridge()` / `load_gamecard()`, avec
+`load_backup(type, image = {}, status = 0)`. Une image vide crée une EEPROM
+effacée (`ff`) ; autrement sa taille doit correspondre exactement au profil.
+La ROM ne contient pas de champ fiable pour identifier cette mémoire ; aucune
+détection automatique ni base de jeux n'est encore fournie. Par défaut, aucun
+périphérique n'est connecté et tous les échanges retournent `ff`.
+
+Le propriétaire EXMEM est commun à la ROM et à AUXSPI. Chaque octet prend
+`64 << baud` cycles communs ; busy n'est actif que pendant cet échange. Hold
+maintient CS entre octets ; il faut le retirer avant le dernier. Un strobe ou
+un changement de débit/hold pendant busy est ignoré. Désactiver le slot ou
+quitter le mode série interrompt un octet incomplet et abandonne son paquet.
+Sans octet en cours, cette désactivation termine la transaction déjà reçue.
+Une transaction valide lance à CS haut un cycle interne d'écriture modélisé à
+5 ms ; RDSR reste accessible pendant WIP, les autres commandes sont ignorées.
+L'écriture interne avance même si le slot est désactivé ou repassé en ROM.
+Le bit IRQ d'AUXSPICNT concerne uniquement la ROM : AUXSPI ne produit ni IRQ19
+ni DRQ cartouche. Le bus SPI du firmware et celui des sauvegardes sont séparés.
+
+`Machine` et `Memory` exposent `backup_dirty()`, `snapshot_backup()` et
+`acknowledge_backup_saved(generation)`. L'instantané possède les octets bruts
+compatibles avec un fichier `.sav`, une génération et les bits non volatils du
+registre d'état dans une métadonnée `status` séparée. Le frontend doit écrire
+`data` sur disque et, s'il conserve les protections WRSR, stocker `status`
+séparément puis le transmettre à `load_backup()` ; aucun suffixe propriétaire
+n'est ajouté au `.sav`. Un acquittement ancien ne nettoie pas des données plus
+récentes, et une écriture identique ne change pas la génération. Un instantané
+est refusé pendant WIP, et le remplacement d'une sauvegarde pendant un échange
+ou une écriture interne est refusé avant mutation.
+
+`clear_ram()` conserve EEPROM, protections et écriture interne déjà acceptée,
+mais abandonne les paquets série incomplets et efface WEL. Un nouveau chargement
+de cartouche retire la sauvegarde précédente, même si la ROM est identique :
+l'hôte doit l'exporter puis la recharger explicitement. Copier une machine
+isole ses données EEPROM mutables. Les API ne réalisent pas d'accès disque.
+
+Les tests utilisent les trois profils, les limites de pages/adresses, les
+protections, les délais, les resets et la persistance, ainsi que deux programmes
+synthétiques ARM9/ARM7 qui interrogent WIP puis relisent leur écriture. Cette
+implémentation originale suit [GBATEK, DS Cartridge Backup](https://mgba-emu.github.io/gbatek/ds.html#dscartridgebackup).
+Les EEPROM 128 Kio, FRAM, flash cartouche et interfaces infrarouges restent à
+implémenter ; aucune compatibilité de sauvegarde commerciale n'est revendiquée.
 
 ## Mémoire et chargement direct
 
@@ -1144,8 +1200,8 @@ temps analogiques fins restent hors périmètre.
 
 Powerman, périphérique réservé et mode de transfert SPI 16 bits restent refusés
 au strobe actif, avec un diagnostic et sans mutation. Le périphérique firmware
-est décrit ci-dessous. Le SPI auxiliaire des sauvegardes cartouche et le DMA SPI
-restent à développer. Copie, `clear_ram()` et rechargement conservent les mêmes
+est décrit ci-dessous. Le SPI auxiliaire des EEPROM cartouche est décrit plus
+haut ; le DMA SPI reste à développer. Copie, `clear_ram()` et rechargement conservent les mêmes
 contrats que les autres périphériques, sans IRQ différée après reset.
 
 ## Firmware SPI, réglages et étalonnage tactile
@@ -1523,12 +1579,14 @@ vérifiés. Une ROM ARM9 configure son DMA, attend l'IRQ et produit les 256×192
 pixels, avec copies et chargements refusés/réussis.
 
 Prochains jalons : compléter les instructions et durées CPU/bus, le démarrage,
-les sauvegardes cartouche, les variantes du protocole ROM, Powerman et le démarrage firmware,
+les autres mémoires de sauvegarde cartouche et leur sélection automatique,
+les variantes du protocole ROM, Powerman et le démarrage firmware,
 puis 3D et audio.
 L'ordonnanceur actuel reste un modèle fonctionnel à coût uniforme.
 
 Aucun jeu commercial n'est validé à ce stade. Les programmes synthétiques
-peuvent déjà lire leurs ressources cartouche par CPU/DMA, réagir aux boutons et modifier le rendu, lire le firmware fourni
+peuvent déjà lire leurs ressources cartouche par CPU/DMA, écrire puis relire une
+EEPROM, réagir aux boutons et modifier le rendu, lire le firmware fourni
 et mesurer le tactile à partir de pixels étalonnés. La bibliothèque native
 NDS est installée avec le paquet C++, mais les adaptateurs `Core`, `sdk::System`
 et Libretro NDS restent à développer.

@@ -19,6 +19,7 @@
 #include <ravenemu/nds/touchscreen.hpp>
 #include <ravenemu/nds/firmware.hpp>
 #include <ravenemu/nds/gamecard.hpp>
+#include <ravenemu/nds/backup.hpp>
 #include <ravenemu/nds/dma.hpp>
 #include <ravenemu/nds/lcd_timing.hpp>
 #include <ravenemu/nds/video.hpp>
@@ -220,6 +221,25 @@ int main() {
     if (!nds.memory().dma_pending(card_cpu) || !nds.memory().step_dma(card_cpu) ||
         nds.memory().read32(card_cpu,0x02003000) != 0x12345678 ||
         (nds.memory().peek32(card_cpu,0x040001a4) & 0x80800000U)) return 1;
+    nds.load_backup(ravenemu::nds::BackupType::eeprom_512);
+    const auto backup_byte = [&](std::uint8_t value, bool last) {
+        nds.memory().write16(card_cpu,0x040001a0,last ? 0xa000 : 0xa040);
+        nds.memory().write8(card_cpu,0x040001a2,value);
+        nds.advance_cycles(64);
+        return nds.memory().read8(card_cpu,0x040001a2);
+    };
+    static_cast<void>(backup_byte(6,true));
+    static_cast<void>(backup_byte(0x0a,false));
+    static_cast<void>(backup_byte(0x23,false));
+    static_cast<void>(backup_byte(0x5a,true));
+    nds.advance_cycles(167570);
+    const auto backup_saved = nds.snapshot_backup();
+    if (!nds.backup_dirty() || backup_saved.data.size() != 512 || backup_saved.data[0x123] != 0x5a) return 1;
+    nds.acknowledge_backup_saved(backup_saved.generation);
+    if (nds.backup_dirty()) return 1;
+    nds_restored.load_cartridge(ravenemu::nds::Cartridge{scheduled_rom});
+    nds_restored.load_backup(ravenemu::nds::BackupType::eeprom_512,backup_saved.data,backup_saved.status);
+    if (nds_restored.snapshot_backup().data != backup_saved.data || nds_restored.backup_dirty()) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};
