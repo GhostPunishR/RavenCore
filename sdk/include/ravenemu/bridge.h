@@ -156,6 +156,52 @@ void ravenemu_link_destroy(ravenemu_link* link);
  * least pixel_capacity pixels. Returns 1 on success. */
 int ravenemu_link_run_frame(ravenemu_link* link, uint32_t* const* argb, size_t pixel_capacity);
 
+/* Link cable to a console on another device: another phone, a PC...
+ * The host carries the messages between the two RavenCore instances, in
+ * order and without loss (a TCP connection, for example): `send` receives
+ * each message for the other side, and each message from it goes to
+ * ravenemu_remote_link_receive. Then the host plugs the cable in.
+ * GB/GBC: either console may clock a transfer. GBA: two players; `player` 0
+ * is the parent of multiplayer games, the other device takes 1.
+ * The console that clocks a transfer waits for the other's reply in real
+ * time, inside ravenemu_run_frame: emulated time does not move, so the game
+ * sees no delay. The other answers from its own ravenemu_run_frame, or
+ * between frames from ravenemu_remote_link_service.
+ * Threads: `send` is called from the thread running the handle and from the
+ * one plugging the cable in; it must be thread-safe and must not block for
+ * long. ravenemu_remote_link_receive and ravenemu_remote_link_set_connected
+ * may be called from any thread; the other calls follow the handle's rule.
+ * A handle joined by ravenemu_link_create takes no remote cable, and the
+ * reverse. Returns NULL on error (see ravenemu_last_error). */
+typedef struct ravenemu_remote_link ravenemu_remote_link;
+typedef void (*ravenemu_remote_send)(void* user, const uint8_t* message, size_t size);
+ravenemu_remote_link* ravenemu_remote_link_create(ravenemu_bridge* handle, int player,
+                                                  ravenemu_remote_send send, void* user);
+/* Unplugs and frees the cable: the handle plays alone again. Not while the
+ * handle runs a frame: unplug first, a waiting handle then returns at once. */
+void ravenemu_remote_link_destroy(ravenemu_remote_link* link);
+/* A message from the other device. Returns 0 when it is malformed: it is
+ * then ignored. */
+int ravenemu_remote_link_receive(ravenemu_remote_link* link, const uint8_t* message, size_t size);
+/* Plugs the cable in (1) or pulls it out (0). Plugged in, the console
+ * introduces itself to the other one; the cable carries transfers once the
+ * other has done the same. Pulled out, a transfer in progress ends as
+ * without a cable. */
+void ravenemu_remote_link_set_connected(ravenemu_remote_link* link, int connected);
+enum ravenemu_remote_state {
+    RAVENEMU_REMOTE_UNPLUGGED = 0,
+    RAVENEMU_REMOTE_WAITING = 1,      /* plugged in, the other has not introduced itself yet */
+    RAVENEMU_REMOTE_PLUGGED = 2,
+    RAVENEMU_REMOTE_INCOMPATIBLE = 3  /* another protocol version or console family */
+};
+int ravenemu_remote_link_state(const ravenemu_remote_link* link);
+/* Between two frames: answers the transfers the other console clocked in
+ * the meantime, without waiting for the next frame. Returns 1 on success. */
+int ravenemu_remote_link_service(ravenemu_remote_link* link);
+/* 1 while the game uses its link port: a transfer asked for or awaited in
+ * the last three seconds, or a GBA in multiplayer mode. A partner is welcome. */
+int ravenemu_link_wanted(const ravenemu_bridge* handle);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,9 +1,12 @@
 add_library(ravenemu_common STATIC
     src/core.cpp
+    src/remote_link.cpp
     src/sha256.cpp
 )
 target_include_directories(ravenemu_common PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-target_link_libraries(ravenemu_common PUBLIC ravenemu_options)
+# Le câble distant attend son partenaire sur un autre fil.
+find_package(Threads REQUIRED)
+target_link_libraries(ravenemu_common PUBLIC ravenemu_options Threads::Threads)
 set_target_properties(ravenemu_common PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(BUILD_TESTING)

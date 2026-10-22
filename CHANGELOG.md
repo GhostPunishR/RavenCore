@@ -2,6 +2,43 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.9.0 - 2026-10-22
+
+Cette version ajoute le câble link distant : une console se relie à celle d'un autre appareil, deux téléphones par exemple, l'application transportant les messages. L'API C et l'API C++ s'enrichissent sans rien casser ; le format des états ne change pas.
+
+### Ajouté
+
+- **Câble link distant** ([docs/remote_link.md](docs/remote_link.md)).
+  - API C : `ravenemu_remote_link_create`, `_receive`, `_set_connected`, `_state`, `_service`, `_destroy`. L'application livre les messages dans l'ordre et sans perte (TCP, par exemple) et branche ou débranche le câble.
+  - La console qui cadence un transfert envoie sa donnée et attend la réponse de l'autre en temps réel, au cycle exact du transfert : son temps émulé ne bouge pas, le jeu ne voit aucun retard. L'autre répond quand elle lit le message, comme une console qui attendait l'horloge d'un partenaire. Les deux appliquent la même décision.
+  - Game Boy et Game Boy Color : un octet par transfert, horloge normale ou rapide, collisions de deux consoles qui cadencent.
+  - GBA : deux joueurs, multijoueur (le joueur 0 est le parent) et mode normal 8 ou 32 bits ; les lignes d'état SD et SI suivent celles de l'autre console.
+  - Un petit protocole versionné : annonce, transfert, réponse, lignes d'état. Une autre version ou une autre famille de consoles laisse le câble sans effet.
+- **`ravenemu_link_wanted()`** : le jeu se sert de son port link (transfert demandé ou attendu dans les trois dernières secondes, ou GBA en mode multijoueur). Une application peut ne chercher un partenaire qu'à ce moment.
+- API C++ : `RemoteLink`, `Core::connect_remote_link()`, `Core::service_remote_link()`, `Core::link_wanted()`.
+
+### Modifié
+
+- GBA : le port série passe par une interface `SerialLink`, que partagent le câble local et le câble distant. Le câble local se comporte comme avant.
+- `LinkPort` donne l'octet et les bits restants du transfert en cours ; `LinkEndpoint` peut lire un transport extérieur (`poll()`).
+- La bibliothèque commune se lie aux fils du système (`Threads::Threads`), que le paquet CMake demande.
+
+### Compatibilité des états instantanés
+
+- **GBA : format 16** et **GB/GBC : format 11**, inchangés. Le câble distant n'entre pas dans l'état d'une console.
+- **API C : version 0**, ajouts seulement ; **API C++** : ajouts seulement. Le paquet CMake se demande avec `find_package(RavenCore 0.9)`.
+
+### Tests
+
+- `gbc_raven_core` :
+  - deux ports Game Boy reliés par deux câbles distants : octets échangés, interruptions, transfert sans câble ;
+  - collision de deux consoles qui cadencent, partenaire qui n'attend pas, débranchement pendant une attente ;
+  - protocole : annonce, refus d'une autre famille ou version, messages mal formés.
+- `ravenemu_remote_link`, nouveau, par l'API C : deux consoles sur deux fils, reliées par un faux réseau à 0, 5 et 20 ms de latence.
+  - Game Boy : un maître et un esclave échangent leurs octets.
+  - GBA : transfert multijoueur, même résultat que le câble local.
+  - Exclusion du câble local, paramètres refusés, destruction dans les deux ordres.
+
 ## 0.8.0 - 2026-10-21
 
 Cette version complète la carte mémoire RetroAchievements de la Game Boy et de la Game Boy Color ([#29](https://github.com/GhostPunishR/RavenCore/pull/29)) et active l'horloge des ROM Pokémon modifiées ([#28](https://github.com/GhostPunishR/RavenCore/pull/28)). L'API et le format des états ne changent pas.

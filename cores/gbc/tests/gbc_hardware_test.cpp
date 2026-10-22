@@ -14,8 +14,13 @@
 #include "check.hpp"
 #include "synthetic_roms.hpp"
 
+#include <ravenemu/remote_link.hpp>
+
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
+#include <thread>
 #include <vector>
 
 using ravenemu::testing::check;
@@ -468,6 +473,159 @@ void local_link_endpoint_test() {
           "IRQ série absente sur une extrémité du link local");
 }
 
+
+// Deux câbles distants reliés directement : chaque message part dans la file
+// de l'autre, comme par une connexion qui ne perd rien.
+struct RemotePair {
+    std::unique_ptr<RemoteLink> a;
+    std::unique_ptr<RemoteLink> b;
+    explicit RemotePair(RemoteLink::Family family = RemoteLink::Family::game_boy) {
+        a = std::make_unique<RemoteLink>(family, [this](std::span<const std::uint8_t> bytes) {
+            static_cast<void>(b->receive(bytes));
+        });
+        b = std::make_unique<RemoteLink>(family, [this](std::span<const std::uint8_t> bytes) {
+            static_cast<void>(a->receive(bytes));
+        });
+    }
+    void plug() {
+        a->set_connected(true);
+        b->set_connected(true);
+    }
+};
+
+void remote_link_endpoint_test() {
+    RemotePair pair;
+    RemoteLinkEndpoint end_a(*pair.a);
+    RemoteLinkEndpoint end_b(*pair.b);
+    InterruptController interrupts_a;
+    InterruptController interrupts_b;
+    interrupts_a.flags = 0;
+    interrupts_b.flags = 0;
+    SerialPort a(interrupts_a, true);
+    SerialPort b(interrupts_b, true);
+    check(a.connect(&end_a) && b.connect(&end_b), "connexion du câble distant refusée");
+
+    // Débranché : le maître transfère seul et reçoit 0xFF.
+    a.write_data(0x12);
+    a.write_control(0x81);
+    a.tick(512 * 8);
+    check(a.read_data() == 0xff && !a.transfer_active(), "transfert sans câble distant incorrect");
+
+    pair.plug();
+    check(pair.a->state() == RemoteLink::State::plugged && pair.b->state() == RemoteLink::State::plugged,
+          "câble distant non branché après les annonces");
+
+    // L'esclave attend ; son fil répond pendant que le maître attend en temps réel.
+    a.write_data(0xa5);
+    b.write_data(0x3c);
+    b.write_control(0x80);
+    std::atomic<bool> done{false};
+    std::thread partner([&] {
+        while (!done.load()) {
+            end_b.poll();
+            std::this_thread::sleep_for(std::chrono::microseconds(200));
+        }
+    });
+    a.write_control(0x81);
+    a.tick(512 * 8);
+    done = true;
+    partner.join();
+    check(a.read_data() == 0x3c && b.read_data() == 0xa5, "câble distant : octets non échangés");
+    check(!a.transfer_active() && !b.transfer_active(), "câble distant : transfert laissé actif");
+    check((interrupts_a.flags & interrupt_mask(Interrupt::serial)) != 0 &&
+          (interrupts_b.flags & interrupt_mask(Interrupt::serial)) != 0,
+          "câble distant : IRQ série absente");
+
+    // Les deux cadencent en même temps : chacun reçoit l'octet de l'autre.
+    a.write_data(0x81);
+    b.write_data(0x7e);
+    a.write_control(0x81);
+    b.write_control(0x81);
+    std::thread other([&] { b.tick(512 * 8); });
+    a.tick(512 * 8);
+    other.join();
+    check(a.read_data() == 0x7e && b.read_data() == 0x81, "câble distant : collision de deux maîtres mal tranchée");
+    // Les réponses aux transferts croisés, arrivées après coup, sont ignorées.
+    end_a.poll();
+    end_b.poll();
+    check(!pair.a->pending() && !pair.b->pending(), "câble distant : messages en souffrance après une collision");
+
+    // Un partenaire qui n'attend pas laisse sa ligne : le maître lit son bit 7 répété.
+    b.write_data(0x80);
+    a.write_data(0x00);
+    std::atomic<bool> stop{false};
+    std::thread idle([&] {
+        while (!stop.load()) {
+            end_b.poll();
+            std::this_thread::sleep_for(std::chrono::microseconds(200));
+        }
+    });
+    a.write_control(0x81);
+    a.tick(512 * 8);
+    stop = true;
+    idle.join();
+    check(a.read_data() == 0xff && b.read_data() == 0x80, "câble distant : partenaire inactif mal lu");
+
+    // Débrancher pendant une attente la termine : le transfert finit comme sans câble.
+    a.write_data(0x55);
+    a.write_control(0x81);
+    std::thread unplug([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        pair.b->set_connected(false);
+        pair.a->set_connected(false);
+    });
+    a.tick(512 * 8);
+    unplug.join();
+    check(a.read_data() == 0xff && !a.transfer_active(), "câble distant : attente non levée au débranchement");
+}
+
+void remote_link_protocol_test() {
+    std::vector<std::vector<std::uint8_t>> sent;
+    RemoteLink link(RemoteLink::Family::game_boy, [&](std::span<const std::uint8_t> bytes) {
+        sent.emplace_back(bytes.begin(), bytes.end());
+    });
+    check(link.state() == RemoteLink::State::unplugged, "câble distant branché d'emblée");
+    link.set_connected(true);
+    check(sent.size() == 1 && sent[0] == std::vector<std::uint8_t>{1, RemoteLink::protocol_version, 1},
+          "annonce du câble distant incorrecte");
+    check(link.state() == RemoteLink::State::waiting && !link.plugged(), "câble distant servi avant l'annonce de l'autre");
+
+    // Un transfert avant l'annonce du partenaire n'est pas retenu.
+    const std::vector<std::uint8_t> transfer{2, 1, 0, 0, 0, 0, 0x42, 0, 0, 0, 0, 0, 0, 0};
+    check(link.receive(transfer) && !link.pending(), "transfert retenu avant l'annonce");
+
+    // Une GBA en face : le câble reste sans effet.
+    const std::vector<std::uint8_t> gba_hello{1, RemoteLink::protocol_version, 2};
+    check(link.receive(gba_hello) && link.state() == RemoteLink::State::incompatible && !link.plugged(),
+          "câble distant accepté avec une autre famille de consoles");
+    link.set_connected(false);
+    link.set_connected(true);
+    const std::vector<std::uint8_t> other_version{1, static_cast<std::uint8_t>(RemoteLink::protocol_version + 1), 1};
+    check(link.receive(other_version) && link.state() == RemoteLink::State::incompatible,
+          "câble distant accepté avec une autre version du protocole");
+    link.set_connected(false);
+    link.set_connected(true);
+    const std::vector<std::uint8_t> hello{1, RemoteLink::protocol_version, 1};
+    check(link.receive(hello) && link.plugged(), "câble distant compatible refusé");
+
+    // Messages mal formés : refusés, sans effet.
+    const std::vector<std::vector<std::uint8_t>> malformed{
+        {}, {9}, {2, 1, 0}, {3, 1, 0, 0, 0}, {4, 0}, {4, 3, 0},       // tailles, nature, mode GBA côté GB
+        {2, 1, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0},                   // mode inconnu
+        {4, 0, 2},                                                    // ligne SO hors bornes
+    };
+    for (const auto& message : malformed) check(!link.receive(message), "message mal formé accepté");
+    check(!link.pending(), "message mal formé retenu");
+    const std::vector<std::uint8_t> long_transfer{2, 1, 0, 0, 0, 0, 0x42, 0, 0, 0, 0x41, 0x42, 0x0f, 0};  // 1 000 001 cycles
+    check(!link.receive(long_transfer), "transfert d'une durée absurde accepté");
+
+    check(link.receive(transfer) && link.pending(), "transfert branché non retenu");
+    const auto message = link.take();
+    const auto* parsed = message ? std::get_if<RemoteLink::Transfer>(&*message) : nullptr;
+    check(parsed != nullptr && parsed->id == 1 && parsed->data == 0x42 && !link.pending(), "transfert mal lu");
+    // Une attente sur un branchement passé finit tout de suite.
+    check(!link.wait(link.generation() - 1), "attente sur un ancien branchement");
+}
 
 void ppu_dot_timing_test() {
     InterruptController interrupts;
@@ -1114,6 +1272,8 @@ int main() {
     undocumented_cgb_io_test();
     joypad_save_state_test();
     local_link_endpoint_test();
+    remote_link_endpoint_test();
+    remote_link_protocol_test();
     ppu_dot_timing_test();
     video_bus_mcycle_boundary_test();
     opri_and_hardware_mode_test();

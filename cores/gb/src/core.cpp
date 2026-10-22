@@ -1,6 +1,7 @@
 #include "machine/machine.hpp"
 
 #include <ravenemu/gb/core.hpp>
+#include "ravenemu/remote_link.hpp"
 #include "ravenemu/sha256.hpp"
 
 #include <algorithm>
@@ -46,11 +47,22 @@ public:
         require_loaded();
         if (framebuffer.size() < Ppu::frame_pixels) throw std::invalid_argument("Framebuffer trop petit");
         int ppu_cycles{};
+        // Un câble distant livre les transferts du partenaire à chaque ligne,
+        // moins qu'un bit à 8 kHz.
+        if (link_endpoint_ != nullptr) link_endpoint_->poll();
+        int next_poll = remote_poll_interval;
         while (ppu_cycles < 70'224) {
             const int advanced = machine_->step();
             if (advanced <= 0) break;
             ppu_cycles += advanced;
+            if (link_endpoint_ != nullptr && ppu_cycles >= next_poll) {
+                link_endpoint_->poll();
+                next_poll = ppu_cycles + remote_poll_interval;
+            }
         }
+        // Un transfert demandé, ou attendu d'un partenaire, compte comme usage du port.
+        if (machine_->serial.take_activity() || machine_->serial.transfer_active()) frames_since_link_use_ = 0;
+        else if (frames_since_link_use_ < link_use_frames) ++frames_since_link_use_;
         std::copy(machine_->ppu.completed_frame.begin(), machine_->ppu.completed_frame.end(), framebuffer.begin());
     }
     void set_button(Button button, bool pressed) override { if (machine_) machine_->joypad.set_button(button, pressed); }
@@ -104,6 +116,26 @@ public:
         if (machine_ != nullptr && !machine_->serial.connect(endpoint)) return false;
         link_endpoint_ = endpoint;
         return true;
+    }
+    [[nodiscard]] bool connect_remote_link(RemoteLink* link, int) override {
+        if (link == nullptr) {
+            if (remote_endpoint_ != nullptr && link_endpoint_ == remote_endpoint_.get())
+                static_cast<void>(connect_link_endpoint(nullptr));
+            remote_endpoint_.reset();
+            return true;
+        }
+        // Un câble local occupe déjà la prise.
+        if (link_endpoint_ != nullptr && link_endpoint_ != remote_endpoint_.get()) return false;
+        auto endpoint = std::make_unique<RemoteLinkEndpoint>(*link);
+        if (!connect_link_endpoint(endpoint.get())) return false;
+        remote_endpoint_ = std::move(endpoint);
+        return true;
+    }
+    void service_remote_link() override {
+        if (remote_endpoint_ != nullptr && machine_ != nullptr) remote_endpoint_->poll();
+    }
+    [[nodiscard]] bool link_wanted() const noexcept override {
+        return machine_ != nullptr && frames_since_link_use_ < link_use_frames;
     }
     [[nodiscard]] std::unique_ptr<LinkCable> create_link_cable(std::span<Core* const> players) override;
     // Pour le câble link : la machine, après les vérifications de run_frame.
@@ -249,6 +281,8 @@ private:
         if (!machine_) throw std::logic_error("Aucune ROM chargée");
     }
 
+    // Avant la machine : détruit après elle, quand son port s'en est détaché.
+    std::unique_ptr<RemoteLinkEndpoint> remote_endpoint_;
     std::unique_ptr<Machine> machine_;
     RomImage loaded_rom_;
     std::array<std::uint8_t, 32> rom_hash_{};
@@ -257,7 +291,11 @@ private:
     std::optional<std::int64_t> clock_override_;
     gb::HardwareModel requested_hardware_{gb::HardwareModel::automatic};
     std::vector<std::uint8_t> boot_rom_;
+    static constexpr int remote_poll_interval = 456;
+    // Trois secondes sans transfert : le jeu ne cherche plus de partenaire.
+    static constexpr int link_use_frames = 180;
     LinkEndpoint* link_endpoint_{};
+    int frames_since_link_use_{link_use_frames};
     InfraredEndpoint* infrared_endpoint_{};
     int host_acceleration_x_{};
     int host_acceleration_y_{};
