@@ -23,7 +23,7 @@ void Gamecard::load(const Cartridge& cartridge, Mode mode) {
 
 void Gamecard::load_backup(BackupType type, std::span<const std::uint8_t> bytes, std::uint8_t status) {
     if (!cartridge_) throw Error("NDS : charger une cartouche avant sa sauvegarde");
-    if (busy() || backup_.busy() || spi_session_.phase != Backup::Session::Phase::command)
+    if (busy() || backup_.busy() || !backup_.session_idle(spi_session_))
         throw Error("NDS : remplacement de sauvegarde pendant un échange cartouche");
     backup_.load(type,bytes,status);
     spi_data_ = spi_received_ = 0;
@@ -39,7 +39,7 @@ void Gamecard::reset() noexcept {
     spi_wait_ = 0;
     spi_data_ = spi_received_ = 0;
     spi_session_ = pending_spi_session_ = {};
-    backup_.write_enabled_ = false; // conserve les octets et l'écriture interne déjà lancée
+    backup_.reset_serial(); // conserve les octets et l'écriture interne déjà lancée
 }
 
 std::uint8_t Gamecard::read_byte(unsigned offset) const noexcept {

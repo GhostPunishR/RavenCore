@@ -16,23 +16,33 @@ void Backup::load(BackupType type, std::span<const std::uint8_t> bytes, std::uin
     case BackupType::eeprom_512: size = 512; break;
     case BackupType::eeprom_8k: size = 8192; break;
     case BackupType::eeprom_64k: size = 65536; break;
+    case BackupType::flash_256k: size = 0x40000; break;
+    case BackupType::flash_512k: size = 0x80000; break;
+    case BackupType::flash_1m: size = 0x100000; break;
     default: throw Error("NDS : profil de sauvegarde inconnu");
     }
-    const auto status_mask = type == BackupType::eeprom_512 ? 0x0cU : (size ? 0x8cU : 0U);
+    const bool flash = type == BackupType::flash_256k || type == BackupType::flash_512k || type == BackupType::flash_1m;
+    const auto status_mask = type == BackupType::eeprom_512 ? 0x0cU : (size && !flash ? 0x8cU : 0U);
     if ((!bytes.empty() && bytes.size() != size) || (status & ~status_mask))
-        throw Error("NDS : taille ou état de sauvegarde incompatible avec le profil EEPROM");
+        throw Error("NDS : taille ou état de sauvegarde incompatible avec son profil");
     Backup prepared;
     prepared.type_ = type;
     prepared.bytes_.assign(size,0xff);
     if (!bytes.empty()) prepared.bytes_.assign(bytes.begin(),bytes.end());
     prepared.status_ = status;
+    if (flash) {
+        // M45PE20 / M45PE40 / M45PE80 ; /W haut sur ces profils cartouche.
+        const auto capacity = static_cast<std::uint8_t>(type == BackupType::flash_256k ? 0x12 :
+                                                     (type == BackupType::flash_512k ? 0x13 : 0x14));
+        prepared.flash_ = detail::SerialFlash{{{0x20,0x40,capacity},0}};
+    }
     prepared.generation_ = prepared.saved_generation_ = generation_ + 1U;
     *this = std::move(prepared);
 }
 
 BackupSnapshot Backup::snapshot() const {
     if (type_ == BackupType::none) throw Error("NDS : aucune sauvegarde cartouche configurée");
-    if (busy()) throw Error("NDS : écriture EEPROM en cours");
+    if (busy()) throw Error("NDS : écriture de sauvegarde cartouche en cours");
     return {bytes_,generation_,status_};
 }
 
@@ -48,6 +58,7 @@ bool Backup::protected_address(std::uint32_t address) const noexcept {
 }
 
 std::uint8_t Backup::exchange(Session& session, std::uint8_t output) const {
+    if (is_flash()) return flash_.exchange(session.flash,output,bytes_);
     if (bytes_.empty()) return 0xff;
     using Phase = Session::Phase;
     switch (session.phase) {
@@ -101,6 +112,7 @@ std::uint8_t Backup::exchange(Session& session, std::uint8_t output) const {
 }
 
 void Backup::deselect(Session& session) noexcept {
+    if (is_flash()) { flash_.deselect(session.flash); session = {}; return; }
     if (!bytes_.empty() && !busy()) {
         if (session.command == 0x06) write_enabled_ = true;
         else if (session.command == 0x04) write_enabled_ = false;
@@ -116,6 +128,7 @@ void Backup::deselect(Session& session) noexcept {
 }
 
 void Backup::advance_cycles(std::uint64_t cycles) noexcept {
+    if (is_flash()) { if (flash_.advance_cycles(cycles,bytes_)) ++generation_; return; }
     if (!busy()) return;
     if (cycles < operation_.remaining) { operation_.remaining -= static_cast<std::uint32_t>(cycles); return; }
     bool changed = false;

@@ -13,7 +13,7 @@ nds/
 ├── include/ravenemu/nds/  # contrats publics
 ├── src/
 │   ├── bios/             # images et fenêtres BIOS
-│   ├── cartridge/        # images .nds, port RAW/post-boot et EEPROM AUXSPI
+│   ├── cartridge/        # images .nds, port RAW/post-boot et sauvegardes AUXSPI
 │   ├── cpu/              # ARM, Thumb, état, PSR et exceptions
 │   ├── dma/              # canaux, transferts immédiats et VBlank/HBlank
 │   ├── firmware/         # image fournie par l'hôte, réglages CRC et étalonnage
@@ -22,7 +22,7 @@ nds/
 │   ├── ipc/              # synchronisation et FIFO ARM9/ARM7
 │   ├── machine/          # assemblage des deux CPU et chargement
 │   ├── memory/           # bus RAM, miroirs et WRAM
-│   ├── spi/              # bus SPI ARM7, lecture flash et convertisseur tactile
+│   ├── spi/              # bus ARM7, protocole flash partagé et convertisseur tactile
 │   ├── timers/           # compteurs, préscalers et cascade
 │   └── video/            # horloge LCD, VRAM, fonds, sprites, fenêtres et effets A/B
 └── tests/                # programmes et BIOS synthétiques
@@ -185,8 +185,51 @@ Les tests utilisent les trois profils, les limites de pages/adresses, les
 protections, les délais, les resets et la persistance, ainsi que deux programmes
 synthétiques ARM9/ARM7 qui interrogent WIP puis relisent leur écriture. Cette
 implémentation originale suit [GBATEK, DS Cartridge Backup](https://mgba-emu.github.io/gbatek/ds.html#dscartridgebackup).
-Les EEPROM 128 Kio, FRAM, flash cartouche et interfaces infrarouges restent à
+Les EEPROM 128 Kio, FRAM et interfaces infrarouges restent à
 implémenter ; aucune compatibilité de sauvegarde commerciale n'est revendiquée.
+
+## Sauvegardes cartouche flash M45PE
+
+`BackupType::flash_256k`, `flash_512k` et `flash_1m` sélectionnent des modèles
+ST M45PE20, M45PE40 et M45PE80 de 256 Kio, 512 Kio et 1 Mio. Leurs identifiants
+JEDEC sont respectivement `20 40 12`, `20 40 13` et `20 40 14`, tels que documentés
+dans [GBATEK, DS Firmware Serial Flash Memory](https://mgba-emu.github.io/gbatek/ds.html#dsfirmwareserialflashmemory).
+Le profil est un choix de l'hôte ; il ne prétend pas identifier le fabricant
+d'une cartouche à partir de sa ROM. Les API de chargement, instantanés et
+acquittements sont les mêmes que pour les EEPROM ; `BackupSnapshot::status`
+est zéro sur ces modèles, et un état non volatil EEPROM est refusé au chargement.
+
+Le moteur série M45PE de RavenNDS est partagé avec le firmware, avec des états
+et des images distincts. Il gère les adresses 24 bits, les miroirs à la capacité,
+READ, FAST avec son octet dummy, RDID, RDSR, WREN/WRDI, PP, PW, PE, SE et DP/RDP.
+PP (`02`) ne peut qu'abaisser des bits ; PW (`0a`) peut les remettre à un tout
+en conservant les voisins non écrits. PE (`db`) efface une page de 256 octets ;
+SE (`d8`) efface un secteur de 64 Kio, alignés à leurs tailles. Ces profils
+cartouche ont `/W` haut : les premiers 64 Kio sont accessibles en écriture,
+contrairement au firmware où `/W` bas les protège. Le registre d'état M45PE
+expose uniquement WEL/WIP ; la commande WRSR des EEPROM est diagnostiquée.
+
+Les opérations commencent à CS haut, avec les délais typiques du modèle
+firmware : PP 1,2 ms, PW 11 ms, PE 10 ms et SE 1 s. WIP évolue indépendamment
+du bus et des CPU ; seul RDSR reste accepté pendant une opération. WEL est
+effacé en fin d'opération. Le mode de sommeil ignore les commandes sauf RDP.
+Les délais analogiques de mise sous tension et de réveil ne sont pas modélisés.
+Une écriture qui franchit une page reste refusée avant mutation, comme pour le
+firmware ; les variantes de débordement de page ne sont pas simulées. Une
+adresse incomplète, un programme sans données ou un effacement avec des octets
+superflus ne lance pas d'opération. Les mêmes règles de reset, copie, export
+différé pendant WIP et abandon des octets tronqués s'appliquent.
+
+`nds_flash_backup` teste les trois capacités, leurs identifiants, les lectures
+normales/rapides, la programmation, la réécriture, les effacements, les délais,
+le sommeil, la persistance, les paquets invalides et les resets. Deux programmes
+synthétiques ARM9/ARM7 attendent WIP puis relisent leur écriture. Un autre test
+exécute simultanément une opération de firmware et de sauvegarde : leurs
+contenus, protections, horloges et acquittements restent indépendants.
+
+La sélection automatique, les autres fabricants (notamment Sanyo/Macronix),
+les flash de 8 Mio et les interfaces infrarouges restent à développer. Aucun
+jeu commercial n'est validé par ces tests synthétiques.
 
 ## Mémoire et chargement direct
 
@@ -1200,7 +1243,7 @@ temps analogiques fins restent hors périmètre.
 
 Powerman, périphérique réservé et mode de transfert SPI 16 bits restent refusés
 au strobe actif, avec un diagnostic et sans mutation. Le périphérique firmware
-est décrit ci-dessous. Le SPI auxiliaire des EEPROM cartouche est décrit plus
+est décrit ci-dessous. Le SPI auxiliaire des EEPROM et flash cartouche est décrit plus
 haut ; le DMA SPI reste à développer. Copie, `clear_ram()` et rechargement conservent les mêmes
 contrats que les autres périphériques, sans IRQ différée après reset.
 
@@ -1586,7 +1629,7 @@ L'ordonnanceur actuel reste un modèle fonctionnel à coût uniforme.
 
 Aucun jeu commercial n'est validé à ce stade. Les programmes synthétiques
 peuvent déjà lire leurs ressources cartouche par CPU/DMA, écrire puis relire une
-EEPROM, réagir aux boutons et modifier le rendu, lire le firmware fourni
+EEPROM ou une flash, réagir aux boutons et modifier le rendu, lire le firmware fourni
 et mesurer le tactile à partir de pixels étalonnés. La bibliothèque native
 NDS est installée avec le paquet C++, mais les adaptateurs `Core`, `sdk::System`
 et Libretro NDS restent à développer.

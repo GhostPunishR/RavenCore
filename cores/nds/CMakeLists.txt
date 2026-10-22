@@ -9,7 +9,7 @@ add_library(nds_raven_core STATIC
     src/input/input.cpp
     src/firmware/firmware.cpp
     src/spi/spi.cpp
-    src/spi/firmware.cpp
+    src/spi/serial_flash.cpp
     src/spi/touchscreen.cpp
     src/memory/clock.cpp
     src/video/lcd_timing.cpp
@@ -46,6 +46,10 @@ target_link_libraries(nds_raven_core PUBLIC ravenemu_common)
 set_target_properties(nds_raven_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(BUILD_TESTING)
+    add_executable(nds_flash_backup_tests tests/flash_backup_test.cpp)
+    target_include_directories(nds_flash_backup_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_flash_backup_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_flash_backup COMMAND nds_flash_backup_tests)
     add_executable(nds_backup_tests tests/backup_test.cpp)
     target_include_directories(nds_backup_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_backup_tests PRIVATE nds_raven_core)

@@ -65,7 +65,14 @@ Firmware::Firmware(std::span<const std::uint8_t> bytes) {
     if (bytes.size() != 0x40000 && bytes.size() != 0x80000)
         throw RomLoadError("NDS : firmware DS attendu de 256 ou 512 Kio");
     bytes_.assign(bytes.begin(), bytes.end());
+    const auto id = bytes.size() == 0x40000 ? std::array<std::uint8_t,3>{0x20,0x40,0x12} :
+                                            std::array<std::uint8_t,3>{0x20,0x80,0x13};
+    flash_ = detail::SerialFlash{{id,0x10000}}; // /W bas protège les 256 premières pages du firmware
     refresh_settings();
+}
+
+void Firmware::advance_cycles(std::uint64_t cycles) noexcept {
+    if (flash_.advance_cycles(cycles,bytes_)) { ++generation_; refresh_settings(); }
 }
 
 void Firmware::refresh_settings() noexcept {

@@ -8,7 +8,7 @@
 
 namespace ravenemu::nds {
 
-/** Port cartouche : protocole RAW ou lecture de données après démarrage direct.
+/** Port cartouche : ROM RAW/post-boot et sauvegardes série AUXSPI.
  * Le modèle travaille sur les commandes/réponses déchiffrées ; pas de boot KEY1.
  * Une seule donnée 32 bits peut être prête à la fois, sans référence au bus.
  */

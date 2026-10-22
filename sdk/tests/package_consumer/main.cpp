@@ -240,6 +240,19 @@ int main() {
     nds_restored.load_cartridge(ravenemu::nds::Cartridge{scheduled_rom});
     nds_restored.load_backup(ravenemu::nds::BackupType::eeprom_512,backup_saved.data,backup_saved.status);
     if (nds_restored.snapshot_backup().data != backup_saved.data || nds_restored.backup_dirty()) return 1;
+    nds.load_backup(ravenemu::nds::BackupType::flash_1m);
+    static_cast<void>(backup_byte(0x9f,false));
+    if (backup_byte(0,false) != 0x20 || backup_byte(0,false) != 0x40 || backup_byte(0,true) != 0x14) return 1;
+    static_cast<void>(backup_byte(6,true));
+    for (const auto value : {0x0a,0x0f,0xff,0xff}) static_cast<void>(backup_byte(static_cast<std::uint8_t>(value),false));
+    static_cast<void>(backup_byte(0xa5,true));
+    nds.advance_cycles(368654);
+    const auto flash_saved = nds.snapshot_backup();
+    if (!nds.backup_dirty() || flash_saved.data.size() != 0x100000 || flash_saved.data[0xfffff] != 0xa5) return 1;
+    nds_restored.load_backup(ravenemu::nds::BackupType::flash_1m,flash_saved.data);
+    if (nds_restored.snapshot_backup().data != flash_saved.data || nds_restored.backup_dirty()) return 1;
+    for (const auto value : {3,0x0f,0xff,0xff}) static_cast<void>(backup_byte(static_cast<std::uint8_t>(value),false));
+    if (backup_byte(0,true) != 0xa5) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};
