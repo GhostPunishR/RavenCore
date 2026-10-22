@@ -312,8 +312,9 @@ void machine_test() {
     expect_failure<ravenemu::RomLoadError>([&] { machine.load_cartridge(Cartridge{invalid}); }, "ROM invalide acceptée");
     check(machine.memory().read32(arm9, dtcm) == 0x12345678, "échec chargement a effacé TCM");
     machine.load_cartridge(Cartridge{rom});
-    check(machine.memory().cp15().read(1, 0, 0) == high && machine.memory().cp15().read(9, 1, 0) == 0 &&
-          machine.cpu_state(arm9).instructions == 0, "rechargement ne remet pas CP15 à zéro");
+    check(machine.memory().cp15().read(1, 0, 0) == (high | data_enable) &&
+          machine.memory().cp15().read(9, 1, 0) == 0x0300000a &&
+          machine.cpu_state(arm9).instructions == 0, "rechargement ne prépare pas la DTCM des piles de boot");
     region(machine.memory(), false, dtcm | 0xa);
     control(machine.memory(), high | data_enable);
     check(machine.memory().read32(arm9, dtcm) == 0, "rechargement ne vide pas TCM");

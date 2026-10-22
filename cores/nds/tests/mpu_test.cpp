@@ -349,7 +349,8 @@ void machine_test() {
     check(machine.cpu_state(arm9) == before && machine.memory().cp15().read(6,0,0) == (base|0x2bU),
           "chargement refusé efface MPU");
     machine.load_cartridge(Cartridge{rom});
-    check(machine.memory().cp15().read(1,0,0) == high && machine.memory().cp15().read(6,0,0) == 0 &&
+    check(machine.memory().cp15().read(1,0,0) == (high | 0x10000U) &&
+          machine.memory().cp15().read(9,1,0) == 0x0300000a && machine.memory().cp15().read(6,0,0) == 0 &&
           machine.memory().cp15().read(5,0,2) == 0 && machine.memory().cp15().read(2,0,0) == 0,
           "rechargement conserve la MPU précédente");
 }

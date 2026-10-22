@@ -62,6 +62,7 @@ public:
     void run_steps(Processor cpu, std::size_t instructions);
 
 private:
+    static void prepare_boot_memory(Memory& memory, const Cartridge& cartridge);
     SchedulerState scheduler_;
     Memory memory_;
     std::optional<BootEntries> entries_;

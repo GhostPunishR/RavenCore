@@ -28,6 +28,7 @@ class Memory {
 public:
     Memory();
     void load_gamecard(const Cartridge& cartridge, Gamecard::Mode mode = Gamecard::Mode::main_data);
+    [[nodiscard]] std::uint32_t gamecard_chip_id() const noexcept { return gamecard_.chip_id(); }
     void load_backup(BackupType type, std::span<const std::uint8_t> bytes = {}, std::uint8_t status = 0) {
         gamecard_.load_backup(type,bytes,status);
     }

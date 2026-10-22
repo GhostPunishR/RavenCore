@@ -40,6 +40,8 @@ class Cpu {
 public:
     explicit Cpu(Processor processor) : processor_(processor) {}
     void reset(std::uint32_t address, bool thumb);
+    // Contexte post-firmware documenté ; distinct du reset minimal de l'interpréteur.
+    void reset_direct_boot(std::uint32_t address, bool thumb);
     void set_register(std::size_t index, std::uint32_t value);
     [[nodiscard]] const CpuState& state() const noexcept { return state_; }
     void set_interrupt_lines(bool irq, bool fiq = false) noexcept { irq_line_ = irq; fiq_line_ = fiq; }

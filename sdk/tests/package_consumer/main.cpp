@@ -131,6 +131,11 @@ int main() {
     scheduled_put(0x30,0x208); scheduled_put(0x34,0x03800000); scheduled_put(0x38,0x03800000); scheduled_put(0x3c,4);
     scheduled_put(0x200,0xee070f90); scheduled_put(0x204,0xeafffffe); scheduled_put(0x208,0xeafffffe);
     nds.load_cartridge(ravenemu::nds::Cartridge{scheduled_rom});
+    if (nds.memory().read32(ravenemu::nds::Processor::arm9,0x027ffe20) != 0x200 ||
+        nds.memory().read16(ravenemu::nds::Processor::arm7,0x027ffc40) != 1 ||
+        nds.cpu_state(ravenemu::nds::Processor::arm9).registers[13] != 0x03002f7c ||
+        nds.cpu_state(ravenemu::nds::Processor::arm7).registers[13] != 0x0380fd80 ||
+        nds.memory().cp15().read(9,1,0) != 0x0300000a) return 1;
     nds.advance_cycles(ravenemu::nds::LcdTiming::frame_cycles - 2);
     nds.run_frame();
     if (nds.scheduler_state().cycles != 2 || nds.scheduler_state().phase != ravenemu::nds::SchedulerState::Phase::arm9_first ||

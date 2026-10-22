@@ -29,11 +29,13 @@ add_library(nds_raven_core STATIC
     src/timers/timers.cpp
     src/bios/boot_rom.cpp
     src/machine/machine.cpp
+    src/machine/direct_boot.cpp
     src/machine/scheduler.cpp
     src/cpu/protection.cpp
     src/cpu/cp15.cpp
     src/cpu/coprocessor.cpp
     src/cpu/cpu.cpp
+    src/cpu/boot.cpp
     src/cpu/cpu_state.cpp
     src/cpu/arm.cpp
     src/cpu/thumb.cpp
@@ -46,6 +48,10 @@ target_link_libraries(nds_raven_core PUBLIC ravenemu_common)
 set_target_properties(nds_raven_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(BUILD_TESTING)
+    add_executable(nds_direct_boot_tests tests/direct_boot_test.cpp)
+    target_include_directories(nds_direct_boot_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_direct_boot_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_direct_boot COMMAND nds_direct_boot_tests)
     add_executable(nds_fram_tests tests/fram_test.cpp)
     target_include_directories(nds_fram_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_fram_tests PRIVATE nds_raven_core)

@@ -21,6 +21,7 @@ public:
     // À configurer après le média ; remplacer une cartouche retire sa sauvegarde.
     void load_backup(BackupType type, std::span<const std::uint8_t> bytes = {}, std::uint8_t status = 0);
     [[nodiscard]] const Backup& backup() const noexcept { return backup_; }
+    [[nodiscard]] std::uint32_t chip_id() const noexcept { return chip_id_; }
     void acknowledge_backup_saved(std::uint64_t generation) noexcept { backup_.acknowledge_saved(generation); }
     void reset() noexcept; // conserve média et mode de démarrage
     [[nodiscard]] bool busy() const noexcept { return busy_ || spi_wait_; }

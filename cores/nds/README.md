@@ -299,7 +299,8 @@ auto instruction = arm9_entry.thumb
 ```
 
 `Machine::load_cartridge()` prépare une RAM neuve, donne toute la WRAM partagée
-à ARM7, copie les deux programmes et initialise les deux CPU à leurs points d'entrée. Il accepte
+à ARM7, prépare les informations de boot, copie les deux programmes et initialise
+les deux CPU à leurs points d'entrée. Il accepte
 ARM9 dans les 4 Mio canoniques de RAM principale, ARM7 dans cette même RAM,
 les 32 Kio canoniques de WRAM partagée ou les 64 Kio canoniques privés. Il refuse
 les miroirs comme destinations, les franchissements de région, les programmes
@@ -307,14 +308,50 @@ qui se chevauchent et les entrées mal alignées ou dont la première instructio
 est tronquée. Un échec préserve mémoire, répartition WRAM, entrées et états CPU précédents.
 Un nouveau chargement réussi efface le contenu antérieur de toutes les RAM et
 réinitialise registres, banques, drapeaux, compteurs et lignes IRQ/FIQ. Les deux
-CPU démarrent en System avec I/F masqués. Les images BIOS et firmware déjà fournies
+CPU démarrent en System avec I/F masqués et leurs piles de démarrage. Les images BIOS et firmware déjà fournies
 sont conservées. Avec un firmware et des réglages valides, le chargeur prépare
 leurs `0x70` octets à `0x027ffc80` avant de charger les exécutables. Un segment
 de programme explicitement situé dans cette zone garde ainsi la priorité.
 
-Ce chargement est une préparation expérimentale, pas une séquence de démarrage
-BIOS : pas de firmware, de déchiffrement, de paramètres de démarrage, de copie
-de l'en-tête dans la RAM ni d'initialisation complète des registres CPU. Seuls les
+Les `0x170` octets d'en-tête sont copiés à `0x027ffe00` ; les miroirs de la RAM
+principale les rendent visibles aux deux CPU. Les blocs `0x027ff800` et
+`0x027ffc00` reçoivent chacun les deux identifiants du modèle cartouche et les
+CRC déclarés dans la ROM. L'identifiant provient du port cartouche lui-même,
+comme la réponse B8. Le chargeur prépare aussi la tâche terminée (`ff810=ffff`,
+`ff880=7`, `ff884=6`), l'adresse de chargement ARM7 (`ff860`) et l'indicateur de
+boot cartouche normal (`ffc40=1`). Les réglages firmware sont accompagnés de
+leur indicateur de validité (`ff864`), de la base des deux copies (`ff868`) et
+du CRC part5 déclaré (`ff874`). Ces données précèdent les exécutables ; un
+segment fourni dans cette RAM garde la priorité.
+
+Les piles et registres suivent les valeurs de boot cartouche documentées dans
+[GBATEK, BIOS RAM Usage](https://mgba-emu.github.io/gbatek/ds.html#biosramusage),
+qui diffèrent de celles du SWI SoftReset :
+
+| CPU | SP System | SP IRQ | SP Supervisor |
+| --- | --- | --- | --- |
+| ARM9 | `0x03002f7c` | `0x03003f80` | `0x03003fc0` |
+| ARM7 | `0x0380fd80` | `0x0380ff80` | `0x0380ffc0` |
+
+`r0..r11` sont nuls ; `r12` et LR contiennent l'entrée, avec son bit Thumb pour
+l'interworking. Les LR/SPSR IRQ et Supervisor sont nuls. La DTCM ARM9 de 16 Kio
+est activée à `0x03000000` pour rendre ses trois piles utilisables, indépendamment
+de la WRAM ARM7. Le contrôle CP15 vaut `0x12078`, avec vecteurs hauts, MPU et
+caches désactivés. Les programmes peuvent ensuite reconfigurer CP15.
+`Cpu::reset_direct_boot()` prépare ces registres ; `Cpu::reset()` reste le reset
+minimal à registres nuls de l'interpréteur. `clear_ram()` vide RAM/TCM et remet
+CP15 à son état minimal sans reconstruire implicitement les paramètres de boot.
+
+`nds_direct_boot` vérifie la RAM, les miroirs, les identifiants, les réglages
+firmware, les banques, le rechargement, les copies et les erreurs sans mutation.
+Des programmes ARM/Thumb utilisent leurs piles immédiatement ; des BIOS
+synthétiques entrent puis reviennent de SWI/IRQ. Deux programmes simultanés
+ARM9/ARM7 lisent les informations de boot depuis la RAM partagée.
+
+Ce chargement reste une préparation expérimentale : il n'exécute pas le BIOS
+ou le firmware et ne valide pas les CRC déclarés, le logo ni le chiffrement
+KEY1. Les valeurs de débogueur, RTC et les registres POSTFLG ne sont pas encore
+modélisés ; il ne revendique pas un état post-firmware complet. Les
 MMIO LCD, interruption, DMA, timers, entrées, IPC, VRAMCNT et WRAMCNT/WRAMSTAT sont présents.
 Les neuf banques VRAM ont des fenêtres CPU réaffectables ; palettes et OAM
 standard des deux moteurs sont présentes. Les autres MMIO et
@@ -420,12 +457,13 @@ un registre MMIO pour ARM9. Le CPU reste suspendu pendant les unités DMA dans
 le modèle actuel ; l'exécution parallèle depuis TCM n'est pas encore reproduite.
 
 Le contrôle sélectionne les vecteurs bas/hauts (bit V) et l'interworking des
-chargements vers PC (bit L4). L'état initial du chargeur direct conserve les
-vecteurs hauts (`0x2078`), désactive les TCM et laisse leurs régions à zéro ; ce
-n'est pas l'état complet d'un démarrage BIOS/firmware. `Cpu::reset` réinitialise
-les registres du CPU seulement. `Memory::clear_ram` et un chargement de cartouche
-réussi réinitialisent aussi CP15 et le stockage TCM ; un chargement refusé les
-préserve. Les copies de machine possèdent leurs propres registres et octets TCM.
+chargements vers PC (bit L4). L'état minimal de `Memory` / `clear_ram()` conserve
+les vecteurs hauts (`0x2078`), désactive les TCM et laisse leurs régions à zéro.
+Le chargement direct de `Machine` vide aussi les TCM puis active la DTCM des
+piles de boot à `0x03000000` (`0x12078`), sans prétendre reproduire tout le
+démarrage BIOS/firmware. `Cpu::reset` réinitialise les registres du CPU seulement.
+Un chargement refusé préserve CP15 et ses octets. Les copies de machine
+possèdent leurs propres registres et octets TCM.
 Références : [GBATEK, CP15](https://mgba-emu.github.io/gbatek/ds.html#armcp15systemcontrolcoprocessor),
 [contrôle](https://mgba-emu.github.io/gbatek/ds.html#armcp15controlregister) et
 [TCM](https://mgba-emu.github.io/gbatek/ds.html#armcp15tightlycoupledmemorytcm).

@@ -47,11 +47,9 @@ void Machine::load_cartridge(const Cartridge& cartridge) {
     prepared.clear_ram();
     prepared.load_gamecard(cartridge); // image immuable conservée pour les lectures de ressources
     prepared.set_wram_control(3); // toute la WRAM partagée à l'ARM7
-    // Préparer les réglages du démarrage direct, avant les exécutables : une
-    // section RAM explicitement fournie par la cartouche garde la priorité.
-    if (const auto& settings = prepared.firmware().settings(); settings)
-        for (std::uint32_t i = 0; i < settings->data.size(); ++i)
-            prepared.write8(Processor::arm7, firmware_settings_address + i, settings->data[i]);
+    // Préparer l'environnement avant les exécutables : les segments fournis
+    // explicitement par la cartouche gardent la priorité dans la RAM commune.
+    prepare_boot_memory(prepared,cartridge);
     for (std::uint32_t i = 0; i < header.arm9.size; ++i)
         prepared.write8(Processor::arm9, header.arm9.load_address + i, arm9[i]);
     for (std::uint32_t i = 0; i < header.arm7.size; ++i)
@@ -59,8 +57,8 @@ void Machine::load_cartridge(const Cartridge& cartridge) {
     const BootEntries entries{entry(header.arm9), entry(header.arm7)};
     Cpu arm9_cpu{Processor::arm9};
     Cpu arm7_cpu{Processor::arm7};
-    arm9_cpu.reset(entries.arm9.address, entries.arm9.thumb);
-    arm7_cpu.reset(entries.arm7.address, entries.arm7.thumb);
+    arm9_cpu.reset_direct_boot(entries.arm9.address, entries.arm9.thumb);
+    arm7_cpu.reset_direct_boot(entries.arm7.address, entries.arm7.thumb);
     memory_ = std::move(prepared);
     entries_ = entries;
     arm9_ = arm9_cpu;
