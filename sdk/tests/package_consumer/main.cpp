@@ -253,6 +253,18 @@ int main() {
     if (nds_restored.snapshot_backup().data != flash_saved.data || nds_restored.backup_dirty()) return 1;
     for (const auto value : {3,0x0f,0xff,0xff}) static_cast<void>(backup_byte(static_cast<std::uint8_t>(value),false));
     if (backup_byte(0,true) != 0xa5) return 1;
+    nds.load_backup(ravenemu::nds::BackupType::fram_32k);
+    static_cast<void>(backup_byte(6,true));
+    for (const auto value : {2,0x7f,0xff}) static_cast<void>(backup_byte(static_cast<std::uint8_t>(value),false));
+    static_cast<void>(backup_byte(0x12,false));
+    // La FRAM est déjà modifiée avant CS haut, sans cycle interne WIP.
+    if (nds.snapshot_backup().data[0x7fff] != 0x12 || nds.memory().backup().busy()) return 1;
+    static_cast<void>(backup_byte(0x34,true));
+    const auto fram_saved = nds.snapshot_backup();
+    if (fram_saved.data.size() != 0x8000 || fram_saved.data[0] != 0x34 || !nds.backup_dirty()) return 1;
+    nds.acknowledge_backup_saved(fram_saved.generation);
+    nds_restored.load_backup(ravenemu::nds::BackupType::fram_32k,fram_saved.data,fram_saved.status);
+    if (nds.backup_dirty() || nds_restored.snapshot_backup().data != fram_saved.data || nds_restored.backup_dirty()) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

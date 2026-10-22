@@ -93,7 +93,7 @@ void Gamecard::write(unsigned offset, std::uint32_t value, unsigned width) {
     validate_write(offset,value,width);
     const auto next = proposed_auxiliary(offset,value,width);
     if ((next & 0xa000U) != 0xa000U) {
-        if (spi_wait_) spi_session_ = {}; // octet incomplet : abandon de tout le paquet
+        if (spi_wait_) backup_.abort_byte(spi_session_); // abandon de l'octet ; la FRAM garde les précédents
         else backup_.deselect(spi_session_);
         spi_wait_ = 0;
     }
@@ -125,6 +125,7 @@ void Gamecard::advance_spi(std::uint64_t cycles) noexcept {
     spi_wait_ = 0;
     spi_data_ = spi_received_;
     spi_session_ = pending_spi_session_;
+    backup_.complete_byte(spi_session_);
     if (!(auxiliary_ & 0x40U)) backup_.deselect(spi_session_);
     backup_.advance_cycles(cycles - elapsed);
 }

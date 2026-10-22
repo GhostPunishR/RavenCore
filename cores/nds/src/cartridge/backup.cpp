@@ -19,6 +19,8 @@ void Backup::load(BackupType type, std::span<const std::uint8_t> bytes, std::uin
     case BackupType::flash_256k: size = 0x40000; break;
     case BackupType::flash_512k: size = 0x80000; break;
     case BackupType::flash_1m: size = 0x100000; break;
+    case BackupType::fram_8k: size = 8192; break;
+    case BackupType::fram_32k: size = 32768; break;
     default: throw Error("NDS : profil de sauvegarde inconnu");
     }
     const bool flash = type == BackupType::flash_256k || type == BackupType::flash_512k || type == BackupType::flash_1m;
@@ -91,6 +93,13 @@ std::uint8_t Backup::exchange(Session& session, std::uint8_t output) const {
         return value;
     }
     case Phase::write: {
+        if (is_fram()) {
+            session.write_address = session.address;
+            session.write_value = output;
+            session.commit = Session::Commit::data;
+            session.address = (session.address + 1U) & static_cast<std::uint32_t>(bytes_.size() - 1U);
+            break;
+        }
         const auto mask = page_size() - 1U;
         const auto index = session.address & mask;
         session.page[index] = output;
@@ -104,6 +113,7 @@ std::uint8_t Backup::exchange(Session& session, std::uint8_t output) const {
     case Phase::write_status:
         session.status = output & (type_ == BackupType::eeprom_512 ? 0x0cU : 0x8cU);
         session.has_status = true;
+        if (is_fram()) session.commit = Session::Commit::status;
         session.phase = Phase::ignore;
         break;
     case Phase::ignore: break;
@@ -111,8 +121,30 @@ std::uint8_t Backup::exchange(Session& session, std::uint8_t output) const {
     return 0xff;
 }
 
+void Backup::complete_byte(Session& session) noexcept {
+    if (!is_fram()) return;
+    if (session.commit == Session::Commit::data) {
+        session.completed_write = true;
+        if (write_enabled_ && !protected_address(session.write_address)) {
+            auto& destination = bytes_[session.write_address];
+            if (destination != session.write_value) { destination = session.write_value; ++generation_; }
+        }
+    } else if (session.commit == Session::Commit::status && write_enabled_ && status_ != session.status) {
+        status_ = session.status;
+        ++generation_;
+    }
+    session.commit = Session::Commit::none;
+}
+
 void Backup::deselect(Session& session) noexcept {
     if (is_flash()) { flash_.deselect(session.flash); session = {}; return; }
+    if (is_fram()) {
+        if (session.command == 0x06) write_enabled_ = true;
+        else if (session.command == 0x04 || (session.command == 0x02 && session.completed_write) ||
+                 (session.command == 0x01 && session.has_status)) write_enabled_ = false;
+        session = {};
+        return;
+    }
     if (!bytes_.empty() && !busy()) {
         if (session.command == 0x06) write_enabled_ = true;
         else if (session.command == 0x04) write_enabled_ = false;

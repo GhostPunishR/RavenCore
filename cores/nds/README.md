@@ -13,7 +13,7 @@ nds/
 ├── include/ravenemu/nds/  # contrats publics
 ├── src/
 │   ├── bios/             # images et fenêtres BIOS
-│   ├── cartridge/        # images .nds, port RAW/post-boot et sauvegardes AUXSPI
+│   ├── cartridge/        # images .nds, port RAW/post-boot et EEPROM/flash/FRAM AUXSPI
 │   ├── cpu/              # ARM, Thumb, état, PSR et exceptions
 │   ├── dma/              # canaux, transferts immédiats et VBlank/HBlank
 │   ├── firmware/         # image fournie par l'hôte, réglages CRC et étalonnage
@@ -185,7 +185,7 @@ Les tests utilisent les trois profils, les limites de pages/adresses, les
 protections, les délais, les resets et la persistance, ainsi que deux programmes
 synthétiques ARM9/ARM7 qui interrogent WIP puis relisent leur écriture. Cette
 implémentation originale suit [GBATEK, DS Cartridge Backup](https://mgba-emu.github.io/gbatek/ds.html#dscartridgebackup).
-Les EEPROM 128 Kio, FRAM et interfaces infrarouges restent à
+Les EEPROM 128 Kio et interfaces infrarouges restent à
 implémenter ; aucune compatibilité de sauvegarde commerciale n'est revendiquée.
 
 ## Sauvegardes cartouche flash M45PE
@@ -230,6 +230,47 @@ contenus, protections, horloges et acquittements restent indépendants.
 La sélection automatique, les autres fabricants (notamment Sanyo/Macronix),
 les flash de 8 Mio et les interfaces infrarouges restent à développer. Aucun
 jeu commercial n'est validé par ces tests synthétiques.
+
+## Sauvegardes cartouche FRAM
+
+`BackupType::fram_8k` et `fram_32k` ajoutent deux profils génériques de 8 et
+32 Kio selon [GBATEK, DS Cartridge Backup](https://mgba-emu.github.io/gbatek/ds.html#dscartridgebackup).
+Leur protocole reprend les commandes EEPROM WREN/WRDI, READ/WRITE avec adresse
+16 bits, RDSR et WRSR. Ces profils ne revendiquent pas de fabricant ou
+d'identifiant JEDEC : RDID renvoie `ff`, comme les profils EEPROM génériques.
+Le choix reste explicite ; 8 Kio peut désigner une EEPROM ou une FRAM et la
+taille seule d'un `.sav` ne permet pas de les distinguer.
+
+Il n'y a ni page d'écriture ni délai interne : un flux peut parcourir toute
+la mémoire, puis reboucle à sa capacité. Chaque octet modifie la FRAM seulement
+à la fin de ses `64 << baud` cycles AUXSPI, et peut déjà être exporté alors
+que CS reste bas. Les changements de registre WRSR suivent la même règle.
+`Backup::busy()` et WIP restent toujours à zéro ; AUXSPICNT.busy conserve son
+sens de transfert série en cours. WEL autorise toute la transaction et est
+effacé à CS haut dès qu'un octet WRITE/WRSR a été reçu, ou par WRDI/reset.
+Les lectures ne l'effacent pas. Sans WREN, les écritures n'ont pas d'effet.
+
+Les protections du quart supérieur, de la moitié supérieure ou de toute la
+mémoire sont vérifiées pour chaque octet, même lorsqu'un flux franchit leur
+frontière. Les bits WP/SRWD sont non volatils ; `/W` est haut dans ces profils,
+donc SRWD ne verrouille pas seul WRSR. Les API d'image brute, de métadonnée
+`status` et d'acquittement par génération sont communes aux autres sauvegardes.
+Un octet identique ne change pas la génération ; un acquittement antérieur à
+l'octet suivant ne peut pas nettoyer son changement.
+
+Annuler un octet ou réinitialiser le bus conserve les octets FRAM déjà reçus,
+y compris ceux de la transaction encore sélectionnée. L'octet inachevé est
+abandonné. Ceci diffère des paquets EEPROM/flash dont l'écriture interne ne
+démarre qu'à CS haut. Les contrôles sans mutation du bus préparent seulement
+le prochain octet ; seule la fin réelle du transfert l'applique. Copier une
+machine isole image, session et acquittements. Charger une nouvelle cartouche
+retire la FRAM précédente comme les autres sauvegardes.
+
+`nds_fram` teste les capacités, les flux longs, les miroirs, les limites exactes
+des octets, les annulations, les copies, les protections, le rechargement et les
+quatre débits. Deux programmes synthétiques ARM9/ARM7 écrivent de part et d'autre
+d'une ancienne limite de page puis relisent immédiatement, sans attente WIP.
+Les variantes propres à un fabricant et les jeux commerciaux restent à valider.
 
 ## Mémoire et chargement direct
 
@@ -1243,7 +1284,7 @@ temps analogiques fins restent hors périmètre.
 
 Powerman, périphérique réservé et mode de transfert SPI 16 bits restent refusés
 au strobe actif, avec un diagnostic et sans mutation. Le périphérique firmware
-est décrit ci-dessous. Le SPI auxiliaire des EEPROM et flash cartouche est décrit plus
+est décrit ci-dessous. Le SPI auxiliaire des EEPROM, flash et FRAM cartouche est décrit plus
 haut ; le DMA SPI reste à développer. Copie, `clear_ram()` et rechargement conservent les mêmes
 contrats que les autres périphériques, sans IRQ différée après reset.
 
@@ -1629,7 +1670,7 @@ L'ordonnanceur actuel reste un modèle fonctionnel à coût uniforme.
 
 Aucun jeu commercial n'est validé à ce stade. Les programmes synthétiques
 peuvent déjà lire leurs ressources cartouche par CPU/DMA, écrire puis relire une
-EEPROM ou une flash, réagir aux boutons et modifier le rendu, lire le firmware fourni
+EEPROM, une flash ou une FRAM, réagir aux boutons et modifier le rendu, lire le firmware fourni
 et mesurer le tactile à partir de pixels étalonnés. La bibliothèque native
 NDS est installée avec le paquet C++, mais les adaptateurs `Core`, `sdk::System`
 et Libretro NDS restent à développer.
