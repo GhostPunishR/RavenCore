@@ -8,9 +8,10 @@ namespace ravenemu::nds {
 
 void Machine::run_cycles(std::uint64_t cycles) {
     if (!entries_) throw Error("NDS : aucune cartouche chargée");
+    if (powered_off()) return;
     if (cycles > std::numeric_limits<std::uint64_t>::max() - scheduler_.cycles)
         throw std::overflow_error("NDS : horloge de l'ordonnanceur débordante");
-    while (cycles) {
+    while (cycles && !powered_off()) {
         // Changer de phase après le succès seulement : un diagnostic sur
         // ARM7 ne réexécute pas le premier pas ARM9 lors de la reprise.
         switch (scheduler_.phase) {

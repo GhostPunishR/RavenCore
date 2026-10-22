@@ -175,7 +175,7 @@ void interrupts_and_errors_test() {
           "annulation SPI ne supprime pas l'événement différé");
 
     // Un accès combinant SPICNT et SPIDATA est validé avant toute mutation.
-    for (const auto unsupported : {0x8000U,0x8100U,0x8300U,0x8600U}) {
+    for (const auto unsupported : {0x8100U,0x8300U,0x8400U,0x8600U}) {
         expect_failure<ravenemu::Error>([&] { memory.write32(arm7,control,0xd00000U | unsupported); }, "SPI non implémenté accepté");
         check(memory.read32(arm7,control) == 0x00550000, "écriture SPI refusée a changé un registre");
     }

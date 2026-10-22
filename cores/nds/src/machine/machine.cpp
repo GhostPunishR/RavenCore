@@ -81,7 +81,7 @@ void Machine::step(Processor cpu) {
 
 void Machine::run_steps(Processor cpu, std::size_t instructions) {
     if (!entries_) throw Error("NDS : aucune cartouche chargée");
-    for (std::size_t i = 0; i < instructions; ++i) step(cpu);
+    for (std::size_t i = 0; i < instructions && !powered_off(); ++i) step(cpu);
 }
 
 } // namespace ravenemu::nds

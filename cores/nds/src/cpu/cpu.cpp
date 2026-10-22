@@ -40,6 +40,7 @@ void Cpu::set_register(std::size_t index, std::uint32_t value) {
 }
 
 void Cpu::step(Memory& memory) {
+    if (memory.powered_off()) return;
     if (memory.step_dma(processor_)) return; // priorité au bus DMA, aucun registre CPU modifié
     if (processor_ == Processor::arm7 && memory.consume_arm7_halt()) state_.waiting_for_interrupt = true;
     const bool irq = irq_line_ || memory.irq_pending(processor_);

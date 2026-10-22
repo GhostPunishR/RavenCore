@@ -43,6 +43,9 @@ public:
     // pressed=false relâche le stylet même sans firmware, en conservant les ADC.
     void set_touch_position(std::uint16_t x, std::uint16_t y, bool pressed = true);
     [[nodiscard]] const InputState& input_state() const noexcept { return input_.state(); }
+    void set_battery_low(bool low) noexcept { spi_.set_battery_low(low); }
+    [[nodiscard]] const PowerManagement& power_management() const noexcept { return spi_.power_management(); }
+    [[nodiscard]] bool powered_off() const noexcept { return power_management().powered_off(); }
     // Contrôle système ARM9 ; sans effet sur les accès ARM7 ou DMA.
     [[nodiscard]] Cp15& cp15() noexcept { return cp15_; }
     [[nodiscard]] const Cp15& cp15() const noexcept { return cp15_; }

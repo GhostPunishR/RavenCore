@@ -280,6 +280,20 @@ int main() {
     if (nds.cpu_state(ravenemu::nds::Processor::arm7).waiting_for_interrupt ||
         nds.cpu_state(ravenemu::nds::Processor::arm7).instructions != before_halt ||
         nds.memory().irq_pending(ravenemu::nds::Processor::arm7)) return 1;
+    nds.set_battery_low(true);
+    const auto pm_byte = [&](std::uint8_t value, bool last) {
+        nds.memory().write16(ravenemu::nds::Processor::arm7,0x040001c0,last ? 0x8002 : 0x8802);
+        nds.memory().write8(ravenemu::nds::Processor::arm7,0x040001c2,value);
+        nds.advance_cycles(256);
+        return nds.memory().read8(ravenemu::nds::Processor::arm7,0x040001c2);
+    };
+    static_cast<void>(pm_byte(0x81,false));
+    if (pm_byte(0,true) != 1 || !nds.power_management().upper_backlight_enabled()) return 1;
+    static_cast<void>(pm_byte(0,false)); static_cast<void>(pm_byte(0x40,true));
+    if (!nds.powered_off() || nds.power_management().lower_backlight_enabled()) return 1;
+    const auto stopped_clock = nds.scheduler_state().cycles;
+    nds.run_cycles(1000);
+    if (nds.scheduler_state().cycles != stopped_clock || nds.snapshot_backup().data != fram_saved.data) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

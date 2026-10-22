@@ -21,6 +21,7 @@ const DmaController& Memory::dma(Processor cpu) const noexcept { return cpu == P
 bool Memory::dma_pending(Processor cpu) const noexcept { return dma(cpu).next().has_value(); }
 
 bool Memory::step_dma(Processor cpu) {
+    if (powered_off()) return false;
     const auto transfer = dma(cpu).next();
     if (!transfer) return false;
     try {

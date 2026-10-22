@@ -22,7 +22,7 @@ nds/
 │   ├── ipc/              # synchronisation et FIFO ARM9/ARM7
 │   ├── machine/          # assemblage des deux CPU et chargement
 │   ├── memory/           # bus RAM, miroirs et WRAM
-│   ├── spi/              # bus ARM7, protocole flash partagé et convertisseur tactile
+│   ├── spi/              # bus ARM7, Powerman, flash partagée et convertisseur tactile
 │   ├── timers/           # compteurs, préscalers et cascade
 │   └── video/            # horloge LCD, VRAM, fonds, sprites, fenêtres et effets A/B
 └── tests/                # programmes et BIOS synthétiques
@@ -1365,11 +1365,66 @@ pendant sa lecture. PD0 à un désactive /PENIRQ ; PD0 à zéro l'autorise si
 la DS originale ; les variantes DS Lite, le contrôleur DSi, le bruit et les
 temps analogiques fins restent hors périmètre.
 
-Powerman, périphérique réservé et mode de transfert SPI 16 bits restent refusés
+Le périphérique réservé et le mode de transfert SPI 16 bits restent refusés
 au strobe actif, avec un diagnostic et sans mutation. Le périphérique firmware
 est décrit ci-dessous. Le SPI auxiliaire des EEPROM, flash et FRAM cartouche est décrit plus
 haut ; le DMA SPI reste à développer. Copie, `clear_ram()` et rechargement conservent les mêmes
 contrats que les autres périphériques, sans IRQ différée après reset.
+
+## Powerman, batterie et extinction
+
+Le périphérique SPI 0 émule le **Mitsumi 3152A de la DS originale**, dans
+`PowerManagement` (`<ravenemu/nds/power_management.hpp>`). Cette implémentation
+C++ originale suit [GBATEK, DS Power Management Device](https://mgba-emu.github.io/gbatek/ds.html#dspowermanagementdevice),
+sans code ni dépendance d'un autre émulateur. Un premier octet sélectionne
+l'index (bits 0..6) et la direction (bit 7 : lecture), puis un second octet
+transfère la donnée. CS doit rester actif entre les deux octets.
+
+| Index | Fonction |
+| --- | --- |
+| 0 | Amplificateur audio, mute, rétroéclairages bas/haut, clignotement LED et extinction ; masque `0x7f` |
+| 1 | Batterie bonne/basse sur bit 0, lecture seule |
+| 2 | Amplificateur microphone sur bit 0 |
+| 3 | Gain microphone sur bits 0..1 |
+| 4..127 | Miroirs de 0..3, conformément au modèle DS originale |
+
+Les écritures deviennent visibles à la fin de l'octet SPI, avant même de
+relâcher CS. Désactiver SPI pendant un octet l'abandonne sans modifier les
+registres ni produire d'IRQ. Les octets déjà terminés restent appliqués.
+Changer de périphérique oublie l'index sélectionné. Les quatre débits, busy,
+les accès combinés contrôle/données et IF.23 suivent le bus SPI commun.
+
+`Machine::power_management()` et `Memory::power_management()` exposent l'état
+en lecture seule, dont les deux rétroéclairages. `set_battery_low(bool)` fournit
+l'entrée batterie de l'hôte, bonne par défaut, conservée lors des resets et
+rechargements. Les valeurs initiales `control=0x0d`, microphone désactivé et
+gain 1 sont une convention du démarrage direct ; elles ne prétendent pas
+reproduire les valeurs analogiques au branchement de l'alimentation.
+
+Le bit 6 du registre 0 éteint la machine au terme de son octet. `powered_off()`
+permet à l'hôte de l'observer : CPU, DMA, timers et balayage LCD cessent d'avancer.
+Un grand budget `run_cycles()` s'arrête à cette frontière ; le compteur de
+l'ordonnanceur indique le temps réellement exécuté. Les IRQ et boutons ne
+remettent pas sous tension. Un chargement de cartouche réussi réinitialise
+l'alimentation et les registres ; un chargement refusé conserve l'état éteint.
+`Memory::clear_ram()` réinitialise aussi Powerman. Charger seulement une image
+firmware ne rétablit pas l'alimentation. Les sauvegardes restent accessibles
+par les API de snapshot et d'acquittement après extinction.
+
+Les images RGB555 représentent toujours la sortie des moteurs vidéo : Powerman
+ne change ni les pixels ni POWCNT1. L'hôte doit appliquer les rétroéclairages
+et l'état éteint à leur présentation. Le clignotement LED et les commandes
+d'amplificateurs sont mémorisés ; leur restitution dépend des futurs adaptateurs
+et de l'audio. Les variantes Lite/DSi, les effets analogiques du rétroéclairage,
+la décharge réelle de batterie et la corruption d'une flash lors d'une coupure
+électrique ne sont pas simulés. Sleep et POWCNT2 restent à implémenter.
+
+`nds_powerman` vérifie les 128 indices, les masques, les quatre débits, les IRQ,
+la désélection, les écritures annulées, les copies en cours de transfert et les
+resets. Un programme ARM7 synthétique écrit puis lit le contrôleur, publie sa
+batterie en RAM et éteint les deux CPU. Les tests contrôlent aussi la frontière
+d'arrêt sur une grande avance, l'absence de réveil par IRQ, l'export d'une FRAM
+après extinction et le redémarrage. Aucune ROM commerciale n'est utilisée.
 
 ## Firmware SPI, réglages et étalonnage tactile
 
@@ -1747,7 +1802,7 @@ pixels, avec copies et chargements refusés/réussis.
 
 Prochains jalons : compléter les instructions et durées CPU/bus, le démarrage,
 les autres mémoires de sauvegarde cartouche et leur sélection automatique,
-les variantes du protocole ROM, Powerman et le démarrage firmware,
+les variantes du protocole ROM, Sleep/POWCNT2 et le démarrage firmware,
 puis 3D et audio.
 L'ordonnanceur actuel reste un modèle fonctionnel à coût uniforme.
 

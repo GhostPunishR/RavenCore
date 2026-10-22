@@ -22,6 +22,8 @@ void Memory::advance_clock(std::uint64_t cycles) noexcept {
 }
 
 void Memory::advance_cycles(std::uint64_t cycles) {
+    // Ne pas laisser une grande avance dépasser l'octet qui coupe le courant.
+    cycles = std::min(cycles, spi_.cycles_until_power_off());
     constexpr auto visible_end = LcdTiming::visible_lines * LcdTiming::line_cycles;
     constexpr unsigned group_cycles = 8 * 6;
     unsigned completed_fifo_frames = 0;

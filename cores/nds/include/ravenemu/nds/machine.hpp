@@ -40,6 +40,9 @@ public:
     void set_key(Key key, bool pressed) { memory_.set_key(key, pressed); }
     void set_touch_position(std::uint16_t x, std::uint16_t y, bool pressed = true) { memory_.set_touch_position(x,y,pressed); }
     [[nodiscard]] const InputState& input_state() const noexcept { return memory_.input_state(); }
+    void set_battery_low(bool low) noexcept { memory_.set_battery_low(low); }
+    [[nodiscard]] const PowerManagement& power_management() const noexcept { return memory_.power_management(); }
+    [[nodiscard]] bool powered_off() const noexcept { return memory_.powered_off(); }
     [[nodiscard]] Memory& memory() noexcept { return memory_; }
     [[nodiscard]] const Memory& memory() const noexcept { return memory_; }
     [[nodiscard]] VideoFrame render_frame() const { return memory_.render_frame(); }
@@ -51,6 +54,8 @@ public:
     // Budget en cycles communs à timer_clock_hz. Coût uniforme d'un pas par
     // créneau CPU : ne reproduit pas encore les timings des instructions/bus.
     // Une reprise termine la phase interrompue sans rejouer les pas terminés.
+    // Powerman peut arrêter la machine avant la fin du budget ; powered_off()
+    // et scheduler_state().cycles permettent à l'hôte d'observer cet arrêt.
     void run_cycles(std::uint64_t cycles);
     // Exécute jusqu'à la prochaine frontière LCD (une image entière à phase zéro).
     void run_frame();
