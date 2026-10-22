@@ -41,12 +41,13 @@ void Cpu::set_register(std::size_t index, std::uint32_t value) {
 
 void Cpu::step(Memory& memory) {
     if (memory.step_dma(processor_)) return; // priorité au bus DMA, aucun registre CPU modifié
+    if (processor_ == Processor::arm7 && memory.consume_arm7_halt()) state_.waiting_for_interrupt = true;
     const bool irq = irq_line_ || memory.irq_pending(processor_);
     const bool woke = state_.waiting_for_interrupt;
     if (woke) {
-        // ARM9 WFI dépend de IME/IE/IF (ligne IRQ), mais pas du masque I.
-        // Les lignes externes représentent déjà les entrées physiques IRQ/FIQ.
-        if (!irq && !fiq_line_) return;
+        // ARM7 HALT ne teste pas IME ; ARM9 WFI utilise la ligne IRQ complète.
+        const bool wake = processor_ == Processor::arm7 ? (irq_line_ || memory.arm7_halt_wake_pending()) : irq;
+        if (!wake && !fiq_line_) return;
         state_.waiting_for_interrupt = false;
     }
     if ((fiq_line_ && !state_.fiq_disabled) || (irq && !state_.irq_disabled)) {
@@ -71,6 +72,7 @@ void Cpu::step(Memory& memory) {
         detail::Interpreter interpreter{state_, processor_, memory};
         interpreter.execute(*instruction);
         state_ = interpreter.s;
+        if (processor_ == Processor::arm7 && memory.consume_arm7_halt()) state_.waiting_for_interrupt = true;
     } catch (const detail::ProtectionFault&) {
         auto prepared = state_;
         detail::enter_exception(prepared, memory.exception_base(processor_), detail::Exception::data_abort, pc + 8U);

@@ -13,8 +13,8 @@ struct ProtectionFault {};
  */
 class DataBus {
 public:
-    DataBus(Memory& memory, Processor cpu, bool privileged)
-        : memory_(memory), cpu_(cpu), privileged_(privileged) {}
+    DataBus(Memory& memory, Processor cpu, bool privileged, std::uint32_t pc)
+        : memory_(memory), cpu_(cpu), privileged_(privileged), from_bios_(cpu == Processor::arm7 && pc < 0x4000) {}
     [[nodiscard]] std::uint8_t read8(std::uint32_t address) {
         check(address, false);
         return memory_.read8(cpu_, address);
@@ -29,15 +29,15 @@ public:
     }
     void write8(std::uint32_t address, std::uint8_t value) {
         check(address, true);
-        memory_.write8(cpu_, address, value);
+        memory_.write(cpu_, address, value,1,Memory::Access::data,from_bios_);
     }
     void write16(std::uint32_t address, std::uint16_t value) {
         check(address, true);
-        memory_.write16(cpu_, address, value);
+        memory_.write(cpu_, address, value,2,Memory::Access::data,from_bios_);
     }
     void write32(std::uint32_t address, std::uint32_t value) {
         check(address, true);
-        memory_.write32(cpu_, address, value);
+        memory_.write(cpu_, address, value,4,Memory::Access::data,from_bios_);
     }
     void read_words(std::uint32_t address, std::span<std::uint32_t> values) {
         check_words(address, values.size(), false);
@@ -45,7 +45,7 @@ public:
     }
     void write_words(std::uint32_t address, std::span<const std::uint32_t> values) {
         check_words(address, values.size(), true);
-        memory_.write_words(cpu_, address, values);
+        memory_.write_words(cpu_, address, values,from_bios_);
     }
 
 private:
@@ -61,6 +61,7 @@ private:
     Memory& memory_;
     Processor cpu_;
     bool privileged_;
+    bool from_bios_;
 };
 
 } // namespace ravenemu::nds::detail

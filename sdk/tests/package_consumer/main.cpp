@@ -270,6 +270,16 @@ int main() {
     nds.acknowledge_backup_saved(fram_saved.generation);
     nds_restored.load_backup(ravenemu::nds::BackupType::fram_32k,fram_saved.data,fram_saved.status);
     if (nds.backup_dirty() || nds_restored.snapshot_backup().data != fram_saved.data || nds_restored.backup_dirty()) return 1;
+    if (nds.memory().read8(card_cpu,0x04000300) != 1 ||
+        nds.memory().read8(ravenemu::nds::Processor::arm7,0x04000300) != 1) return 1;
+    const auto before_halt = nds.cpu_state(ravenemu::nds::Processor::arm7).instructions;
+    nds.memory().write8(ravenemu::nds::Processor::arm7,0x04000301,0x80); nds.run_cycles(1);
+    if (!nds.cpu_state(ravenemu::nds::Processor::arm7).waiting_for_interrupt) return 1;
+    nds.memory().write32(ravenemu::nds::Processor::arm7,0x04000210,8);
+    nds.memory().request_interrupt(ravenemu::nds::Processor::arm7,8); nds.run_cycles(1);
+    if (nds.cpu_state(ravenemu::nds::Processor::arm7).waiting_for_interrupt ||
+        nds.cpu_state(ravenemu::nds::Processor::arm7).instructions != before_halt ||
+        nds.memory().irq_pending(ravenemu::nds::Processor::arm7)) return 1;
     // Le nouveau composant NDS doit aussi être exporté par le paquet installé.
     try {
         const ravenemu::nds::Cartridge invalid{std::span<const std::uint8_t>{}};

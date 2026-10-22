@@ -19,6 +19,7 @@ void Memory::apply_ipc_interrupts(Ipc::Interrupts sources) noexcept {
 }
 
 std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address) const noexcept {
+    if (address >= 0x04000300 && address <= 0x04000303) return power_byte(cpu,address - 0x04000300U);
     if (address >= 0x040001a0 && address <= 0x040001af)
         return cpu == gamecard_owner() ? gamecard_.read_byte(address - 0x040001a0U) : std::uint8_t{0};
     if (address >= 0x04000204 && address <= 0x04000207) {
@@ -82,7 +83,11 @@ std::optional<std::uint8_t> Memory::io_byte(Processor cpu, std::uint32_t address
     return std::nullopt;
 }
 
-void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t value) noexcept {
+void Memory::write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t value, bool from_bios) noexcept {
+    if (address >= 0x04000300 && address <= 0x04000303) {
+        write_power_byte(cpu,address - 0x04000300U,value,from_bios);
+        return;
+    }
     if (address >= 0x04000204 && address <= 0x04000207) {
         if (address == 0x04000204) {
             exmem_local_[cpu == Processor::arm9 ? 0U : 1U] = value & 0x7fU;

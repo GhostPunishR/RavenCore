@@ -31,8 +31,9 @@ private:
  * Une instruction non implémentée ou un accès bus non pris en charge lève
  * CpuExecutionError, sans avancer le CPU ni modifier ses registres.
  * Une faute MPU ARM9 entre en Prefetch/Data Abort sans terminer l'instruction.
- * WFI suspend les instructions jusqu'à une entrée IRQ/FIQ, même masquée dans
- * CPSR. Un réveil masqué consomme un pas sans instruction.
+ * WFI ARM9 / HALT ARM7 suspendent les instructions jusqu'à une entrée IRQ/FIQ,
+ * même masquée dans CPSR. HALT se réveille sur IE&IF sans IME ; WFI vérifie IME.
+ * Un réveil masqué consomme un pas sans instruction.
  * Un DMA déclenché transfère une unité par pas en suspendant le CPU ; ses
  * erreurs lèvent DmaTransferError et préservent l'unité fautive.
  */

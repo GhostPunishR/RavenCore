@@ -8,6 +8,7 @@ std::uint16_t read16(std::span<const std::uint8_t> bytes, unsigned offset) noexc
 }
 
 void Machine::prepare_boot_memory(Memory& memory, const Cartridge& cartridge) {
+    memory.complete_boot();
     const auto rom = cartridge.rom();
     constexpr auto cpu = Processor::arm7;
     // Informations post-firmware de GBATEK, NDS BIOS RAM Usage. Les CRC sont

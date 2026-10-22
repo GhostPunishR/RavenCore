@@ -350,7 +350,7 @@ ARM9/ARM7 lisent les informations de boot depuis la RAM partagée.
 
 Ce chargement reste une préparation expérimentale : il n'exécute pas le BIOS
 ou le firmware et ne valide pas les CRC déclarés, le logo ni le chiffrement
-KEY1. Les valeurs de débogueur, RTC et les registres POSTFLG ne sont pas encore
+KEY1. Les valeurs de débogueur et RTC ne sont pas encore
 modélisés ; il ne revendique pas un état post-firmware complet. Les
 MMIO LCD, interruption, DMA, timers, entrées, IPC, VRAMCNT et WRAMCNT/WRAMSTAT sont présents.
 Les neuf banques VRAM ont des fenêtres CPU réaffectables ; palettes et OAM
@@ -376,7 +376,7 @@ const auto& arm7 = machine.cpu_state(ravenemu::nds::Processor::arm7);
 Ces appels exécutent le nombre demandé de pas sur le CPU sélectionné,
 sans faire avancer l'autre. Le budget est borné même sur une boucle infinie.
 Un pas transfère une unité DMA, entre en exception, exécute une instruction
-ou reste en attente WFI.
+ou reste en attente WFI/HALT.
 Un DMA déclenché en attente est prioritaire sur les interruptions et suspend
 uniquement le CPU associé ; l'autre CPU n'avance que par ses propres appels.
 Le compteur `instructions`
@@ -520,9 +520,54 @@ pas suivant reprend le code. Les lignes externes sont des entrées physiques
 déjà affirmées. Un CPU en attente continue de servir ses unités DMA ; dans
 `run_cycles`, ARM7 et les horloges continuent. WFI conditionnelle ignorée ne
 suspend pas, et les accès en User ou sur ARM7 entrent en Undefined. Le reset CPU
-ou un chargement réussi efface l'attente. HALTCNT ARM7 et Sleep restent absents.
+ou un chargement réussi efface l'attente. HALTCNT ARM7 est décrit ci-dessous ; Sleep reste absent.
 Références : [GBATEK, HALTCNT et attente ARM9](https://mgba-emu.github.io/gbatek/ds.html#4000301hnds7haltcntlowpowermodecontrolrw),
 [commandes CP15](https://mgba-emu.github.io/gbatek/ds.html#armcp15cachecontrol).
+
+## POSTFLG et HALT ARM7
+
+`0x04000300` expose deux POSTFLG indépendants. Le bit 0 indique la fin du boot
+et ne peut être effacé que par `Memory::clear_ram()`. ARM9 peut aussi modifier
+son bit 1. ARM7 peut seulement fixer le bit 0 depuis une instruction située
+dans ses 16 Kio de BIOS ; les écritures depuis la RAM ou l'API hôte sont
+ignorées. Le bus de données transporte l'adresse d'origine de l'instruction,
+sans conserver d'autorisation d'un accès BIOS précédent. Cette règle couvre
+les stores ARM/Thumb 8/16/32 bits et STM. Le chargement direct de `Machine`
+initialise les deux flags à un, sans exécuter de BIOS. Les bits réservés sont
+nuls, et les octets ARM9 `0x301..303` sont sans effet. La redirection du vecteur
+de reset vers un débogueur Nintendo n'est pas implémentée.
+
+`0x04000301` expose HALTCNT sur ARM7. Le mode `80` termine l'instruction qui
+l'écrit puis active `CpuState::waiting_for_interrupt`. Les bits bas sont
+réservés ; le mode zéro ne demande aucune action. Le registre conserve la
+dernière sélection et la demande HALT est consommée une seule fois par le CPU.
+Un mode zéro ultérieur n'annule pas une demande déjà acceptée. Les écritures
+hôte peuvent aussi demander HALT ; celui-ci devient visible dans l'état du
+CPU à son prochain pas, après les éventuelles unités DMA prioritaires.
+
+HALT suspend uniquement les instructions ARM7 : DMA, timers, LCD et ARM9
+continuent. Le réveil matériel teste `IE & IF` sans IME, contrairement au WFI
+ARM9. IME et CPSR.I conservent leur rôle pour entrer en IRQ : un événement peut
+donc réveiller ARM7 avec IME à zéro sans exécuter de gestionnaire. Un réveil
+masqué consomme un pas sans instruction, comme WFI. Les lignes externes IRQ/FIQ
+de l'API CPU restent des entrées physiques affirmées. Un DMA terminé peut
+réveiller ARM7 sur le pas suivant grâce à son IF. Un reset CPU efface son
+attente ; `clear_ram()` remet aussi flags, HALTCNT et demande en attente à zéro.
+Les copies isolent ces états et un chargement refusé les conserve.
+
+Les modes `40` (GBA) et `c0` (Sleep de la console) restent diagnostiqués avant
+mutation. Une écriture combinée POSTFLG/HALTCNT ou un STM refusé ne fixe donc
+aucun flag et ne laisse aucune demande HALT. Le modèle ne simule pas l'arrêt
+global des périphériques propre à Sleep. Les SWI peuvent fonctionner avec un
+BIOS fourni ; aucun code BIOS tiers ni remplacement HLE n'est ajouté.
+
+`nds_power` vérifie les masques, les bits persistants, les origines BIOS/RAM,
+les quatre familles de stores, les erreurs transactionnelles, les copies, les
+resets, IE/IF/IME/CPSR et les DMA pendant HALT. Un programme ARM7 est réveillé
+par un timer sous l'ordonnanceur tandis qu'ARM9 continue. Un BIOS synthétique
+exécute HALT pendant un SWI puis revient au programme après réveil. Ces tests
+originaux suivent [GBATEK, POSTFLG](https://mgba-emu.github.io/gbatek/ds.html#4000300hnds7nds9postflgbytepostbootflagrw)
+et [HALTCNT](https://mgba-emu.github.io/gbatek/ds.html#4000301hnds7haltcntlowpowermodecontrolrw).
 
 ## Protection mémoire MPU ARM9
 

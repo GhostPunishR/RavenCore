@@ -35,6 +35,9 @@ void Memory::clear_ram() noexcept {
     display_control_ = 0;
     display_control_b_ = 0;
     graphics_power_ = 0;
+    post_flags_ = {};
+    halt_control_ = 0;
+    arm7_halt_requested_ = false;
 }
 
 std::size_t Memory::index(Processor cpu, std::uint32_t address) const {
@@ -101,6 +104,10 @@ std::uint32_t Memory::read(Processor cpu, std::uint32_t address, unsigned width)
 void Memory::validate_write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width, Access access) const {
     if ((address & (width - 1U)) != 0) throw Error("NDS : accès RAM non aligné");
     if (cpu == Processor::arm9 && access != Access::external && cp15_.maps_write(address)) return;
+    if (address >= 0x04000300 && address <= 0x04000303) {
+        validate_power_write(cpu,address,value,width);
+        return;
+    }
     if (address == 0x04000188 && width == 4) return;
     if (address >= 0x04100010 && address <= 0x04100013) {
         if (width != 4) throw Error("NDS : port de données cartouche limité aux accès 32 bits");
@@ -124,7 +131,7 @@ void Memory::validate_write(Processor cpu, std::uint32_t address, std::uint32_t 
         if (!io_byte(cpu, address + i) && !video_.read_byte(cpu, address + i)) static_cast<void>(index(cpu, address + i));
 }
 
-void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width, Access access) {
+void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width, Access access, bool from_bios) {
     validate_write(cpu, address, value, width, access);
     if (cpu == Processor::arm9 && access != Access::external && cp15_.maps_write(address)) {
         for (unsigned i = 0; i < width; ++i)
@@ -153,7 +160,7 @@ void Memory::write(Processor cpu, std::uint32_t address, std::uint32_t value, un
     }
     for (unsigned i = 0; i < width; ++i) {
         const auto byte = static_cast<std::uint8_t>(value >> (8U * i));
-        if (io_byte(cpu, address + i)) write_io_byte(cpu, address + i, byte);
+        if (io_byte(cpu, address + i)) write_io_byte(cpu, address + i, byte,from_bios);
         else if (video_.read_byte(cpu, address + i)) video_.write_byte(cpu, address + i, byte);
         else ram_[index(cpu, address + i)] = byte;
     }
@@ -185,6 +192,10 @@ void Memory::write16(Processor cpu, std::uint32_t address, std::uint16_t value) 
 void Memory::write32(Processor cpu, std::uint32_t address, std::uint32_t value) { write(cpu, address, value, 4); }
 
 void Memory::write_words(Processor cpu, std::uint32_t address, std::span<const std::uint32_t> values) {
+    write_words(cpu,address,values,false);
+}
+
+void Memory::write_words(Processor cpu, std::uint32_t address, std::span<const std::uint32_t> values, bool from_bios) {
     if ((address & 3U) != 0) throw Error("NDS : accès RAM non aligné");
     const auto available = (std::uint64_t{0x100000000} - address) / 4U;
     if (values.size() > available) throw Error("NDS : plage RAM débordante");
@@ -198,7 +209,7 @@ void Memory::write_words(Processor cpu, std::uint32_t address, std::span<const s
         } else validate_write(cpu, current, values[i], 4);
     }
     for (std::size_t i = 0; i < values.size(); ++i)
-        write32(cpu, address + static_cast<std::uint32_t>(i * 4), values[i]);
+        write(cpu, address + static_cast<std::uint32_t>(i * 4), values[i],4,Access::data,from_bios);
 }
 
 void Memory::read_words(Processor cpu, std::uint32_t address, std::span<std::uint32_t> values) {

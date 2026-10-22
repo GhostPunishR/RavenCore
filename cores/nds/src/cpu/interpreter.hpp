@@ -11,7 +11,7 @@ void enter_exception(CpuState& state, std::uint32_t vector_base, Exception excep
 class Interpreter {
 public:
     Interpreter(CpuState state, Processor processor, Memory& memory)
-        : s(state), cpu(processor), ram(memory), bus(memory, processor, state.mode != CpuMode::user), pc(state.registers[15]) {}
+        : s(state), cpu(processor), ram(memory), bus(memory, processor, state.mode != CpuMode::user, state.registers[15]), pc(state.registers[15]) {}
 
     CpuState s;
 

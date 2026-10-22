@@ -19,6 +19,7 @@
 #include <vector>
 
 namespace ravenemu::nds {
+namespace detail { class DataBus; }
 
 /** Bus RAM, BIOS, TCM ARM9 et premiers registres MMIO, sans timings ni open-bus.
  * Les accès non mappés ou non alignés lèvent ravenemu::Error.
@@ -91,6 +92,19 @@ public:
     void read_words(Processor cpu, std::uint32_t address, std::span<std::uint32_t> values);
 
 private:
+    friend class Cpu;
+    friend class Machine;
+    friend class detail::DataBus;
+    void complete_boot() noexcept { post_flags_ = {1,1}; }
+    [[nodiscard]] bool consume_arm7_halt() noexcept {
+        const bool requested = arm7_halt_requested_; arm7_halt_requested_ = false; return requested;
+    }
+    [[nodiscard]] bool arm7_halt_wake_pending() const noexcept {
+        return (arm7_interrupts_.enable() & arm7_interrupts_.flags()) != 0;
+    }
+    void validate_power_write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width) const;
+    [[nodiscard]] std::uint8_t power_byte(Processor cpu, unsigned offset) const noexcept;
+    void write_power_byte(Processor cpu, unsigned offset, std::uint8_t value, bool from_bios) noexcept;
     enum class Access { data, instruction, external };
     void advance_clock(std::uint64_t cycles) noexcept; // horloges et événements sans capture
     [[nodiscard]] DmaController& dma(Processor cpu) noexcept;
@@ -108,7 +122,7 @@ private:
     [[nodiscard]] std::size_t index(Processor cpu, std::uint32_t address) const;
     [[nodiscard]] std::optional<std::uint8_t> bios_byte(Processor cpu, std::uint32_t address) const;
     [[nodiscard]] std::optional<std::uint8_t> io_byte(Processor cpu, std::uint32_t address) const noexcept;
-    void write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t value) noexcept;
+    void write_io_byte(Processor cpu, std::uint32_t address, std::uint8_t value, bool from_bios = false) noexcept;
     [[nodiscard]] InterruptController& controller(Processor cpu) noexcept;
     [[nodiscard]] const InterruptController& controller(Processor cpu) const noexcept;
     void apply_ipc_interrupts(Ipc::Interrupts sources) noexcept;
@@ -121,7 +135,9 @@ private:
     [[nodiscard]] std::uint32_t peek(Processor cpu, std::uint32_t address, unsigned width, Access access = Access::data) const;
     [[nodiscard]] std::uint32_t read(Processor cpu, std::uint32_t address, unsigned width);
     void validate_write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width, Access access = Access::data) const;
-    void write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width, Access access = Access::data);
+    void write(Processor cpu, std::uint32_t address, std::uint32_t value, unsigned width,
+               Access access = Access::data, bool from_bios = false);
+    void write_words(Processor cpu, std::uint32_t address, std::span<const std::uint32_t> values, bool from_bios);
     Cp15 cp15_;
     std::vector<std::uint8_t> ram_;
     std::vector<std::uint8_t> arm9_bios_;
@@ -145,6 +161,9 @@ private:
     std::uint32_t display_control_b_{};
     std::uint16_t graphics_power_{};
     std::uint8_t wram_control_{};
+    std::array<std::uint8_t,2> post_flags_{};
+    std::uint8_t halt_control_{};
+    bool arm7_halt_requested_{};
 };
 
 } // namespace ravenemu::nds
