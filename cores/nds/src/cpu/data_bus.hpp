@@ -47,6 +47,18 @@ public:
         check_words(address, values.size(), true);
         memory_.write_words(cpu_, address, values,from_bios_);
     }
+    [[nodiscard]] std::uint32_t swap(std::uint32_t address, std::uint32_t value, bool byte) {
+        // L'échange reste dans une seule instruction de l'ordonnanceur. Valider
+        // les deux permissions et l'écriture avant une éventuelle lecture MMIO.
+        check(address, false);
+        check(address, true);
+        const auto width = byte ? 1U : 4U;
+        if (byte) value &= 0xffU;
+        memory_.validate_write(cpu_,address,value,width);
+        const auto previous = memory_.read(cpu_,address,width);
+        memory_.write(cpu_,address,value,width,Memory::Access::data,from_bios_);
+        return previous;
+    }
 
 private:
     void check(std::uint32_t address, bool write) const {

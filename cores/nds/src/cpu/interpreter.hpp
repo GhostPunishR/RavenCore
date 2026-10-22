@@ -72,6 +72,14 @@ private:
 
     void arm_multiply(std::uint32_t raw, bool wide);
 
+    void arm_saturating(std::uint32_t raw);
+
+    void arm_dsp_multiply(std::uint32_t raw);
+
+    void arm_doubleword(std::uint32_t raw);
+
+    void arm_swap(std::uint32_t raw);
+
     void multiple(unsigned rn, std::uint32_t list, bool load, bool pre, bool up, bool writeback,
                   bool restore_status = false);
 

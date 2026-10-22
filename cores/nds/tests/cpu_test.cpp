@@ -344,7 +344,7 @@ void fault_test(Processor processor) {
         0xe10ff000, // MRS pc : encodage imprévisible
         0xe12fff3f, // BLX pc : variante imprévisible
         0xf0000000, // espace inconditionnel hors BLX
-        0xe10f1090, // SWP : échange atomique encore absent
+        0xe10f1090, // SWP : PC interdit comme base
         0xe1b0f000, // MOVS pc en mode System sans SPSR
         0xe7901012, // LDR offset décalé par registre : encodage invalide
         0xe5d0f000, // LDRB pc : variante imprévisible

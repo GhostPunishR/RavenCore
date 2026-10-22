@@ -530,9 +530,9 @@ commune des deux CPU et périphériques, décrite ci-dessous.
 
 | Mode | Instructions actuellement prises en charge |
 | --- | --- |
-| ARM | Les 16 opérations de traitement de données (AND à MVN), opérande immédiate tournée ou registre décalé par constante ou registre ; conditions EQ à AL ; B, BL, BX ; LDR/STR et LDRB/STRB à décalage immédiat ou registre décalé par constante, pré/post-indexés ; LDRH/STRH/LDRSB/LDRSH à décalage immédiat ou registre ; LDM/STM IA/IB/DA/DB ; MUL/MLA et UMULL/UMLAL/SMULL/SMLAL |
+| ARM | Les 16 opérations de traitement de données (AND à MVN), opérande immédiate tournée ou registre décalé par constante ou registre ; conditions EQ à AL ; B, BL, BX ; LDR/STR et LDRB/STRB à décalage immédiat ou registre décalé par constante, pré/post-indexés ; LDRH/STRH/LDRSB/LDRSH à décalage immédiat ou registre ; LDM/STM IA/IB/DA/DB ; SWP/SWPB ; MUL/MLA et UMULL/UMLAL/SMULL/SMLAL |
 | Thumb | Décalages immédiats ; ADD/SUB registre ou immédiat ; MOV/CMP/ADD/SUB immédiats ; les 16 opérations ALU sur registres bas, dont décalages par registre et MUL ; ADD/CMP/MOV sur registres hauts, BX ; LDR littéral ; LDR/STR octet, demi-mot et mot à décalage immédiat ou registre, LDRSB/LDRSH à offset registre, transferts relatifs à SP ; branches conditionnelles, B et BL ; PUSH/POP, LDMIA/STMIA, ADD relatif à PC/SP et ajustement de SP |
-| ARM9 uniquement | BLX par registre en ARM/Thumb et par immédiat en ARM/Thumb ; chargement de PC avec échange ARM/Thumb |
+| ARM9 uniquement | BLX par registre en ARM/Thumb et par immédiat en ARM/Thumb ; chargement de PC avec échange ARM/Thumb ; CLZ ; QADD/QSUB/QDADD/QDSUB ; SMULxy/SMULWy/SMLAxy/SMLAWy/SMLALxy ; PLD ; LDRD/STRD |
 
 Les stockages de PC, les writebacks avec base dans la liste transférée (sauf
 LDMIA Thumb, qui préserve la base chargée), les listes vides, les variantes
@@ -540,7 +540,7 @@ LDM/STM avec transfert des banques User et les autres variantes absentes sont re
 LDM avec PC et bit S est pris en charge pour le retour d'exception.
 Les décalages ALU ARM par registre ne prennent pas encore PC comme opérande,
 quantité de décalage ou destination : leurs règles de pipeline demandent une
-prise en charge distincte. LDRD/STRD et SWP restent absents. Les transferts non
+prise en charge distincte. Les transferts non
 alignés sont refusés, y compris LDRSH sur une adresse impaire.
 
 Les produits ARM 32 bits sont calculés modulo 2^32, les accumulations longues
@@ -557,6 +557,52 @@ les caches physiques et une partie des instructions propres à ARMv5 restent à 
 Ce sous-ensemble commun ne constitue pas encore un
 ARM946E-S ou un ARM7TDMI complet. L'interpréteur lit directement la RAM à chaque
 pas ; il ne reproduit pas le pipeline ni le comportement du code automodifiant.
+
+### Extensions ARM9 et échanges atomiques
+
+Les opérations DSP ARMv5TE sont développées indépendamment dans
+`src/cpu/arm_dsp.cpp`, d'après les formats et comportements décrits dans
+[GBATEK, ARM CPU](https://problemkaputt.de/gbatek.htm#armcpuoverview).
+Elles ne font appel à aucun autre émulateur. `CLZ` compte les zéros de tête
+(32 pour zéro), sans changer les drapeaux. `PLD` est une indication de
+préchargement sans effet dans ce modèle sans cache : elle ne lit pas la mémoire,
+ne retire rien des FIFO et ne provoque pas de Data Abort pour l'adresse suggérée.
+
+`QADD/QSUB/QDADD/QDSUB` saturent dans l'intervalle signé 32 bits. Les variantes
+doublées saturent d'abord le second opérande, puis le résultat ; un débordement
+intermédiaire suffit à lever Q. Les produits DSP sélectionnent indépendamment
+les demi-mots signés haut/bas. `SMULWy/SMLAWy` retiennent les bits 47–16 du
+produit signé, ce qui arrondit les valeurs négatives vers moins l'infini.
+`SMLAxy/SMLAWy` lèvent Q sur débordement de l'accumulation mais conservent le
+résultat modulo 2^32 ; `SMLALxy` accumule modulo 2^64 sans toucher Q.
+Toutes ces instructions conservent NZCV. Q reste levé jusqu'à son effacement
+explicite par MSR ou au reset, et passe par les mécanismes CPSR/SPSR existants.
+
+`LDRD/STRD` chargent/stockent une paire de registres consécutifs à partir d'un
+registre pair r0..r12. Les offsets immédiats et registres, positifs/négatifs,
+pré/post-indexés et le writeback sont gérés. Le bus NDS accepte l'alignement
+sur 4 octets ; les adresses non alignées restent refusées dans le modèle actuel.
+Les encodages réservés et recouvrements interdits de writeback sont diagnostiqués
+avant le transfert. La paire entière est validée avant toute lecture à effet
+de bord ou écriture, selon le même contrat que LDM/STM. Ce choix ne reproduit
+pas les transferts partiels possibles sur faute matérielle.
+
+`SWP/SWPB` fonctionnent sur ARM9 et ARM7. Les permissions de lecture **et**
+d'écriture ainsi que le port de destination sont validés avant la lecture.
+L'échange se termine dans une instruction de l'ordonnanceur : l'autre CPU ne
+peut pas s'intercaler entre lecture et écriture. Cela permet les verrous en
+RAM partagée ; le verrouillage électrique du bus et ses cycles ne sont pas
+modélisés. SWPB accepte toute adresse et étend le résultat à zéro ; SWP mot
+reste limité aux adresses alignées, sans rotation des lectures non alignées.
+Les chemins TCM, MPU et diagnostics du bus restent communs aux autres transferts.
+
+`nds_arm_extensions` vérifie plus de 1400 vecteurs de calcul, les frontières
+signées, les recouvrements autorisés, la conservation des drapeaux, Q collant,
+les conditions fausses, les encodages invalides et la séparation ARM9/ARM7.
+Il couvre aussi les adressages doubles, les FIFO, les refus MPU et l'absence
+de modifications partielles. Un homebrew synthétique fait incrémenter un
+compteur partagé par les deux CPU sous verrou SWP et vérifie chaque mise à jour.
+Ces validations ne constituent pas encore un test de jeu commercial.
 
 `BL` Thumb se déroule en deux pas : le préfixe place la partie haute signée de
 la cible dans LR, puis le suffixe branche et fixe l'adresse de retour Thumb.
@@ -756,8 +802,8 @@ User et System partagent leurs registres. SVC, IRQ, FIQ, Abort et Undefined
 ont leurs propres SP/LR et SPSR ; FIQ possède aussi r8-r12. `MRS/MSR` permettent
 de lire et d'écrire les champs implémentés de CPSR/SPSR. En User, MSR ne peut
 modifier que les drapeaux. Un mode réservé, un accès à SPSR en User/System ou
-un changement de T par MSR est refusé. Q est conservé sur ARM9 ; les instructions
-DSP qui le mettent à jour restent absentes.
+un changement de T par MSR est refusé. Sur ARM9, Q est conservé et mis à jour
+par les instructions de saturation et d'accumulation DSP décrites plus haut.
 
 SWI et les instructions indéfinies explicites (`0xe7f000f0` en ARM et `0xdeXX`
 en Thumb) sauvegardent le CPSR, passent en ARM et branchent sur les vecteurs.

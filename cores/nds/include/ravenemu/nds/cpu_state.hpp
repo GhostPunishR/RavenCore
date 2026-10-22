@@ -19,7 +19,7 @@ struct CpuState {
     bool zero{};
     bool carry{};
     bool overflow{};
-    bool sticky_overflow{}; // Q ARM9 ; les instructions DSP restent absentes
+    bool sticky_overflow{}; // Q ARM9 ; saturation et accumulation DSP, effacement explicite par MSR
     bool thumb{};
     bool irq_disabled{true};
     bool fiq_disabled{true};

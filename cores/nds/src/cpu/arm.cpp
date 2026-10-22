@@ -5,6 +5,12 @@ namespace ravenemu::nds::detail {
 void Interpreter::execute_arm(std::uint32_t raw) {
     const auto cond = raw >> 28U;
     if (cond == 15) {
+        if (cpu == Processor::arm9 && (raw & 0xfd70f000U) == 0xf550f000U) {
+            // PLD : indication de préchargement ARMv5TE, sans effet architectural
+            // ni accès mémoire dans notre modèle sans cache physique.
+            if ((raw & 0x02000000U) && ((raw & 0x10U) || (raw & 15U) == 15)) unsupported();
+            return;
+        }
         if (cpu != Processor::arm9 || (raw & 0xfe000000U) != 0xfa000000U) unsupported();
         // BLX immédiat ARMv5 : le bit H fournit le bit 1 de la cible.
         s.registers[14] = pc + 4U;
@@ -28,6 +34,16 @@ void Interpreter::execute_arm(std::uint32_t raw) {
         const auto target = reg(raw & 15U);
         s.registers[14] = pc + 4U;
         exchange(target);
+    } else if ((raw & 0x0fff0ff0U) == 0x016f0f10U) {
+        const auto rd = (raw >> 12U) & 15U, rm = raw & 15U;
+        if (cpu != Processor::arm9 || rd == 15 || rm == 15) unsupported();
+        s.registers[rd] = static_cast<std::uint32_t>(std::countl_zero(reg(rm)));
+    } else if ((raw & 0x0f900ff0U) == 0x01000050U) {
+        arm_saturating(raw);
+    } else if ((raw & 0x0f900090U) == 0x01000080U) {
+        arm_dsp_multiply(raw);
+    } else if ((raw & 0x0fb00ff0U) == 0x01000090U) {
+        arm_swap(raw);
     } else if ((raw & 0x0e000000U) == 0x0a000000U) {
         if ((raw & 0x01000000U) != 0) s.registers[14] = pc + 4U;
         branch(pc + 8U + sign_extend((raw & 0x00ffffffU) << 2U, 26));
@@ -138,6 +154,7 @@ void Interpreter::arm_halfword(std::uint32_t raw) {
     const auto rn = (raw >> 16U) & 15U;
     const auto rd = (raw >> 12U) & 15U;
     const auto type = (raw >> 5U) & 3U;
+    if (!load && type >= 2) { arm_doubleword(raw); return; }
     if (rd == 15 || (!load && type != 1) || (!pre && writeback) ||
         ((!pre || writeback) && (rn == 15 || rn == rd)) ||
         (!immediate && ((raw & 0xf00U) != 0 || (raw & 15U) == 15))) unsupported();

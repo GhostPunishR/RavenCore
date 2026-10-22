@@ -295,8 +295,8 @@ void rejected_variant_test(Processor processor) {
         0xe08f2110, // Rn=pc pour décalage par registre
         0xe0020f90, // multiplication avec pc
         0xe0822190, // produit long : destinations identiques
-        0xe1c020d0, // LDRD : pas un stockage signé, encore absent
-        0xe1c020f0, // STRD encore absent
+        0xe1c030d0, // LDRD : registre de destination impair
+        0xe1c030f0, // STRD : paire de registres invalide
         0xe19021b1, // offset demi-mot registre : champ haut non nul
         0xe1d0f0b0, // LDRH pc
         0xe1f000b2, // LDRH r0,[r0,#2]! : base/destination identiques

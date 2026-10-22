@@ -44,6 +44,7 @@ add_library(nds_raven_core STATIC
     src/cpu/boot.cpp
     src/cpu/cpu_state.cpp
     src/cpu/arm.cpp
+    src/cpu/arm_dsp.cpp
     src/cpu/thumb.cpp
     src/cpu/transfer.cpp
     src/cpu/psr.cpp
@@ -54,6 +55,10 @@ target_link_libraries(nds_raven_core PUBLIC ravenemu_common)
 set_target_properties(nds_raven_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(BUILD_TESTING)
+    add_executable(nds_arm_extensions_tests tests/arm_extensions_test.cpp)
+    target_include_directories(nds_arm_extensions_tests PRIVATE ../common/tests/support)
+    target_link_libraries(nds_arm_extensions_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_arm_extensions COMMAND nds_arm_extensions_tests)
     add_executable(nds_audio_tests tests/audio_test.cpp)
     target_include_directories(nds_audio_tests PRIVATE ../common/tests/support)
     target_link_libraries(nds_audio_tests PRIVATE nds_raven_core)
