@@ -11,10 +11,11 @@ Sur une vraie console, un transfert échange les bits des deux consoles au même
 - **La console qui cadence le transfert envoie sa donnée puis attend la réponse**, en temps réel, au cycle exact du transfert. Son temps émulé ne bouge pas pendant l'attente : le jeu ne voit aucun retard, seule l'image marque une pause.
 - **L'autre console répond quand elle lit le message.** Elle se comporte comme une console qui attendait l'horloge d'un partenaire : elle reçoit la donnée, rend la sienne et lève son interruption.
 - **Mais jamais plus tôt que sur une vraie console.** Chaque transfert porte l'écart, en cycles, depuis le précédent chez celle qui cadence. L'autre n'y entre pas avant que sa propre horloge ait avancé d'autant depuis le transfert précédent : son jeu a eu le temps de traiter le premier et de préparer la donnée suivante. Sans cela, deux messages lus d'affilée recevraient la même donnée, et un jeu comme Pokémon couperait la liaison.
+- **Ni trop loin devant, en GBA.** Pendant une liaison multijoueur suivie, la console qui ne cadence pas suit l'horloge du parent grâce à ces écarts. Si elle la devance de trois images, elle attend le transfert suivant, une seconde au plus. Sans cela, elle tournerait à 60 images par seconde pendant que le parent ralentit sur le réseau. Elle prendrait alors des images d'avance, et un jeu comme Pokémon croirait la liaison rompue.
 - **Entre deux images**, ou quand l'application est en pause, `ravenemu_remote_link_service` fait avancer la console jusqu'à ce cycle, sans attendre l'image suivante. L'image suivante reprend là où elle en est.
 - **Les deux consoles appliquent la même décision.** Chaque transfert reçoit une seule réponse, si bien qu'un échange ne peut pas donner deux résultats différents.
 
-Le coût est donc d'**un aller-retour réseau par transfert** pour la console qui cadence. Sur un réseau local (2 à 10 ms), un échange Pokémon prend quelques secondes de plus. Par Internet (50 à 100 ms par aller-retour), c'est trop lent pour jouer.
+Le coût est donc d'**un aller-retour réseau par transfert** pour la console qui cadence. En GBA, l'autre la suit et ralentit avec elle tant que la liaison est suivie. Sur un réseau local (2 à 10 ms), un échange Pokémon prend quelques secondes de plus. Par Internet (50 à 100 ms par aller-retour), c'est trop lent pour jouer.
 
 ## Côté hôte (API C)
 
@@ -80,6 +81,8 @@ Les modes sont :
 
 La version 1 (RavenCore 0.9) n'avait pas l'écart : un appareil en version 1 voit le câble incompatible.
 
+En GBA, RavenCore 0.10.0 plafonnait l'écart à 125 829 cycles, la durée du plus long transfert. Depuis la 0.11.0, il porte l'écart réel, et l'autre console s'en sert pour suivre l'horloge de celle qui cadence. Un écart d'exactement 125 829 cycles désigne un partenaire en 0.10.0 : l'autre console ne règle alors pas son pas sur lui, comme en 0.10.0.
+
 Un message mal formé est refusé et ignoré. Sont considérés comme mal formés : une taille inattendue, un mode d'une autre famille, une durée supérieure à un million de cycles. Rien n'est retenu avant l'annonce de l'autre console. Chaque nouveau branchement repart de zéro : les messages et attentes du branchement précédent sont oubliés.
 
 ## Game Boy et Game Boy Color
@@ -98,6 +101,7 @@ Un message mal formé est refusé et ignoré. Sont considérés comme mal formé
   - Le parent envoie sa donnée au départ du transfert, puis attend la réponse à la fin, à son propre cycle.
   - L'enfant entre dans le transfert quand il lit le message, pour sa durée, sur sa propre horloge, mais pas avant l'écart annoncé depuis le transfert précédent (au plus la durée du plus long transfert, 125 829 cycles) ; il répond à ce moment-là. Il reçoit SIOMULTI0 (parent) et SIOMULTI1 (lui-même), et 0xFFFF pour les joueurs absents.
   - Un enfant qui n'est pas en mode multijoueur répond 0xFFFF.
+  - **Pas du parent.** Tant que les transferts se suivent à moins de deux images (561 792 cycles), l'enfant suit l'horloge du parent. À chaque transfert, elle avance de l'écart annoncé, sans dépasser l'instant où l'enfant y entre : un enfant en retard n'attend donc jamais. L'enfant n'avance pas à plus de trois images (842 688 cycles) de cette horloge : il attend le transfert suivant pendant son image, une seconde au plus. Si le parent se tait au-delà, ou quitte le mode multijoueur, l'enfant reprend sa route. Au premier transfert, et après un écart de deux images ou plus, l'horloge du parent repart de celle de l'enfant : l'avance prise hors liaison ne compte pas.
 - **Mode normal 8 ou 32 bits.**
   - La console à horloge interne cadence. L'autre répond si elle attend : horloge externe et bit Start levé.
   - Sinon, l'autre rend le niveau de repos de sa ligne. C'est aussi le cas si les deux consoles cadencent en même temps.
@@ -105,7 +109,8 @@ Un message mal formé est refusé et ignoré. Sont considérés comme mal formé
 
 ## Limites
 
-- **Réseau.** Prévu pour un réseau local. La console qui cadence attend un aller-retour réseau par transfert : un jeu GBA qui enchaîne plusieurs transferts par image peut passer sous 60 images par seconde. Pokémon Rubis ↔ Émeraude, mesuré pendant un échange : 60 images par seconde sans latence, environ 46 avec 2 ms d'aller-retour, 17 avec 6 ms. L'autre console garde 60 images par seconde ; le jeu les attend lui-même.
+- **Réseau.** Prévu pour un réseau local. La console qui cadence attend un aller-retour réseau par transfert : un jeu GBA qui enchaîne plusieurs transferts par image peut passer sous 60 images par seconde, et l'autre console ralentit avec elle. Pokémon Rubis ↔ Émeraude, mesuré pendant la liaison (salle d'échange, échange) : 60 images par seconde sans latence, environ 16 avec 6 ms d'aller-retour, 5 avec 20 ms. L'échange va au bout dans les trois cas.
+- **Game Boy.** La console qui ne cadence pas ne suit pas encore l'horloge de l'autre : sur un réseau lent, elle peut prendre des images d'avance. Les échanges Pokémon Game Boy et Game Boy Color n'ont pas encore été vérifiés.
 - **Consoles.** Deux consoles seulement, y compris en GBA.
 - **Non émulés** : le mode UART, le JOY Bus et l'adaptateur sans fil.
 - **États instantanés.** Le câble distant n'entre pas dans l'état d'une console. Recharger un état pendant une liaison casse l'échange en cours ; l'hôte doit l'empêcher.
@@ -129,4 +134,5 @@ Un message mal formé est refusé et ignoré. Sont considérés comme mal formé
   - en Game Boy (GBC et GB), un maître et un esclave échangent leurs octets ;
   - en GBA, deux consoles font un transfert multijoueur ; le résultat est celui du câble local ;
   - rafales comme celles de Pokémon, l'enfant tournant comme dans une application (une image, puis il dort et son câble est servi) : 16 transferts multijoueur en GBA, 16 octets d'un maître GB vers un esclave GBC, chaque numéro reçu une fois et dans l'ordre ;
+  - pas du parent en GBA, comme dans les salles du Club Câble : 12 images de 9 transferts chacune, à 0 et 5 ms de latence. Entre le premier transfert et le dernier, l'enfant compte au plus 15 images ; sans la règle des trois images, il en compte 88 à 5 ms ;
   - exclusion du câble local, paramètres refusés, état incompatible et destruction dans les deux ordres.

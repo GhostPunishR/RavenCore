@@ -221,6 +221,28 @@ std::vector<std::uint8_t> gba_burst_rom() {
     return rom;
 }
 
+// Rafales multijoueur des salles Pokémon : 12 images du parent, chacune
+// ouverte au VBlank par 9 transferts. L'enfant compte ses VBlank entre le
+// premier transfert et le dernier, et offre le numéro suivant à chacun.
+// Chacun écrit 1 en IWRAM+0x40 une fois fini ; l'enfant, son compte en +0x44.
+std::vector<std::uint8_t> gba_pace_rom() {
+    const std::uint32_t code[] = {
+        0xe59f20fc, 0xe3a01000, 0xe1c211b4, 0xe3a00301, 0xe3a01008, 0xe1c010b4, 0xe3a07001, 0xe1c270ba,
+        0xe59f10e4, 0xe1c210b8, 0xe3a05403, 0xe59fa0d4, 0xe3a0b000, 0xe1d230b8, 0xe3130004, 0x1a00001c,
+        0xe1d230b8, 0xe3130008, 0x0afffffc, 0xe3a03001, 0xe1ca30b0, 0xe1da30b0, 0xe3130001, 0x0afffffc,
+        0xe3a03001, 0xe1ca30b0, 0xe28bb001, 0xe3a0c009, 0xe3874caa, 0xe1c240ba, 0xe1d230b8, 0xe3833080,
+        0xe1c230b8, 0xe1d230b8, 0xe3130080, 0x1afffffc, 0xe3a09c01, 0xe2599001, 0x1afffffd, 0xe2877001,
+        0xe25cc001, 0x1afffff1, 0xe35b000c, 0x1affffe6, 0xea00000f, 0xe1da30b0, 0xe3130001, 0x0a000002,
+        0xe3a04001, 0xe1ca40b0, 0xe28bb001, 0xe3130080, 0x0afffff7, 0xe3a04080, 0xe1ca40b0, 0xe3570001,
+        0x03a0b000, 0xe2877001, 0xe1c270ba, 0xe357006d, 0x1affffef, 0xe1c5b4b4, 0xe3a06001, 0xe1c564b0,
+        0xeafffffe, 0x04000120, 0x04000202, 0x00006003};
+    auto rom = ravenemu::testing::minimal_gba_rom();
+    const std::uint32_t entry = 0xea00002e;  // B 0xC0, après l'en-tête
+    std::memcpy(rom.data(), &entry, sizeof entry);
+    std::memcpy(rom.data() + 0xc0, code, sizeof code);
+    return rom;
+}
+
 // Fait tourner `handle` sur son fil jusqu'à `done` (vrai), ou 600 images.
 bool run_until(ravenemu_bridge* handle, ravenemu_remote_link* link, int pixels,
                bool (*done)(ravenemu_bridge*), const std::atomic<bool>* also_wait = nullptr) {
@@ -401,6 +423,39 @@ int gba_burst_test(std::chrono::milliseconds latency) {
     return 0;
 }
 
+// Le parent attend un aller-retour par transfert et ralentit : l'enfant,
+// qui tourne comme dans une application, ne le devance pas de plus de trois
+// images. Sans cela, il en prend plusieurs par image du parent, et un jeu
+// comme Pokémon y voit une liaison rompue.
+int gba_pace_test(std::chrono::milliseconds latency) {
+    const auto rom = gba_pace_rom();
+    Pair pair(load(RAVENEMU_GBA, rom), load(RAVENEMU_GBA, rom), latency);
+    if (!pair.first || !pair.second) return 70;
+    if (!pair.plug(0, 1)) return 71;
+    std::atomic<bool> parent_done{false};
+    std::atomic<bool> child_ok{false};
+    std::thread child([&] {
+        child_ok = run_like_an_app(pair.second.get(), pair.second_link.get(), 240 * 160, burst_done, parent_done);
+        if (!child_ok) pair.unplug();
+    });
+    const auto parent_ok = run_until(pair.first.get(), pair.first_link.get(), 240 * 160, burst_done);
+    parent_done = true;
+    if (!parent_ok) pair.unplug();
+    child.join();
+    if (!parent_ok) return 72;
+    if (!child_ok) return 73;
+    std::uint8_t frames[2]{};
+    ravenemu_read_achievement_memory(pair.second.get(), 0x44, frames, sizeof frames);
+    // Onze images du parent entre son premier transfert et son dernier, plus
+    // trois d'avance au plus, plus celle en cours.
+    if ((frames[0] | frames[1] << 8) > 15) {
+        std::cerr << "child frames: " << (frames[0] | frames[1] << 8) << "\n";
+        return 74;
+    }
+    if (pair.to_first.bad_ || pair.to_second.bad_) return 75;
+    return 0;
+}
+
 void ignore(void*, const uint8_t*, size_t) {}
 
 int api_test() {
@@ -483,6 +538,13 @@ int main() {
             std::cerr << "GBA remote burst failed at " << latency.count() << " ms (" << failure
                       << "): " << ravenemu_last_error() << "\n";
             return failure;
+        }
+        if (latency.count() < 20) {
+            if (const int failure = gba_pace_test(latency)) {
+                std::cerr << "GBA remote pace failed at " << latency.count() << " ms (" << failure
+                          << "): " << ravenemu_last_error() << "\n";
+                return failure;
+            }
         }
         for (const bool slow : {false, true}) {
             if (const int failure = gba_remote_test(latency, slow)) {

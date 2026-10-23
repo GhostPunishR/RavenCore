@@ -3,6 +3,7 @@
 
 #include <ravenemu/remote_link.hpp>
 
+#include <chrono>
 #include <optional>
 
 namespace ravenemu::gba {
@@ -20,6 +21,12 @@ namespace ravenemu::gba {
  * cela, deux messages lus d'affilée (entre deux images) feraient répondre au
  * second la donnée du premier, avant que le jeu ait traité son interruption.
  * Les lignes d'état (mode, SO) voyagent à chaque changement.
+ *
+ * Pendant une liaison multijoueur suivie, l'enfant garde aussi le pas du parent :
+ * celui-ci attend un aller-retour réseau par transfert et ralentit, alors que
+ * l'enfant tournerait à plein régime et prendrait des images d'avance, que le
+ * jeu prend pour une liaison rompue. L'enfant suit donc l'horloge du parent
+ * par les écarts qu'il annonce, et l'attend s'il le devance de trois images.
  */
 class RemoteSerialLink final : public SerialLink {
 public:
@@ -41,6 +48,10 @@ public:
     void service();
     // Un transfert du partenaire attend que cette console atteigne son cycle.
     [[nodiscard]] bool deferred() const noexcept { return deferred_.has_value(); }
+    // Fil d'émulation, pendant une image : un enfant qui a trois images
+    // d'avance sur le parent, pendant une liaison suivie, attend son transfert
+    // suivant, une seconde au plus.
+    void keep_pace();
 
     [[nodiscard]] int players() const noexcept override { return link_.plugged() ? 2 : 1; }
     [[nodiscard]] bool all_multiplayer() const noexcept override;
@@ -70,10 +81,15 @@ private:
     void handle(const RemoteLink::Message& message);
     void serve(const RemoteLink::Transfer& transfer);
     void reply(std::uint32_t id, std::uint32_t data);
+    void advance_pace(std::uint32_t interval) noexcept;
+    void settle_pace(std::int64_t joined) noexcept;
     void forget_timing() noexcept {
         deferred_.reset();
         last_start_.reset();
         last_join_.reset();
+        pace_.reset();
+        steady_ = false;
+        partner_caps_ = false;
     }
     void publish_status();
 
@@ -89,7 +105,17 @@ private:
     std::optional<Deferred> deferred_;
     std::optional<std::int64_t> last_start_;  // départ du dernier transfert cadencé ici
     std::optional<std::int64_t> last_join_;   // entrée dans le dernier transfert du partenaire
+    // Horloge du parent à son dernier transfert, rapportée à celle-ci.
+    std::optional<std::int64_t> pace_;
+    bool steady_{};        // le dernier transfert suivait le précédent de moins de pace_gap
+    bool partner_caps_{};  // partenaire en 0.10.0 : écarts plafonnés, horloge inconnue
     std::uint32_t counter_{};
+
+    // Avance permise sur le parent : trois images (280 896 cycles chacune).
+    static constexpr std::int64_t pace_lead = 3 * 280'896;
+    // Au-delà de deux images entre deux transferts, le parent ne suit plus de rythme.
+    static constexpr std::int64_t pace_gap = 2 * 280'896;
+    static constexpr auto pace_wait = std::chrono::seconds(1);
 };
 
 } // namespace ravenemu::gba

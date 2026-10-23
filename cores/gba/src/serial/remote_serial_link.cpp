@@ -1,6 +1,7 @@
 #include "serial/remote_serial_link.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <variant>
 
 namespace ravenemu::gba {
@@ -118,9 +119,11 @@ std::uint32_t RemoteSerialLink::start(Serial& master, Serial::Mode mode, int dur
     const auto id = (counter_ << 1U) | static_cast<std::uint32_t>(player_ & 1);
     const auto data = master.outgoing(mode);
     // L'écart depuis le départ précédent : l'autre console laissera autant de
-    // temps à son jeu avant d'entrer dans celui-ci.
+    // temps à son jeu avant d'entrer dans celui-ci, et suit ainsi cette horloge.
     const auto now = master.clock();
-    const auto interval = last_start_ ? std::clamp<std::int64_t>(now - *last_start_, 0, Serial::longest_transfer) : 0;
+    const auto interval = last_start_
+        ? std::clamp<std::int64_t>(now - *last_start_, 0, std::numeric_limits<std::uint32_t>::max())
+        : 0;
     pending_ = Pending{id, generation_, mode, data, std::nullopt};
     try {
         link_.send(RemoteLink::Transfer{id, to_remote(mode), data, static_cast<std::uint32_t>(duration),
@@ -145,6 +148,7 @@ void RemoteSerialLink::capture(Serial& participant) {
             return;
         }
         last_join_ = participant.clock();
+        settle_pace(*last_join_);
         const auto sent = participant.outgoing(mine.mode);
         participant.receive(mine.id, received_by_partner(mine.mode, mine.data, sent));
         participant.mark_busy();
@@ -191,6 +195,7 @@ void RemoteSerialLink::serve(const RemoteLink::Transfer& transfer) {
         reply(transfer.id, 0xffff'ffffU);
         return;
     }
+    advance_pace(transfer.interval);
     // Le parent attend chaque réponse avant de cadencer de nouveau : un
     // transfert encore différé ici n'a plus lieu.
     if (deferred_) {
@@ -214,12 +219,49 @@ void RemoteSerialLink::serve(const RemoteLink::Transfer& transfer) {
         }
     }
     last_join_ = now;
+    settle_pace(now);
     // Elle entre dans le transfert maintenant, pour sa durée.
     const auto sent = serial_->outgoing(mode);
     serial_->join(0, static_cast<int>(transfer.duration), transfer.id);
     serial_->receive(transfer.id, received_by_partner(mode, transfer.data, sent));
     serial_->mark_busy();
     reply(transfer.id, sent);
+}
+
+// Tant que le parent cadence à son rythme, son horloge, rapportée à celle-ci,
+// avance de l'écart annoncé à chaque transfert, que cette console y entre ou
+// non. Au premier transfert, ou après un silence, elle repart de l'entrée de
+// cette console : l'avance prise entre-temps ne compte pas.
+void RemoteSerialLink::advance_pace(std::uint32_t interval) noexcept {
+    // RavenCore 0.10.0 plafonne l'écart au plus long transfert : un écart
+    // d'exactement cette valeur le trahit, et son horloge reste inconnue.
+    if (interval == static_cast<std::uint32_t>(Serial::longest_transfer)) partner_caps_ = true;
+    steady_ = interval > 0 && interval < pace_gap;
+    if (steady_ && pace_) *pace_ += interval;
+    else pace_.reset();
+}
+
+// Cette console entre dans un transfert : l'horloge du parent ne passe pas
+// devant elle. En retard, cette console n'a donc jamais à l'attendre.
+void RemoteSerialLink::settle_pace(std::int64_t joined) noexcept {
+    if (partner_caps_) {
+        pace_.reset();
+        return;
+    }
+    pace_ = pace_ ? std::min(*pace_, joined) : joined;
+}
+
+void RemoteSerialLink::keep_pace() {
+    if (!pace_ || !steady_ || serial_ == nullptr || deferred_ || pending_) return;
+    if (serial_->mode() != Serial::Mode::multiplayer || partner_mode_ != RemoteLink::Mode::multiplayer) return;
+    if (serial_->clock() - *pace_ < pace_lead) return;
+    try {
+        // Un message arrive (transfert, ligne d'état) : service() le lit.
+        if (link_.wait_until(generation_, std::chrono::steady_clock::now() + pace_wait)) return;
+    } catch (...) {
+    }
+    // Plus rien du parent, ou débranché : cette console reprend sa route.
+    pace_.reset();
 }
 
 void RemoteSerialLink::reply(std::uint32_t id, std::uint32_t data) {
