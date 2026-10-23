@@ -110,8 +110,9 @@ jobs:
       - name: Install and consume the CMake package
         run: |
           cmake --install build --config Release --prefix "$RUNNER_TEMP/ravenemu"
+          # A consumer of static libraries links the same C++ runtime.
           cmake -S sdk/tests/package_consumer -B build/package_consumer \
-            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/ravenemu"
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/ravenemu" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
           cmake --build build/package_consumer --config Release
           build/package_consumer/Release/ravenemu_package_consumer.exe
       - name: Package cores and RetroArch information
