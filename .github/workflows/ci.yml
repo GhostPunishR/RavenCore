@@ -50,14 +50,11 @@ jobs:
             fi
           done
       - name: Package cores and RetroArch information
-        run: |
-          mkdir -p dist/cores dist/info
-          cp build/libretro/*_libretro.so dist/cores/
-          cp build/libretro/info/*_libretro.info dist/info/
+        run: libretro/package.sh build linux-x86_64 ravenemu-libretro-linux-x86_64
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ravenemu-libretro-linux-x86_64
-          path: dist/
+          path: ravenemu-libretro-linux-x86_64.tar.gz
           if-no-files-found: error
 
   sanitizers:
@@ -103,8 +100,9 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # As released: the C++ runtime is linked in, no redistributable needed.
       - name: Configure CMake
-        run: cmake -S . -B build -DBUILD_TESTING=ON
+        run: cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
       - name: Build
         run: cmake --build build --config Release --parallel 2
       - name: Run all synthetic tests
@@ -112,10 +110,17 @@ jobs:
       - name: Install and consume the CMake package
         run: |
           cmake --install build --config Release --prefix "$RUNNER_TEMP/ravenemu"
+          # A consumer of static libraries links the same C++ runtime.
           cmake -S sdk/tests/package_consumer -B build/package_consumer \
-            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/ravenemu"
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/ravenemu" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
           cmake --build build/package_consumer --config Release
           build/package_consumer/Release/ravenemu_package_consumer.exe
+      - name: Package cores and RetroArch information
+        run: libretro/package.sh build windows-x86_64 ravenemu-libretro-windows-x86_64
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ravenemu-libretro-windows-x86_64
+          path: ravenemu-libretro-windows-x86_64.zip
 
   macos:
     name: C++20 engines and Libretro on macOS (Apple Clang)
@@ -124,8 +129,11 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # As released: one library for arm64 and x86-64, from macOS 11.
       - name: Configure CMake
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
       - name: Build
         run: cmake --build build --parallel 3
       - name: Run all synthetic tests
@@ -137,6 +145,14 @@ jobs:
             -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/ravenemu"
           cmake --build build/package_consumer
           build/package_consumer/ravenemu_package_consumer
+      - name: Package cores and RetroArch information
+        run: |
+          for core in build/libretro/*_libretro.dylib; do lipo "$core" -verify_arch arm64 x86_64; done
+          libretro/package.sh build macos-universal ravenemu-libretro-macos-universal
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ravenemu-libretro-macos-universal
+          path: ravenemu-libretro-macos-universal.zip
 
   android:
     # Cross-compilation only: nothing runs, but every source and test is
@@ -174,3 +190,9 @@ jobs:
               echo "$core exports non-Libretro symbols:"; echo "$extra"; exit 1
             fi
           done
+      - name: Package cores and RetroArch information
+        run: libretro/package.sh build "android-${{ matrix.abi }}" "ravenemu-libretro-android-${{ matrix.abi }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ravenemu-libretro-android-${{ matrix.abi }}
+          path: ravenemu-libretro-android-${{ matrix.abi }}.zip

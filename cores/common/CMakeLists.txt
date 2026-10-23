@@ -1,4 +1,5 @@
 add_library(ravenemu_common STATIC
+    src/cheats.cpp
     src/core.cpp
     src/remote_link.cpp
     src/sha256.cpp
@@ -19,4 +20,9 @@ if(BUILD_TESTING)
     target_include_directories(ravenemu_binary_io_tests PRIVATE tests/support)
     target_link_libraries(ravenemu_binary_io_tests PRIVATE ravenemu_common)
     add_test(NAME ravenemu_binary_io COMMAND ravenemu_binary_io_tests)
+
+    add_executable(ravenemu_cheat_tests tests/cheats_test.cpp)
+    target_include_directories(ravenemu_cheat_tests PRIVATE tests/support)
+    target_link_libraries(ravenemu_cheat_tests PRIVATE ravenemu_common)
+    add_test(NAME ravenemu_cheats COMMAND ravenemu_cheat_tests)
 endif()

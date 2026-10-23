@@ -43,6 +43,7 @@ public:
         require_loaded();
         if (framebuffer.size() < Ppu::screen_width * Ppu::screen_height)
             throw std::invalid_argument("Framebuffer trop petit");
+        apply_cheats();
         machine_->ppu.render_enabled = render_video;
         try {
             if (remote_) run_remote_frame();
@@ -98,12 +99,18 @@ public:
     void unplug_link() noexcept {
         if (machine_) machine_->serial.refresh_status();
     }
-    // Pour le câble link : la machine, après les vérifications de run_frame.
+    // Pour le câble link : la machine, après les vérifications et les codes de triche de run_frame.
     [[nodiscard]] Machine& machine_for_frame(std::span<const std::int32_t> framebuffer) {
         require_loaded();
         if (framebuffer.size() < Ppu::screen_width * Ppu::screen_height)
             throw std::invalid_argument("Framebuffer trop petit");
+        apply_cheats();
         return *machine_;
+    }
+    void set_cheats(std::span<const Cheat> cheats) override {
+        for (const auto& cheat : cheats)
+            if (cheat.console != Console::game_boy_advance) throw std::invalid_argument("Code de triche d'une autre console");
+        cheats_.assign(cheats.begin(), cheats.end());
     }
     std::size_t read_audio(std::span<std::int16_t> destination) override {
         return machine_ ? machine_->apu.read_samples(destination) : 0;
@@ -488,6 +495,21 @@ private:
     void require_loaded() const {
         if (!machine_) throw std::logic_error("Aucune ROM chargée");
     }
+    /**
+     * Codes de triche : comme le gestionnaire de l'appareil, accroché au jeu,
+     * ils s'exécutent une fois par image, ici avant elle et hors du temps de
+     * la console.
+     */
+    void apply_cheats() {
+        if (cheats_.empty()) return;
+        struct Memory final : CheatMemory {
+            explicit Memory(Bus& target) : bus(target) {}
+            std::uint32_t read(std::uint32_t address, int size) override { return bus.cheat_read(address, size); }
+            void write(std::uint32_t address, int size, std::uint32_t value) override { bus.cheat_write(address, size, value); }
+            Bus& bus;
+        } memory{machine_->bus};
+        for (const auto& cheat : cheats_) run_cheat(cheat, memory);
+    }
     // L'ancienne machine disparaît : le câble distant oublie son port sans y toucher.
     void install(std::unique_ptr<Machine> replacement) noexcept {
         if (remote_) remote_->forget();
@@ -522,6 +544,7 @@ private:
     std::array<std::uint8_t, 32> rom_hash_{};
     std::optional<std::int64_t> clock_override_;
     bool measuring_time_{};
+    std::vector<Cheat> cheats_;
     // Après la machine : détruit avant elle, il rend son port seul.
     std::unique_ptr<RemoteSerialLink> remote_;
 };

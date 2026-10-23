@@ -65,6 +65,20 @@ public:
      * d'une région pleine de zéros. Un tel mappeur rend une étendue vide.
      */
     [[nodiscard]] virtual std::span<const std::uint8_t> achievement_ram() const noexcept { return ram_; }
+    /**
+     * Code GameShark : écrit dans la banque `bank` de la RAM de cartouche,
+     * activée ou non et quelle que soit la banque que voit le CPU. Rien pour
+     * un mappeur dont la mémoire n'est pas `ram_` (voir achievement_ram).
+     */
+    void write_ram_bank(int bank, int address, int value) {
+        if (ram_.empty() || achievement_ram().data() != ram_.data()) return;
+        const auto offset = (static_cast<std::size_t>(bank) * ram_bank_size +
+                             static_cast<std::size_t>(address & (ram_bank_size - 1))) % ram_.size();
+        const auto byte = static_cast<std::uint8_t>(value);
+        if (ram_[offset] == byte) return;
+        ram_[offset] = byte;
+        mark_written();
+    }
     [[nodiscard]] const CartridgeHeader& header() const noexcept { return header_; }
     [[nodiscard]] bool dirty() const noexcept { return generation_ != saved_generation_; }
     [[nodiscard]] std::uint64_t generation() const noexcept { return generation_; }

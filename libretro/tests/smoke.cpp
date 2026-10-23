@@ -2,8 +2,11 @@
 #include <synthetic_roms.hpp>
 #include <algorithm>
 #include <iterator>
+#include <cstdarg>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <iostream>
 #include <map>
 #include <string>
@@ -23,6 +26,27 @@ bool descriptors_have_tilt = false;
 unsigned analog_queries = 0;
 std::map<std::string, std::string> declared_options; // clé -> « Libellé; a|b|c »
 std::map<std::string, std::string> option_values;   // réglages choisis par l'utilisateur
+bool options_updated = false;                         // réponse à GET_VARIABLE_UPDATE
+unsigned options_version = 0;                         // 0 : options v2 inconnues du frontend
+struct DeclaredV2 { std::string desc, category, default_value; std::vector<std::string> values; };
+std::map<std::string, DeclaredV2> declared_v2;
+int av_flags = RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;
+unsigned duped_frames = 0;
+unsigned audio_batches = 0;
+std::uint32_t first_pixel = 0;
+std::string last_message;
+std::string last_log;
+unsigned error_logs = 0;
+
+void log_printf(retro_log_level level, const char* format, ...) {
+    char line[512];
+    va_list arguments;
+    va_start(arguments, format);
+    std::vsnprintf(line, sizeof line, format, arguments);
+    va_end(arguments);
+    last_log = line;
+    if (level == RETRO_LOG_ERROR) ++error_logs;
+}
 
 bool rumble(unsigned port, retro_rumble_effect effect, std::uint16_t strength) {
     if (port == 0 && effect == RETRO_RUMBLE_STRONG) {
@@ -33,6 +57,42 @@ bool rumble(unsigned port, retro_rumble_effect effect, std::uint16_t strength) {
 }
 
 bool environment(unsigned command, void* value) {
+    if (command == RETRO_ENVIRONMENT_GET_LOG_INTERFACE) {
+        static_cast<retro_log_callback*>(value)->log = log_printf;
+        return true;
+    }
+    if (command == RETRO_ENVIRONMENT_SET_MESSAGE) {
+        last_message = static_cast<const retro_message*>(value)->msg;
+        return true;
+    }
+    if (command == RETRO_ENVIRONMENT_GET_CAN_DUPE) {
+        *static_cast<bool*>(value) = true;
+        return true;
+    }
+    if (command == RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE) {
+        *static_cast<int*>(value) = av_flags;
+        return true;
+    }
+    if (command == RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE) {
+        *static_cast<bool*>(value) = options_updated;
+        options_updated = false;
+        return true;
+    }
+    if (command == RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION) {
+        if (options_version == 0) return false;
+        *static_cast<unsigned*>(value) = options_version;
+        return true;
+    }
+    if (command == RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2) {
+        const auto* options = static_cast<const retro_core_options_v2*>(value);
+        for (auto* d = options->definitions; d->key; ++d) {
+            DeclaredV2 declared{d->desc ? d->desc : "", d->category_key ? d->category_key : "",
+                                d->default_value ? d->default_value : "", {}};
+            for (auto* v = d->values; v->value; ++v) declared.values.emplace_back(v->value);
+            declared_v2[d->key] = declared;
+        }
+        return true;
+    }
     if (command == RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE) {
         static_cast<retro_rumble_interface*>(value)->set_rumble_state = rumble;
         return true;
@@ -74,13 +134,30 @@ bool environment(unsigned command, void* value) {
     return false;
 }
 void video(const void* data, unsigned width, unsigned height, std::size_t pitch) {
-    if (data && pitch == width * sizeof(std::uint32_t)) {
+    if (!data) {
+        ++duped_frames;
+        return;
+    }
+    if (pitch == width * sizeof(std::uint32_t)) {
+        first_pixel = *static_cast<const std::uint32_t*>(data) & 0x00ffffffU;
         ++video_frames;
         last_width = width;
         last_height = height;
     }
 }
-std::size_t audio(const std::int16_t*, std::size_t count) { return count; }
+std::size_t audio(const std::int16_t*, std::size_t count) {
+    ++audio_batches;
+    return count;
+}
+// Charge `rom`, fait tourner `frames` images et rend le premier pixel affiché.
+std::uint32_t pixel_after(std::vector<std::uint8_t>& rom, unsigned frames) {
+    retro_game_info game{};
+    game.data = rom.data();
+    game.size = rom.size();
+    if (!retro_load_game(&game)) return 0xffffffffU;
+    for (unsigned frame = 0; frame < frames; ++frame) retro_run();
+    return first_pixel;
+}
 // Sans masque select, chaque descripteur a une longueur en puissance de deux
 // et un départ aligné sur elle, sinon RetroArch rejette la carte.
 bool memory_map_valid() {
@@ -168,8 +245,23 @@ int main() {
 #if defined(RAVENEMU_LIBRETRO_GBA)
     if (retro_get_memory_data(RETRO_MEMORY_SAVE_RAM) != battery || battery[8184] != 0x5a) return 1;
 #endif
-    if (video_frames != 2 || last_width != expected_width || last_height != expected_height) {
+    if (video_frames != 2 || duped_frames != 0 || last_width != expected_width || last_height != expected_height) {
         std::cerr << "Libretro video callback missing\n";
+        return 1;
+    }
+    // Image et son dont le frontend ne veut pas (anticipation, avance rapide) :
+    // l'image précédente est reprise, le son est jeté.
+    const auto batches_before = audio_batches;
+    av_flags = 0;
+    retro_run();
+    av_flags = RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;
+    if (duped_frames != 1 || video_frames != 2 || audio_batches != batches_before) {
+        std::cerr << "Skipped image or sound still delivered\n";
+        return 1;
+    }
+    retro_run();
+    if (video_frames != 3 || audio_batches == batches_before) {
+        std::cerr << "Image or sound not delivered again\n";
         return 1;
     }
     if (analog_queries != 0 || rumble_calls != 0) {
@@ -214,6 +306,36 @@ int main() {
     }
 #endif
 
+    // Codes de triche du menu : appliqués dès l'image suivante ; un code refusé
+    // dit pourquoi, et n'empêche pas les autres.
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    const char* cheat = "33000100 0042";          // Codebreaker : [03000100] = 42
+    const char* refused = "9A123456 7890";        // Codebreaker chiffré
+    constexpr std::size_t cheat_address = 0x0300'0100;
+    constexpr std::uint8_t cheat_value = 0x42;
+#else
+    const char* cheat = "3EA-12B-FAE+01AA10C0";   // Game Genie, puis GameShark : [C010] = AA
+    const char* refused = "01021234";             // GameShark en ROM
+    constexpr std::size_t cheat_address = 0xc010;
+    constexpr std::uint8_t cheat_value = 0xaa;
+#endif
+    last_message.clear();
+    retro_cheat_set(0, true, refused);
+    retro_cheat_set(1, true, cheat);
+    if (last_message.find("code de triche 1 refusé") == std::string::npos) {
+        std::cerr << "Refused cheat not reported: " << last_message << "\n";
+        return 1;
+    }
+    retro_run();
+    if (!mapped(cheat_address) || *mapped(cheat_address) != cheat_value) {
+        std::cerr << "Cheat not applied\n";
+        return 1;
+    }
+    retro_cheat_set(1, false, cheat);
+    retro_cheat_reset();
+    retro_cheat_set(5000, true, cheat);
+    retro_run();
+
     const auto state_size = retro_serialize_size();
     if (state_size < 16 || state_size > 4U * 1024U * 1024U) {
         std::cerr << "Invalid state size\n";
@@ -234,7 +356,8 @@ int main() {
 #if defined(RAVENEMU_LIBRETRO_GBA)
     // Options déclarées avec « auto » par défaut, appliquées au chargement ;
     // la lumière du capteur solaire part de 50 %.
-    if (declared_options.size() != 3 ||
+    if (declared_options.size() != 4 ||
+        declared_options["ravenemu_gba_color_correction"].find("; disabled|enabled") == std::string::npos ||
         declared_options["ravenemu_gba_save_type"].find("; auto|") == std::string::npos ||
         declared_options["ravenemu_gba_rtc"].find("; auto|") == std::string::npos ||
         declared_options["ravenemu_gba_solar_light"].find("; 50|") == std::string::npos) {
@@ -301,8 +424,15 @@ int main() {
             rumble_rom[index * 4U + byte] = static_cast<std::uint8_t>(motor_on[index] >> (byte * 8U));
     std::copy_n("V49E", 4, rumble_rom.begin() + 0xac);
 #else
-    if (!declared_options.empty()) {
-        std::cerr << "Game Boy core declares GBA options\n";
+#if defined(RAVENEMU_LIBRETRO_GB)
+    const char* video_option = "ravenemu_gb_palette";
+    const char* video_choices = "; dmg|pocket";
+#else
+    const char* video_option = "ravenemu_gbc_color_correction";
+    const char* video_choices = "; disabled|enabled";
+#endif
+    if (declared_options.size() != 1 || declared_options[video_option].find(video_choices) == std::string::npos) {
+        std::cerr << "Game Boy core options not declared\n";
         return 1;
     }
     // MBC5+RUMBLE program: LD A,$08 ; LD ($4000),A ; JR $ (motor on, then loop).
@@ -458,6 +588,99 @@ int main() {
     }
     retro_unload_game();
 
+    // Un jeu refusé : la raison va au journal et à l'écran.
+    std::vector<std::uint8_t> broken(16);
+    retro_game_info broken_game{};
+    broken_game.data = broken.data();
+    broken_game.size = broken.size();
+    const auto errors_before = error_logs;
+    if (retro_load_game(&broken_game) || error_logs != errors_before + 1 ||
+#if defined(RAVENEMU_LIBRETRO_GBA)
+        last_message.find("RavenGBA") != 0 || last_message.find("trop courte") == std::string::npos
+#else
+        last_message.find("RavenGB") != 0 || last_message.find("trop petite") == std::string::npos
+#endif
+    ) {
+        std::cerr << "Refused game not reported: " << last_message << "\n";
+        return 1;
+    }
+
+    // Options d'image, changées en cours de jeu.
+#if defined(RAVENEMU_LIBRETRO_GB)
+    auto plain = ravenemu::testing::minimal_game_boy_rom();
+    const auto green = pixel_after(plain, 3);
+    constexpr std::uint32_t greens[]{0xe0f8d0, 0x88c070, 0x346856, 0x081820};
+    constexpr std::uint32_t greys[]{0xececec, 0xa6a6a6, 0x565656, 0x141414};
+    const auto shade = std::find(std::begin(greens), std::end(greens), green) - std::begin(greens);
+    option_values["ravenemu_gb_palette"] = "pocket";
+    options_updated = true;
+    retro_run();
+    if (shade == 4 || first_pixel != greys[shade]) {
+        std::cerr << "Game Boy palette not applied\n";
+        return 1;
+    }
+    retro_unload_game();
+#else
+    // Fond rouge pur ; corrigé : environ 28 % de gris en plus, puis gamma 1,15.
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    const char* correction = "ravenemu_gba_color_correction";
+    auto red = ravenemu::testing::minimal_gba_rom();
+    const std::uint32_t backdrop[]{0xe3a00405U, 0xe3a0101fU, 0xe1c010b0U, 0xe3a00301U,
+                                   0xe3a01000U, 0xe1c010b0U, 0xeafffffeU};
+    const std::uint32_t entry = 0xea00002eU;  // B 0xC0, après l'en-tête
+    std::memcpy(red.data(), &entry, sizeof entry);
+    std::memcpy(red.data() + 0xc0, backdrop, sizeof backdrop);
+#else
+    const char* correction = "ravenemu_gbc_color_correction";
+    // LCD éteint, couleur 0 de la palette de fond 0 en rouge pur, LCD rallumé.
+    auto red = ravenemu::testing::minimal_game_boy_rom();
+    red[0x143] = 0x80;
+    const std::uint8_t backdrop[] = {0x3e, 0x00, 0xe0, 0x40, 0x3e, 0x80, 0xe0, 0x68, 0x3e, 0x1f, 0xe0, 0x69,
+                                     0xaf, 0xe0, 0x69, 0x3e, 0x91, 0xe0, 0x40, 0x18, 0xfe};
+    std::copy(std::begin(backdrop), std::end(backdrop), red.begin() + 0x100);
+#endif
+    if (pixel_after(red, 3) != 0xff0000) {
+        std::cerr << "Raw red changed without correction: " << std::hex << first_pixel << "\n";
+        return 1;
+    }
+    option_values[correction] = "enabled";
+    options_updated = true;
+    retro_run();
+    if (first_pixel != 0xbf0909) {
+        std::cerr << "LCD correction not applied: " << std::hex << first_pixel << "\n";
+        return 1;
+    }
+    retro_unload_game();
+#endif
+    option_values.clear();
+
+    // Options v2 : libellés français, catégories et valeur par défaut.
+    options_version = 2;
+    declared_options.clear();
+    retro_set_environment(environment);
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    const auto& light = declared_v2["ravenemu_gba_solar_light"];
+    if (declared_v2.size() != 4 || !declared_options.empty() || light.default_value != "50" ||
+        light.category != "cartridge" || light.values.size() != 11 ||
+        declared_v2["ravenemu_gba_color_correction"].desc != "Correction des couleurs LCD") {
+        std::cerr << "Options v2 not declared\n";
+        return 1;
+    }
+#elif defined(RAVENEMU_LIBRETRO_GB)
+    const auto& palette = declared_v2["ravenemu_gb_palette"];
+    if (declared_v2.size() != 1 || !declared_options.empty() || palette.default_value != "dmg" ||
+        palette.category != "video" || palette.values.size() != 2 || palette.desc != "Palette") {
+        std::cerr << "Options v2 not declared\n";
+        return 1;
+    }
+#else
+    const auto& lcd = declared_v2["ravenemu_gbc_color_correction"];
+    if (declared_v2.size() != 1 || !declared_options.empty() || lcd.default_value != "disabled" ||
+        lcd.category != "video" || lcd.values.size() != 2) {
+        std::cerr << "Options v2 not declared\n";
+        return 1;
+    }
+#endif
     retro_deinit();
     std::cout << system.library_name << " Libretro smoke test passed\n";
 }
