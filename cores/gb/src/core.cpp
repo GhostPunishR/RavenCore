@@ -276,6 +276,7 @@ private:
             mode = gb::HardwareMode::dmg;
             break;
         case gb::HardwareModel::cgb:
+        case gb::HardwareModel::agb:
             mode = header.uses_color ? gb::HardwareMode::cgb_native : gb::HardwareMode::cgb_compatibility;
             break;
         }
@@ -283,7 +284,8 @@ private:
             rom,
             [this] { return current_epoch(); },
             mode,
-            boot_rom_
+            boot_rom_,
+            requested_hardware_ == gb::HardwareModel::agb
         );
         machine->cartridge->set_acceleration(host_acceleration_x_, host_acceleration_y_);
         return machine;

@@ -11,7 +11,8 @@ public:
 
     Mbc3(RomImage rom, CartridgeHeader header, Clock clock)
         : Cartridge(std::move(rom), header), clock_(std::move(clock)),
-          last_sync_epoch_(clock_()), has_rtc_(header.has_rtc) {}
+          last_sync_epoch_(clock_()), has_rtc_(header.has_rtc),
+          mbc30_(header.ram_size > 32 * 1024 || rom_->size() > 2U * 1024U * 1024U) {}
 
     int rom_bank_at(int address) const noexcept override {
         return address < rom_bank_size ? 0 : normalize_rom_bank(rom_bank_);
@@ -19,7 +20,7 @@ public:
     int read_rom(int address) const override { return rom_byte(rom_bank_at(address), address); }
     void write_control(int address, int value) override {
         if (address <= 0x1fff) ram_enabled_ = (value & 0x0f) == 0x0a;
-        else if (address <= 0x3fff) { const int v = value & 0x7f; rom_bank_ = v == 0 ? 1 : v; }
+        else if (address <= 0x3fff) { const int v = value & max_rom_bank(); rom_bank_ = v == 0 ? 1 : v; }
         else if (address <= 0x5fff) ram_bank_or_rtc_ = value & 0x0f;
         else {
             if (latch_armed_ && value == 1 && has_rtc_) latch_rtc();
@@ -28,7 +29,7 @@ public:
     }
     int read_ram(int address) const override {
         if (!ram_enabled_) return 0xff;
-        if (ram_bank_or_rtc_ <= 3) {
+        if (ram_bank_or_rtc_ <= last_ram_bank()) {
             const auto offset = static_cast<std::size_t>(ram_bank_or_rtc_ * ram_bank_size + address - 0xa000);
             return offset < ram_.size() ? ram_[offset] : 0xff;
         }
@@ -41,7 +42,7 @@ public:
     }
     void write_ram(int address, int value) override {
         if (!ram_enabled_) return;
-        if (ram_bank_or_rtc_ <= 3) {
+        if (ram_bank_or_rtc_ <= last_ram_bank()) {
             const auto offset = static_cast<std::size_t>(ram_bank_or_rtc_ * ram_bank_size + address - 0xa000);
             if (offset < ram_.size()) { ram_[offset] = static_cast<std::uint8_t>(value); mark_written(); }
             return;
@@ -128,7 +129,7 @@ public:
         latch_hours_ = in.i32(); latch_day_low_ = in.i32(); latch_day_high_ = in.i32();
         last_sync_epoch_ = in.i64();
         const auto in_range = [](int value, int maximum) { return value >= 0 && value <= maximum; };
-        if (rom_bank_ < 1 || rom_bank_ > 0x7f || !in_range(ram_bank_or_rtc_, 0x0f) ||
+        if (rom_bank_ < 1 || rom_bank_ > max_rom_bank() || !in_range(ram_bank_or_rtc_, 0x0f) ||
             !in_range(rtc_seconds_, 0x3f) || !in_range(rtc_minutes_, 0x3f) ||
             !in_range(rtc_hours_, 0x1f) || !in_range(rtc_days_, 0x1ff) ||
             !in_range(latch_seconds_, 0x3f) || !in_range(latch_minutes_, 0x3f) ||
@@ -140,6 +141,11 @@ public:
     }
 
 private:
+    // MBC30 (Pan Docs) : 8 bits de banque de ROM (4 Mio) et 8 banques de RAM
+    // (64 Kio), au lieu de 7 bits et 4 banques. Seul Pocket Monsters Crystal
+    // Version, au Japon, l'utilise ; son en-tête annonce 64 Kio de RAM.
+    [[nodiscard]] int max_rom_bank() const noexcept { return mbc30_ ? 0xff : 0x7f; }
+    [[nodiscard]] int last_ram_bank() const noexcept { return mbc30_ ? 7 : 3; }
     void sync_rtc() {
         const auto now = clock_();
         const auto previous = std::exchange(last_sync_epoch_, now);
@@ -183,6 +189,7 @@ private:
     int latch_day_high_{};
     std::int64_t last_sync_epoch_{};
     bool has_rtc_{};
+    bool mbc30_{};
 };
 
 } // namespace ravenemu::cgb

@@ -1,4 +1,5 @@
 #include "ravenemu/core.hpp"
+#include "ravenemu/gb/core.hpp"
 
 #include "check.hpp"
 #include "synthetic_roms.hpp"
@@ -499,6 +500,79 @@ void cheats_test() {
     expect_failure<std::invalid_argument>([&] { core->set_cheats(gba); }, "code GBA accepté par la Game Boy");
 }
 
+/**
+ * Registres laissés par la boot ROM (Pan Docs) : une GBA démarre en GBC avec
+ * B = 1, ou, pour un jeu Game Boy, avec B + 1 et les drapeaux de ce INC B.
+ */
+void agb_hardware_test() {
+    // PUSH AF ; POP DE ; LD A,B ; LD ($C000),A ; LD A,E ; LD ($C001),A ; JR $
+    auto rom = rom_running(minimal_game_boy_rom(), {0xf5, 0xd1, 0x78, 0xea, 0x00, 0xc0, 0x7b, 0xea, 0x01, 0xc0, 0x18, 0xfe});
+    // Jeu Game Boy « Nintendo » dont le titre fait 0x0F : B vaut 0x0F sur GBC.
+    rom[0x14b] = 0x01;
+    rom[0x134] = 0x0f;
+    struct Case {
+        ravenemu::gb::HardwareModel model;
+        std::uint8_t cgb_flag;
+        std::uint8_t b;
+        std::uint8_t f;
+    };
+    for (const auto& [model, cgb_flag, b, f] : {Case{ravenemu::gb::HardwareModel::cgb, 0x80, 0x00, 0x80},
+                                                Case{ravenemu::gb::HardwareModel::agb, 0x80, 0x01, 0x00},
+                                                Case{ravenemu::gb::HardwareModel::cgb, 0x00, 0x0f, 0x80},
+                                                Case{ravenemu::gb::HardwareModel::agb, 0x00, 0x10, 0x20}}) {
+        rom[0x143] = cgb_flag;
+        auto core = ravenemu::gb::make_core(model);
+        core->load_rom(rom, {});
+        std::vector<std::int32_t> frame(160 * 144);
+        core->run_frame(frame, true);
+        std::array<std::uint8_t, 2> registers{};
+        check(core->read_achievement_memory(0xc000, registers) == 2, "registres de démarrage illisibles");
+        check(registers[0] == b && registers[1] == f, "registres de démarrage GBC/GBA incorrects");
+        check(core->framebuffer_format() == ravenemu::FramebufferFormat::argb_8888, "GBA : image en couleurs attendue");
+    }
+}
+
+/**
+ * Un état pris pendant la boot ROM exige la même boot ROM ; pris après elle,
+ * il se recharge avec ou sans boot ROM (le joueur peut l'ajouter ou la retirer).
+ */
+void boot_rom_state_test() {
+    const auto boot_rom = [](std::uint8_t marker) {
+        std::vector<std::uint8_t> image(0x100);
+        // LD A,marker ; LD ($C010),A ; NOP… ; LD A,1 ; LDH ($50),A : le jeu commence en 0100.
+        const std::array<std::uint8_t, 5> start{0x3e, marker, 0xea, 0x10, 0xc0};
+        const std::array<std::uint8_t, 4> leave{0x3e, 0x01, 0xe0, 0x50};
+        std::copy(start.begin(), start.end(), image.begin());
+        std::copy(leave.begin(), leave.end(), image.begin() + 0xfc);
+        return image;
+    };
+    const auto rom = rom_running(minimal_game_boy_rom(), {0x18, 0xfe});
+    std::vector<std::int32_t> frame(160 * 144);
+    const auto make = [&](std::span<const std::uint8_t> boot) {
+        auto core = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::dmg, boot);
+        core->load_rom(rom, {});
+        return core;
+    };
+    const auto boot = boot_rom(0x42), other = boot_rom(0x24);
+    auto with_boot = make(boot);
+    const auto during = with_boot->save_state();
+    with_boot->run_frame(frame, true);
+    std::array<std::uint8_t, 1> marker{};
+    check(with_boot->read_achievement_memory(0xc010, marker) == 1 && marker[0] == 0x42, "boot ROM non exécutée");
+    const auto after = with_boot->save_state();
+
+    auto without = make({});
+    without->load_state(after);
+    expect_failure<ravenemu::SaveStateError>([&] { without->load_state(during); },
+                                             "état pris pendant la boot ROM accepté sans elle");
+    auto other_boot = make(other);
+    other_boot->load_state(after);
+    expect_failure<ravenemu::SaveStateError>([&] { other_boot->load_state(during); },
+                                             "état pris pendant la boot ROM accepté avec une autre");
+    with_boot->load_state(during);
+    with_boot->load_state(without->save_state());
+}
+
 void link_cable_test() {
     auto master = ravenemu::make_game_boy_core();
     auto slave = ravenemu::make_game_boy_core();
@@ -523,6 +597,8 @@ int main() {
     invalid_rom_test();
     game_boy_smoke_test();
     link_cable_test();
+    agb_hardware_test();
+    boot_rom_state_test();
     cheats_test();
     game_boy_color_and_battery_test();
     mbc6_large_state_test();

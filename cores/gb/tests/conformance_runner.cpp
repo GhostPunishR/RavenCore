@@ -77,7 +77,7 @@ private:
     if (!error.empty()) std::cerr << "Erreur: " << error << "\n\n";
     std::cerr
         << "Usage: gb_conformance_runner ROM [options]\n"
-        << "  --hardware auto|dmg|cgb\n"
+        << "  --hardware auto|dmg|cgb|agb\n"
         << "  --boot-rom FICHIER\n"
         << "  --category NOM\n"
         << "  --timeout-frames N\n"
@@ -161,7 +161,8 @@ Options parse_options(int argc, char** argv) {
     if (result.minimum_pass_frames >= result.timeout_frames) {
         usage("le délai minimum de réussite doit être inférieur au timeout");
     }
-    if (result.hardware != "auto" && result.hardware != "dmg" && result.hardware != "cgb") {
+    if (result.hardware != "auto" && result.hardware != "dmg" && result.hardware != "cgb" &&
+        result.hardware != "agb") {
         usage("modèle matériel inconnu");
     }
     if (!result.compatibility_palette.empty() && result.compatibility_palette != "boot-default") {
@@ -225,7 +226,8 @@ gb::HardwareMode resolve_mode(const Options& options, const CartridgeHeader& hea
         if (header.requires_color) throw RomLoadError("test CGB-only demandé sur DMG");
         return gb::HardwareMode::dmg;
     }
-    if (options.hardware == "cgb") {
+    // agb : la GBC d'une Game Boy Advance, que seuls ses registres de démarrage distinguent.
+    if (options.hardware == "cgb" || options.hardware == "agb") {
         return header.uses_color ? gb::HardwareMode::cgb_native
                                  : gb::HardwareMode::cgb_compatibility;
     }
@@ -349,7 +351,7 @@ int run(const Options& options) {
     SerialCapture serial;
     const auto mode = resolve_mode(options, header);
     if (rgb_frame && mode == gb::HardwareMode::dmg) snap_to_dmg_shades(expected_frame);
-    Machine machine(rom, [] { return std::int64_t{0}; }, mode, boot);
+    Machine machine(rom, [] { return std::int64_t{0}; }, mode, boot, options.hardware == "agb");
     if (!machine.serial.connect(&serial)) throw std::runtime_error("capture série refusée");
     if (options.compatibility_palette == "boot-default" && boot.empty() &&
         mode == gb::HardwareMode::cgb_compatibility) {
