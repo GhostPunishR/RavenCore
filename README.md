@@ -77,6 +77,15 @@ Les options s'affichent en français, rangées en deux catégories, **Image** et
 
 Un jeu refusé affiche sa raison à l'écran et dans le journal de RetroArch. Les images que RetroArch n'affiche pas (anticipation « run-ahead », avance rapide) ne sont pas dessinées par le cœur GBA ni converties par aucun cœur.
 
+Le menu **Codes de triche** de RetroArch fonctionne avec les trois cœurs. Une entrée peut compter plusieurs lignes, séparées par des « + », des espaces ou des retours à la ligne :
+
+| Cœurs | Formats |
+| --- | --- |
+| RavenGB, RavenGBC | Game Genie (`ABC-DEF-GHI` ou `ABC-DEF`) et GameShark (8 chiffres, comme `010238CD`), mélangeables |
+| RavenGBA | Codebreaker non chiffré (`XAAAAAAA YYYY`), GameShark v1/v2 et Action Replay v3 chiffrés tels que l'appareil les affiche (`XXXXXXXX YYYYYYYY`), reconnus automatiquement |
+
+Un code refusé affiche sa raison. Les patchs de ROM GBA, le changement de chiffrement `DEADFACE` et les codes Codebreaker chiffrés (type 9) ne sont pas pris en charge. Les codes d'activation (« Must Be On ») sont acceptés, mais n'ont pas d'effet : ils ne servent qu'à l'appareil.
+
 Les cœurs déclarent à RetroArch la mémoire que surveille RetroAchievements : les succès s'activent comme avec les autres cœurs, et RetroArch applique lui-même les règles du mode Hardcore. RetroAchievements n'a pas encore testé RavenCore.
 
 > Les cœurs ne sont pas encore proposés par le téléchargeur intégré de RetroArch.
@@ -108,6 +117,8 @@ L'API C couvre :
 
 Détails dans le [README du SDK](sdk/README.md).
 
+Les codes de triche ne passent pour l'instant que par l'API C++ : `parse_cheat` décode une entrée, `Core::set_cheats` active la liste.
+
 ## Tests
 
 Les tests de base n'utilisent aucune ROM. La CI exécute en plus des suites de test publiques, téléchargées à la volée et vérifiées par SHA-256. Aucune ROM n'est stockée dans le dépôt.
@@ -134,7 +145,8 @@ ctest --test-dir build --output-on-failure
   - le mode UART et l'adaptateur sans fil ;
   - l'exception d'instruction indéfinie.
 - **Capteurs** : ceux des cartouches GBA suivent les mesures publiées par GBATEK, mais n'ont pas encore été essayés en jeu. Le sens des axes d'inclinaison (GBA et MBC7) et l'échelle du gyroscope restent à confirmer.
-- **RetroAchievements** : les cœurs Libretro exposent une copie de la mémoire du jeu, rafraîchie à chaque image, vérifiée avec le code de rcheevos qu'utilise RetroArch mais pas encore en jeu dans RetroArch. Sur Game Boy, les deux fenêtres de ROM suivent la banque choisie par le jeu et les registres d'E/S sont exposés ; restent hors carte la RAM du MBC7 et, pour le MBC2, les bits hauts que relit le CPU. Le détail est dans [docs/retroachievements.md](docs/retroachievements.md). Les codes de triche ne sont pas pris en charge. L'intégration de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte.
+- **RetroAchievements** : les cœurs Libretro exposent une copie de la mémoire du jeu, rafraîchie à chaque image, vérifiée avec le code de rcheevos qu'utilise RetroArch mais pas encore en jeu dans RetroArch. Sur Game Boy, les deux fenêtres de ROM suivent la banque choisie par le jeu et les registres d'E/S sont exposés ; restent hors carte la RAM du MBC7 et, pour le MBC2, les bits hauts que relit le CPU. Le détail est dans [docs/retroachievements.md](docs/retroachievements.md). L'intégration de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte.
+- **Codes de triche** : décodés d'après Pan Docs et GBATEK, vérifiés avec des codes fabriqués pour les tests, pas encore avec des codes publiés essayés en jeu. Un code GBA de 16 chiffres est reconnu à son déchiffrement : sur des codes Action Replay fabriqués, environ un sur 40 000 est lu à tort comme un code GameShark.
 - **Câble link distant** : deux consoles seulement, prévu pour un réseau local. La console qui cadence un transfert attend un aller-retour réseau : un jeu GBA qui enchaîne les transferts peut ralentir. Essayé entre un téléphone et un PC : un échange Pokémon Émeraude ↔ Saphir va au bout, mais lentement. Détails dans [docs/remote_link.md](docs/remote_link.md).
 - **États instantanés** : un état ne se recharge pas dans une version plus ancienne que celle qui l'a créé. Les changements de format sont listés dans le [journal des modifications](CHANGELOG.md).
 

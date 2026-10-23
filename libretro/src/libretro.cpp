@@ -119,6 +119,11 @@ constexpr double fps = 16'777'216.0 / 280'896.0;
 std::unique_ptr<ravenemu::Core> new_core() { return ravenemu::make_gba_core(std::nullopt); }
 #endif
 
+// Cheats from the frontend's menu, by index. A disabled or refused cheat
+// keeps its slot, empty, so that later indexes stay where the frontend put them.
+std::vector<std::optional<ravenemu::Cheat>> cheats;
+constexpr unsigned max_cheats = 1024;
+
 // Teintes d'un jeu Game Boy, de la plus claire à la plus sombre : le vert de
 // l'écran d'origine, ou les gris du Game Boy Pocket (luminance des mêmes
 // teintes, comme la palette « Pocket » de RavenEmu Android).
@@ -171,14 +176,25 @@ static_assert(tilt_from_stick(0, 0x7fff).y == tilt_units_per_g);
 void log_line(retro_log_level level, const std::string& text) {
     if (log_cb) log_cb(level, "[%s] %s\n", name, text.c_str());
 }
+// A message on screen, for a few seconds.
+void show_message(const std::string& text) {
+    if (!env_cb) return;
+    retro_message message{text.c_str(), 300};
+    env_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &message);
+}
 // The frontend only says that the game did not load: the reason goes in the
 // log and on screen.
 void report_load_failure(const std::string& reason) {
     log_line(RETRO_LOG_ERROR, "jeu refusé : " + reason);
-    if (!env_cb) return;
-    const std::string text = std::string(name) + " : jeu refusé (" + reason + ")";
-    retro_message message{text.c_str(), 300};
-    env_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &message);
+    show_message(std::string(name) + " : jeu refusé (" + reason + ")");
+}
+// The engine takes the whole list at once; it runs from the next frame.
+void apply_cheats() {
+    if (!core) return;
+    std::vector<ravenemu::Cheat> active;
+    for (const auto& cheat : cheats)
+        if (cheat) active.push_back(*cheat);
+    core->set_cheats(active);
 }
 
 // Core options, labelled in French and sorted in categories by a frontend
@@ -567,6 +583,7 @@ bool retro_load_game(const struct retro_game_info* game) {
             throw std::runtime_error("Save state exceeds limits");
         state_capacity = state_bytes + 65544U;
         core = std::move(machine);
+        apply_cheats();
         sensors = core->cartridge_sensors();
         set_input_descriptors();
         declare_achievement_memory();
@@ -582,7 +599,10 @@ bool retro_load_game(const struct retro_game_info* game) {
     }
 }
 bool retro_load_game_special(unsigned, const struct retro_game_info*, std::size_t) { return false; }
-void retro_unload_game(void) { clear_game(); }
+void retro_unload_game(void) {
+    clear_game();
+    cheats.clear();
+}
 void retro_reset(void) {
     if (!core) return;
     try { import_save_ram_once(); core->reset(); update_save_ram(); update_rumble(); refresh_achievement_memory(true); }
@@ -671,8 +691,40 @@ bool retro_unserialize(const void* data, std::size_t size) {
         return false;
     }
 }
-void retro_cheat_reset(void) {}
-void retro_cheat_set(unsigned, bool, const char*) {}
+void retro_cheat_reset(void) {
+    cheats.clear();
+    try { apply_cheats(); } catch (const std::exception&) {}
+}
+// One menu entry: Game Genie or GameShark codes on Game Boy, Codebreaker,
+// GameShark or Action Replay codes on GBA, lines joined by '+' or spaces.
+// A refused code says why, on screen and in the log.
+void retro_cheat_set(unsigned index, bool enabled, const char* code) {
+    if (index >= max_cheats) {
+        log_line(RETRO_LOG_WARN, "code de triche " + std::to_string(index + 1) + " ignoré : trop de codes");
+        return;
+    }
+    try {
+        if (cheats.size() <= index) cheats.resize(index + 1);
+        cheats[index].reset();
+        if (enabled && code && *code) {
+#if defined(RAVENEMU_LIBRETRO_GBA)
+            constexpr auto console = ravenemu::Console::game_boy_advance;
+#else
+            constexpr auto console = ravenemu::Console::game_boy;
+#endif
+            try {
+                cheats[index] = ravenemu::parse_cheat(console, code);
+            } catch (const ravenemu::CheatError& error) {
+                const auto number = std::to_string(index + 1);
+                log_line(RETRO_LOG_WARN, "code de triche " + number + " refusé : " + error.what());
+                show_message(std::string(name) + " : code de triche " + number + " refusé (" + error.what() + ")");
+            }
+        }
+        apply_cheats();
+    } catch (const std::exception& error) {
+        log_line(RETRO_LOG_ERROR, std::string("codes de triche non appliqués : ") + error.what());
+    }
+}
 unsigned retro_get_region(void) { return RETRO_REGION_NTSC; }
 // Battery SRAM is the only exposed mutable memory. System memory reaches the
 // frontend only through the memory map, a copy that writes cannot change: no

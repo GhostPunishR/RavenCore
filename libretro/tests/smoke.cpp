@@ -306,6 +306,36 @@ int main() {
     }
 #endif
 
+    // Codes de triche du menu : appliqués dès l'image suivante ; un code refusé
+    // dit pourquoi, et n'empêche pas les autres.
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    const char* cheat = "33000100 0042";          // Codebreaker : [03000100] = 42
+    const char* refused = "9A123456 7890";        // Codebreaker chiffré
+    constexpr std::size_t cheat_address = 0x0300'0100;
+    constexpr std::uint8_t cheat_value = 0x42;
+#else
+    const char* cheat = "3EA-12B-FAE+01AA10C0";   // Game Genie, puis GameShark : [C010] = AA
+    const char* refused = "01021234";             // GameShark en ROM
+    constexpr std::size_t cheat_address = 0xc010;
+    constexpr std::uint8_t cheat_value = 0xaa;
+#endif
+    last_message.clear();
+    retro_cheat_set(0, true, refused);
+    retro_cheat_set(1, true, cheat);
+    if (last_message.find("code de triche 1 refusé") == std::string::npos) {
+        std::cerr << "Refused cheat not reported: " << last_message << "\n";
+        return 1;
+    }
+    retro_run();
+    if (!mapped(cheat_address) || *mapped(cheat_address) != cheat_value) {
+        std::cerr << "Cheat not applied\n";
+        return 1;
+    }
+    retro_cheat_set(1, false, cheat);
+    retro_cheat_reset();
+    retro_cheat_set(5000, true, cheat);
+    retro_run();
+
     const auto state_size = retro_serialize_size();
     if (state_size < 16 || state_size > 4U * 1024U * 1024U) {
         std::cerr << "Invalid state size\n";

@@ -44,6 +44,14 @@ public:
     void write8(std::int32_t address, int value);
     void write16(std::int32_t address, int value);
     void write32(std::int32_t address, std::int32_t value);
+    /**
+     * Codes de triche, entre deux instructions : un accès ordinaire (E/S
+     * synchronisées, effets des registres), sans attente ni place dans la
+     * suite séquentielle du CPU, ni effet sur le préchargement. Hors de la
+     * RAM, des E/S, de la palette, de la VRAM et de l'OAM, rien n'est lu ni écrit.
+     */
+    [[nodiscard]] std::uint32_t cheat_read(std::uint32_t address, int size);
+    void cheat_write(std::uint32_t address, int size, std::uint32_t value);
     // Cycles écoulés depuis le dernier relevé : chaque accès compte 1 cycle
     // plus ses attentes, et idle() ajoute les cycles internes du CPU.
     int take_wait_cycles() noexcept { return std::exchange(wait_cycles, 0); }

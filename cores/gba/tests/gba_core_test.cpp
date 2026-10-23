@@ -209,6 +209,52 @@ std::uint32_t iwram(const ravenemu::Core& core, std::uint32_t address, std::size
     return value;
 }
 
+/**
+ * Codes de triche : appliqués une fois par image, sans décaler la console
+ * d'un cycle ni toucher au préchargement, et conservés quand la machine
+ * change (état, réinitialisation).
+ */
+void cheats_test() {
+    const auto parse = [](const char* code) { return ravenemu::parse_cheat(ravenemu::Console::game_boy_advance, code); };
+    // Boucle en ROM, préchargement actif : ++r2 rangé en IWRAM.
+    const std::array<std::uint32_t, 9> code{
+        0xe59f0014, 0xe59f1014, 0xe5801204, 0xe3a03403,
+        0xe2822001, 0xe5832000, 0xeafffffc,
+        0x04000000, 0x00004317};
+    const auto rom = rom_with(code);
+    std::vector<std::int32_t> frame(240 * 160);
+    auto plain = ravenemu::make_gba_core(std::nullopt);
+    auto core = ravenemu::make_gba_core(std::nullopt);
+    plain->load_rom(rom, {});
+    core->load_rom(rom, {});
+    // Des tests seuls (EWRAM, KEYINPUT, IWRAM) : rien ne doit changer, pas même un cycle.
+    const std::array<ravenemu::Cheat, 1> tests{parse("72000100 0000\nD0000020 0001\nF3000000 0001")};
+    core->set_cheats(tests);
+    for (int index = 0; index < 3; ++index) {
+        plain->run_frame(frame, false);
+        core->run_frame(frame, false);
+    }
+    check(core->save_state() == plain->save_state(), "codes de triche : la console a été décalée");
+
+    // 16 bits en EWRAM, 8 bits en IWRAM.
+    const std::array<ravenemu::Cheat, 1> writes{parse("82000100 BEEF+33000100 0042")};
+    core->set_cheats(writes);
+    const auto state = core->save_state();
+    core->run_frame(frame, false);
+    check(iwram(*core, 0x8100, 2) == 0xbeefU && iwram(*core, 0x100, 1) == 0x42U, "codes de triche non appliqués");
+    core->load_state(state);
+    check(iwram(*core, 0x100, 1) == 0, "état restauré avec l'écriture du code");
+    core->run_frame(frame, false);
+    check(iwram(*core, 0x100, 1) == 0x42U, "codes de triche perdus après un état");
+    core->set_cheats({});
+    core->reset();
+    core->run_frame(frame, false);
+    check(iwram(*core, 0x100, 1) == 0, "codes de triche retirés toujours appliqués");
+
+    const std::array<ravenemu::Cheat, 1> game_boy{ravenemu::parse_cheat(ravenemu::Console::game_boy, "01AA10C0")};
+    expect_failure<std::invalid_argument>([&] { core->set_cheats(game_boy); }, "code Game Boy accepté par la GBA");
+}
+
 void irq_state_continuation_test() {
     // IRQ de VCount à la ligne 0 : elle se lève à la fin de chaque trame, et
     // l'état est pris avant qu'elle ne soit synchronisée. Le jeu compte dans
@@ -814,6 +860,7 @@ int main() {
     odd_audio_capacity_keeps_stereo_frames_test();
     audio_state_continuation_test();
     prefetch_state_continuation_test();
+    cheats_test();
     irq_state_continuation_test();
     bios_busy_state_continuation_test();
     bios_halt_state_continuation_test();

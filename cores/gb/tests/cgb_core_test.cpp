@@ -439,6 +439,66 @@ std::vector<std::uint8_t> serial_rom(std::uint8_t sent, std::uint8_t control) {
     return rom;
 }
 
+/**
+ * Game Genie : l'octet de ROM est remplacé à la lecture, si la comparaison
+ * l'accepte. GameShark : l'octet est récrit à chaque image, dans la banque
+ * de WRAM ou de RAM de cartouche que choisit le code.
+ */
+void cheats_test() {
+    const auto parse = [](const char* code) { return ravenemu::parse_cheat(ravenemu::Console::game_boy, code); };
+    const auto byte_at = [](const ravenemu::Core& core, std::uint32_t address) {
+        std::array<std::uint8_t, 1> byte{};
+        check(core.read_achievement_memory(address, byte) == 1, "octet illisible");
+        return byte[0];
+    };
+    std::vector<std::int32_t> frame(160 * 144);
+    // boucle : LD A,($4A12) ; LD ($C000),A ; LD A,($0200) ; LD ($C001),A ; JR boucle
+    auto rom = rom_running(minimal_game_boy_rom(),
+                           {0xfa, 0x12, 0x4a, 0xea, 0x00, 0xc0, 0xfa, 0x00, 0x02, 0xea, 0x01, 0xc0, 0x18, 0xf2});
+    rom[0x4a12] = 0x05;
+    rom[0x0200] = 0x77;
+    // 4A12 : 05 devient 3E ; 0200 : 05 deviendrait 99, mais l'octet vaut 77.
+    const std::vector<ravenemu::Cheat> cheats{parse("3EA-12B-FAE + 992-00F-FAE"), parse("01AA10C0"),
+                                              parse("933300D0")};
+    for (const bool color : {false, true}) {
+        rom[0x143] = color ? 0x80 : 0x00;
+        auto core = ravenemu::make_game_boy_core();
+        core->load_rom(rom, {});
+        core->set_cheats(cheats);
+        core->run_frame(frame, true);
+        check(byte_at(*core, 0xc000) == 0x3e, "Game Genie : octet de ROM non remplacé");
+        check(byte_at(*core, 0xc001) == 0x77, "Game Genie : comparaison ignorée");
+        check(byte_at(*core, 0xc010) == 0xaa, "GameShark : octet non écrit");
+        // Banque 3 de la WRAM de la GBC ; une Game Boy n'a que la banque 1.
+        check(byte_at(*core, color ? 0x11000 : 0xd000) == 0x33, "GameShark : banque de WRAM");
+
+        const auto state = core->save_state();
+        core->reset();
+        core->run_frame(frame, true);
+        check(byte_at(*core, 0xc000) == 0x3e, "Game Genie perdu à la réinitialisation");
+        core->set_cheats({});
+        core->load_state(state);
+        core->run_frame(frame, true);
+        check(byte_at(*core, 0xc000) == 0x05, "Game Genie retiré toujours appliqué");
+    }
+
+    // MBC5 + RAM + pile, 4 banques de RAM : le code vise la banque 2, RAM désactivée.
+    auto battery_rom = rom_running(minimal_game_boy_rom(), {0x18, 0xfe});
+    battery_rom[0x147] = 0x1b;
+    battery_rom[0x149] = 0x03;
+    auto core = ravenemu::make_game_boy_core();
+    core->load_rom(battery_rom, {});
+    const std::array<ravenemu::Cheat, 1> sram{parse("025500A0")};
+    core->set_cheats(sram);
+    core->run_frame(frame, true);
+    const auto battery = core->snapshot_battery_ram();
+    check(core->battery_ram_dirty() && battery && battery->data.size() == 0x8000 && battery->data[0x4000] == 0x55,
+          "GameShark : banque de RAM de cartouche");
+
+    const std::array<ravenemu::Cheat, 1> gba{ravenemu::parse_cheat(ravenemu::Console::game_boy_advance, "32000000 0001")};
+    expect_failure<std::invalid_argument>([&] { core->set_cheats(gba); }, "code GBA accepté par la Game Boy");
+}
+
 void link_cable_test() {
     auto master = ravenemu::make_game_boy_core();
     auto slave = ravenemu::make_game_boy_core();
@@ -463,6 +523,7 @@ int main() {
     invalid_rom_test();
     game_boy_smoke_test();
     link_cable_test();
+    cheats_test();
     game_boy_color_and_battery_test();
     mbc6_large_state_test();
     mbc7_core_contract_test();

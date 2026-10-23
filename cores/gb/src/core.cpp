@@ -46,6 +46,7 @@ public:
     void run_frame(std::span<std::int32_t> framebuffer, bool) override {
         require_loaded();
         if (framebuffer.size() < Ppu::frame_pixels) throw std::invalid_argument("Framebuffer trop petit");
+        apply_cheats();
         // Le câble distant a pu faire avancer une partie de cette image (service_remote_link).
         int ppu_cycles = std::exchange(carried_cycles_, 0);
         // Un câble distant livre les transferts du partenaire à chaque ligne,
@@ -150,10 +151,11 @@ public:
         return machine_ != nullptr && frames_since_link_use_ < link_use_frames;
     }
     [[nodiscard]] std::unique_ptr<LinkCable> create_link_cable(std::span<Core* const> players) override;
-    // Pour le câble link : la machine, après les vérifications de run_frame.
+    // Pour le câble link : la machine, après les vérifications et les codes de triche de run_frame.
     [[nodiscard]] Machine& machine_for_frame(std::span<const std::int32_t> framebuffer) {
         require_loaded();
         if (framebuffer.size() < Ppu::frame_pixels) throw std::invalid_argument("Framebuffer trop petit");
+        apply_cheats();
         return *machine_;
     }
     [[nodiscard]] bool connect_infrared_endpoint(InfraredEndpoint* endpoint) noexcept override {
@@ -169,6 +171,24 @@ public:
         CartridgeSensors sensors;
         sensors.tilt = tilt_sensor_;
         return sensors;
+    }
+    void set_cheats(std::span<const Cheat> cheats) override {
+        std::vector<MemoryBus::RomPatch> patches;
+        std::vector<CheatOperation> writes;
+        for (const auto& cheat : cheats) {
+            if (cheat.console != Console::game_boy) throw std::invalid_argument("Code de triche d'une autre console");
+            for (const auto& operation : cheat.operations) {
+                if (operation.action == CheatAction::rom_patch) {
+                    patches.push_back({static_cast<std::uint16_t>(operation.address),
+                                       static_cast<std::uint8_t>(operation.value), operation.original});
+                } else if (operation.action == CheatAction::write) {
+                    writes.push_back(operation);
+                }
+            }
+        }
+        rom_patches_ = std::move(patches);
+        cheat_writes_ = std::move(writes);
+        if (machine_) machine_->bus.rom_patches = rom_patches_;
     }
     void set_game_boy_acceleration(int x, int y) noexcept override {
         host_acceleration_x_ = x;
@@ -268,6 +288,27 @@ private:
         machine->cartridge->set_acceleration(host_acceleration_x_, host_acceleration_y_);
         return machine;
     }
+    /**
+     * Codes GameShark : l'appareil récrit ses octets à chaque image. La banque
+     * du code choisit la RAM de cartouche, ou la WRAM de la GBC pour 91 à 97 ;
+     * ailleurs, l'octet s'écrit là où le CPU l'écrirait.
+     */
+    void apply_cheats() {
+        auto& machine = *machine_;
+        for (const auto& write : cheat_writes_) {
+            const auto address = static_cast<int>(write.address);
+            const auto value = static_cast<int>(write.value);
+            if (address >= 0xa000 && address <= 0xbfff) {
+                machine.cartridge->write_ram_bank(write.bank, address, value);
+            } else if (address >= 0xd000 && address <= 0xdfff && write.bank >= 0x91 && write.bank <= 0x97 &&
+                       gb::cgb_features_enabled(machine.hardware_mode)) {
+                machine.bus.wram[static_cast<std::size_t>((write.bank & 7) * 0x1000 + address - 0xd000)] =
+                    static_cast<std::uint8_t>(value);
+            } else {
+                machine.bus.write(address, value);
+            }
+        }
+    }
     void install_machine(std::unique_ptr<Machine> replacement) {
         if (machine_) {
             machine_->serial.disconnect();
@@ -282,6 +323,7 @@ private:
             reconnect_current_endpoints();
             throw std::logic_error("InfraredEndpoint refuse une nouvelle extrémité");
         }
+        replacement->bus.rom_patches = rom_patches_;
         machine_ = std::move(replacement);
         carried_cycles_ = 0;  // la nouvelle machine commence son image
     }
@@ -315,6 +357,8 @@ private:
     InfraredEndpoint* infrared_endpoint_{};
     int host_acceleration_x_{};
     int host_acceleration_y_{};
+    std::vector<MemoryBus::RomPatch> rom_patches_;
+    std::vector<CheatOperation> cheat_writes_;
 };
 
 /**

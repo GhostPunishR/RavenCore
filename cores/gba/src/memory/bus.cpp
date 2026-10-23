@@ -304,6 +304,40 @@ void Bus::write32(std::int32_t address, std::int32_t value) {
     }
 }
 
+namespace {
+[[nodiscard]] bool cheat_target(std::uint32_t address) noexcept {
+    const auto region = address >> 24U;
+    return region >= 0x02U && region <= 0x07U;
+}
+} // namespace
+
+std::uint32_t Bus::cheat_read(std::uint32_t address, int size) {
+    if (!cheat_target(address)) return 0;
+    const auto wait = wait_cycles;
+    const auto sequential = next_sequential_address;
+    const auto prefetch = prefetch_;
+    const auto at = i32(address);
+    const auto value = size == 1 ? u32(read8(at)) : size == 2 ? u32(read16(at)) : u32(read32(at));
+    wait_cycles = wait;
+    next_sequential_address = sequential;
+    prefetch_ = prefetch;
+    return value;
+}
+
+void Bus::cheat_write(std::uint32_t address, int size, std::uint32_t value) {
+    if (!cheat_target(address)) return;
+    const auto wait = wait_cycles;
+    const auto sequential = next_sequential_address;
+    const auto prefetch = prefetch_;
+    const auto at = i32(address);
+    if (size == 1) write8(at, static_cast<int>(value & 0xffU));
+    else if (size == 2) write16(at, static_cast<int>(value & 0xffffU));
+    else write32(at, i32(value));
+    wait_cycles = wait;
+    next_sequential_address = sequential;
+    prefetch_ = prefetch;
+}
+
 int Bus::io_half(int offset) const noexcept {
     return io[static_cast<std::size_t>(offset)] | io[static_cast<std::size_t>(offset + 1)] << 8;
 }

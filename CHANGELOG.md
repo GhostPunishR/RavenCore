@@ -4,7 +4,7 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 ## 0.12.0 - 2026-10-23
 
-Cette version complète les cœurs Libretro. Ils sont désormais publiés pour Windows, macOS et Android, gagnent des options d'image et signalent un jeu refusé. Le cœur ne dessine plus les images que RetroArch n'affiche pas. Les moteurs, l'API C et le format des états ne changent pas.
+Cette version complète les cœurs Libretro. Ils sont désormais publiés pour Windows, macOS et Android, prennent les codes de triche, gagnent des options d'image et signalent un jeu refusé. Le cœur ne dessine plus les images que RetroArch n'affiche pas. L'API C et le format des états ne changent pas ; l'API C++ gagne les codes de triche.
 
 ### Ajouté
 
@@ -18,6 +18,16 @@ Cette version complète les cœurs Libretro. Ils sont désormais publiés pour W
   - Correction des couleurs LCD pour la Game Boy Color et la Game Boy Advance, la même que RavenEmu Android : environ 28 % de désaturation, puis un gamma de 1,15.
   - Elles changent pendant le jeu.
 - **Options v2.** Libellés et descriptions en français, catégories **Image** et **Cartouche**. Un frontend plus ancien garde la liste simple.
+- **Codes de triche**, dans le menu de RetroArch et par l'API C++.
+  - **Game Boy et Game Boy Color.**
+    - Game Genie : l'octet est remplacé à la lecture de la ROM, comme le fait l'adaptateur ; sa comparaison écarte les autres banques.
+    - GameShark : l'octet est récrit à chaque image, dans la banque de RAM de cartouche choisie par le code, ou de WRAM de la GBC pour 91 à 97.
+  - **GBA.** Codebreaker non chiffré, GameShark v1/v2 et Pro Action Replay v3 chiffrés ; ces deux derniers sont reconnus à leur déchiffrement.
+    - Pris en charge : écritures, additions, opérations logiques, séries, écritures par pointeur, conditions (dont les blocs IF/ELSE/ENDIF de l'Action Replay) et test des touches du Codebreaker.
+    - Les codes s'exécutent une fois par image, hors du temps de la console : ils ne décalent pas son minutage d'un cycle.
+  - **Non pris en charge**, avec un message qui le dit : patchs de ROM GBA, changement de chiffrement `DEADFACE`, Codebreaker chiffré (type 9). Les codes des boutons des appareils n'ont pas d'effet, faute de bouton.
+  - Un code refusé affiche sa raison à l'écran et dans le journal, par exemple « RavenGB : code de triche 1 refusé (le code GameShark « 01021234 » vise la ROM : c'est le rôle d'un code Game Genie) ».
+  - **API C++.** `parse_cheat` décode une entrée et lève `CheatError` avec la raison d'un refus ; `Core::set_cheats` active la liste. Les codes survivent aux changements de ROM, aux réinitialisations et aux états, sans y être enregistrés.
 - **Messages.** Un jeu refusé affiche sa raison à l'écran et dans le journal de RetroArch, par exemple « RavenGBA : jeu refusé (ROM GBA trop courte) ». Une erreur pendant le jeu, une fois par partie, et un état refusé vont au journal.
 
 ### Modifié
@@ -33,6 +43,7 @@ Cette version complète les cœurs Libretro. Ils sont désormais publiés pour W
 
 - **GBA : format 16** et **GB/GBC : format 11**, inchangés.
 - **API C : version 0**, inchangée. Le paquet CMake se demande désormais avec `find_package(RavenCore 0.12)`.
+- **API C++** : `Core::set_cheats` est une méthode virtuelle nouvelle, avec une implémentation par défaut.
 
 ### Tests
 
@@ -41,7 +52,17 @@ Cette version complète les cœurs Libretro. Ils sont désormais publiés pour W
   - un jeu refusé : sa raison est au journal et à l'écran ;
   - la palette Pocket appliquée en cours de jeu ;
   - la correction LCD sur un fond rouge pur : `0xBF0909`, la valeur que donne la formule de RavenEmu Android ;
-  - les options v2 : libellés, catégories et valeurs par défaut.
+  - les options v2 : libellés, catégories et valeurs par défaut ;
+  - un code de triche refusé, signalé avec sa raison, et un code accepté, appliqué dès l'image suivante.
+- `ravenemu_cheats`, nouveau :
+  - le chiffrement contre le vecteur de référence de l'algorithme (clé et bloc nuls), et l'aller-retour avec les graines GameShark et Action Replay ;
+  - le décodage de chaque format, dont l'exemple GameShark de Pan Docs ;
+  - les conditions, les blocs IF/ELSE/ENDIF, les séries et les pointeurs, exécutés sur une mémoire factice ;
+  - les refus, chacun avec sa raison.
+- `gb_raven_core` : un code Game Genie appliqué ou écarté par sa comparaison, un code GameShark en WRAM, en banque de WRAM GBC et en banque de RAM de cartouche, et des codes conservés à la réinitialisation.
+- `gba_raven_core` :
+  - des codes qui ne font que lire laissent l'état identique, octet pour octet, à celui d'une console sans codes ;
+  - des écritures appliquées, conservées après un état, retirées avec la liste.
 
 ## 0.11.0 - 2026-10-23
 

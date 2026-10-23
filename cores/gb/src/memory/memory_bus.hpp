@@ -12,6 +12,9 @@
 #include <ravenemu/gbc/infrared_port.hpp>
 #include <ravenemu/gb/hardware_mode.hpp>
 
+#include <optional>
+#include <vector>
+
 namespace ravenemu::cgb {
 
 class MemoryBus final : public Bus {
@@ -217,7 +220,27 @@ public:
     std::array<std::uint8_t, 0x8000> wram{};
     std::array<std::uint8_t, 0x7f> hram{};
 
+    /**
+     * Codes Game Genie : l'adaptateur, entre la console et la cartouche,
+     * remplace l'octet lu à `address` quand il vaut `original` (ou toujours,
+     * sans comparaison). La comparaison écarte les autres banques.
+     */
+    struct RomPatch {
+        std::uint16_t address{};
+        std::uint8_t value{};
+        std::optional<std::uint8_t> original;
+    };
+    std::vector<RomPatch> rom_patches;
+
 private:
+    [[nodiscard]] int read_rom(int address) const {
+        const int value = cartridge_.read_rom(address);
+        if (rom_patches.empty()) return value;
+        for (const auto& patch : rom_patches)
+            if (patch.address == address && (!patch.original || *patch.original == value)) return patch.value;
+        return value;
+    }
+
     void tick_cpu_clock(int cpu_cycles, bool pause_hblank_hdma) {
         const int cpu_cycles_per_dot = 1 << speed_.peripheral_shift();
         const int peripheral_dots = cpu_cycles / cpu_cycles_per_dot;
@@ -290,7 +313,7 @@ private:
     [[nodiscard]] int read_internal(int address) {
         if (address <= 0x7fff) {
             if (boot_rom_.contains(address)) return boot_rom_.read(address);
-            return cartridge_.read_rom(address);
+            return read_rom(address);
         }
         if (address <= 0x9fff) return ppu_.read_vram(address);
         if (address <= 0xbfff) return cartridge_.read_ram(address);
@@ -501,7 +524,7 @@ private:
     [[nodiscard]] int read_for_oam_dma(int address) const {
         // CGB DMG-style DMA accepte 0000-DFFF ; E000-FFFF n'est pas une source valide.
         if (address < 0 || address > 0xdfff) return 0xff;
-        if (address <= 0x7fff) return cartridge_.read_rom(address);
+        if (address <= 0x7fff) return read_rom(address);
         if (address <= 0x9fff) return ppu_.vram[static_cast<std::size_t>(ppu_.vram_bank() * 0x2000 + (address & 0x1fff))];
         if (address <= 0xbfff) return cartridge_.read_ram(address);
         if (address <= 0xcfff) return wram[static_cast<std::size_t>(address - 0xc000)];
@@ -567,7 +590,7 @@ private:
     }
 
     [[nodiscard]] int read_for_hdma(int address) const {
-        if (address <= 0x7fff) return cartridge_.read_rom(address);
+        if (address <= 0x7fff) return read_rom(address);
         if (address >= 0xa000 && address <= 0xbfff) return cartridge_.read_ram(address);
         if (address >= 0xc000 && address <= 0xcfff) return wram[static_cast<std::size_t>(address - 0xc000)];
         if (address >= 0xd000 && address <= 0xdfff) return wram[static_cast<std::size_t>(wram_bank() * 0x1000 + address - 0xd000)];
