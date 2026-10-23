@@ -1,6 +1,7 @@
 name: Release
 # Publishes the GitHub release of a vX.Y.Z tag. The notes are that version's
-# section of CHANGELOG.md; the Linux x86-64 Libretro cores are attached.
+# section of CHANGELOG.md; the Libretro cores are attached for Linux x86-64,
+# Windows x86-64, macOS (arm64 and x86-64) and Android (arm64-v8a, armeabi-v7a).
 # Third-party actions are pinned to a full commit SHA (tag in the comment).
 on:
   push:
@@ -11,14 +12,15 @@ on:
         description: Tag to publish (vX.Y.Z), created on the selected branch head if missing
         required: true
 
+env:
+  TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+
 jobs:
-  release:
-    name: Publish GitHub release
+  notes:
+    name: Check the version and extract the release notes
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-    env:
-      TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Check the version and extract the release notes
@@ -31,28 +33,95 @@ jobs:
             echo "CMakeLists.txt does not declare version $version"; exit 1
           fi
           # Lines between "## X.Y.Z - date" and the next second-level heading.
+          mkdir -p notes
           awk -v heading="## $version " '
             /^## / { if (found) exit; found = index($0, heading) == 1; next }
             found
-          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
-          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+          ' CHANGELOG.md > notes/notes.md
+          if ! grep -q '[^[:space:]]' notes/notes.md; then
             echo "CHANGELOG.md has no section for $version"; exit 1
           fi
-      - name: Build and test
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-notes
+          path: notes/notes.md
+
+  cores:
+    name: Libretro cores (${{ matrix.platform }})
+    needs: notes
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux-x86_64
+            os: ubuntu-latest
+          - platform: windows-x86_64
+            os: windows-latest
+          - platform: macos-universal
+            os: macos-latest
+          - platform: android-arm64-v8a
+            os: ubuntu-latest
+            abi: arm64-v8a
+          - platform: android-armeabi-v7a
+            os: ubuntu-latest
+            abi: armeabi-v7a
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Configure CMake
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ABI: ${{ matrix.abi }}
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-          cmake --build build --parallel 2
-          ctest --test-dir build --output-on-failure
+          case "$PLATFORM" in
+            linux-*) cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON ;;
+            # The C++ runtime is linked in: no Visual C++ redistributable needed.
+            windows-*) cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ;;
+            macos-*)
+              cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
+                "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 ;;
+            android-*)
+              ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_ROOT:-}}"
+              test -n "$ndk" || { echo "No Android NDK on this runner"; exit 1; }
+              cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+                "-DCMAKE_TOOLCHAIN_FILE=$ndk/build/cmake/android.toolchain.cmake" \
+                "-DANDROID_ABI=$ABI" -DANDROID_PLATFORM=android-24 ;;
+          esac
+      - name: Build
+        run: cmake --build build --config Release --parallel 3
+      - name: Test
+        # Android cores are cross-compiled: nothing runs on the runner.
+        if: ${{ !startsWith(matrix.platform, 'android-') }}
+        run: ctest --test-dir build -C Release --output-on-failure
       - name: Package Libretro cores and RetroArch information
-        run: |
-          mkdir -p dist/cores dist/info
-          cp build/libretro/*_libretro.so dist/cores/
-          cp build/libretro/info/*_libretro.info dist/info/
-          tar -C dist -czf "ravenemu-libretro-$TAG-linux-x86_64.tar.gz" cores info
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: libretro/package.sh build "$PLATFORM" "ravenemu-libretro-$TAG-$PLATFORM"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cores-${{ matrix.platform }}
+          path: ravenemu-libretro-*
+
+  publish:
+    name: Publish GitHub release
+    needs: [notes, cores]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: artifacts
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          gh release create "$TAG" "ravenemu-libretro-$TAG-linux-x86_64.tar.gz"
-          --title "RavenCore ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" artifacts/cores-*/ravenemu-libretro-*
+          --repo "$GITHUB_REPOSITORY"
+          --title "RavenCore ${TAG#v}" --notes-file artifacts/release-notes/notes.md
           --target "$GITHUB_SHA"

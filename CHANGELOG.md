@@ -2,6 +2,47 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.12.0 - 2026-10-23
+
+Cette version complète les cœurs Libretro. Ils sont désormais publiés pour Windows, macOS et Android, gagnent des options d'image et signalent un jeu refusé. Le cœur ne dessine plus les images que RetroArch n'affiche pas. Les moteurs, l'API C et le format des états ne changent pas.
+
+### Ajouté
+
+- **Cœurs Libretro pour toutes les plateformes.** Chaque version publie, en plus de Linux x86-64 :
+  - Windows x86-64, avec le runtime C++ intégré : pas de redistribuable Visual C++ à installer ;
+  - macOS 11 ou plus récent, en une bibliothèque universelle pour Apple Silicon et Intel ;
+  - Android arm64-v8a et armeabi-v7a, nommés `*_libretro_android.so` comme l'attend RetroArch pour Android.
+  - La CI fournit les mêmes archives à chaque PR. `libretro/package.sh` les assemble : `cores/` et `info/`.
+- **Options d'image.**
+  - Palette des jeux Game Boy : vert (Game Boy) ou gris (Game Boy Pocket).
+  - Correction des couleurs LCD pour la Game Boy Color et la Game Boy Advance, la même que RavenEmu Android : environ 28 % de désaturation, puis un gamma de 1,15.
+  - Elles changent pendant le jeu.
+- **Options v2.** Libellés et descriptions en français, catégories **Image** et **Cartouche**. Un frontend plus ancien garde la liste simple.
+- **Messages.** Un jeu refusé affiche sa raison à l'écran et dans le journal de RetroArch, par exemple « RavenGBA : jeu refusé (ROM GBA trop courte) ». Une erreur pendant le jeu, une fois par partie, et un état refusé vont au journal.
+
+### Modifié
+
+- **Images et son que RetroArch n'utilise pas** (anticipation « run-ahead », avance rapide), signalés par `RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE` :
+  - le cœur GBA ne dessine pas l'image ;
+  - aucun cœur ne la convertit, et RetroArch reprend l'image précédente ;
+  - le son de ces images est jeté.
+  - Sans reprise de l'image possible (`RETRO_ENVIRONMENT_GET_CAN_DUPE`), l'image est dessinée comme avant.
+- Les options GBA existantes gardent leurs clés et leurs valeurs ; seuls leurs libellés passent en français.
+
+### Compatibilité des états instantanés
+
+- **GBA : format 16** et **GB/GBC : format 11**, inchangés.
+- **API C : version 0**, inchangée. Le paquet CMake se demande désormais avec `find_package(RavenCore 0.12)`.
+
+### Tests
+
+- `libretro_smoke_gb`, `_gbc` et `_gba` vérifient désormais :
+  - une image et un son non voulus : l'image précédente est reprise, aucun son ne part ;
+  - un jeu refusé : sa raison est au journal et à l'écran ;
+  - la palette Pocket appliquée en cours de jeu ;
+  - la correction LCD sur un fond rouge pur : `0xBF0909`, la valeur que donne la formule de RavenEmu Android ;
+  - les options v2 : libellés, catégories et valeurs par défaut.
+
 ## 0.11.0 - 2026-10-23
 
 Cette version corrige le câble link distant GBA quand le réseau ajoute de la latence : un échange Pokémon entre un téléphone et un PC finissait en « Erreur de communication » dès la salle d'échange. Le protocole reste en version 2 et se relie à la 0.10.0. L'API C ne change pas ; l'API C++ gagne une méthode.

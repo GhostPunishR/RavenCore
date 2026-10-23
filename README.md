@@ -33,15 +33,26 @@ Pour ne compiler que les moteurs, ajoutez `-DRAVENEMU_BUILD_LIBRETRO=OFF -DBUILD
 
 ## Utiliser avec RetroArch
 
-1. Téléchargez `ravenemu-libretro-vX.Y.Z-linux-x86_64.tar.gz` depuis les [releases](https://github.com/GhostPunishR/RavenCore/releases). Pour la version en développement, prenez l'artefact d'une [exécution CI](https://github.com/GhostPunishR/RavenCore/actions/workflows/ci.yml).
-2. Copiez `cores/*.so` dans le dossier des cœurs de RetroArch, et `info/*.info` dans son dossier `info`.
+1. Téléchargez l'archive de votre système depuis les [releases](https://github.com/GhostPunishR/RavenCore/releases). Pour la version en développement, prenez l'artefact d'une [exécution CI](https://github.com/GhostPunishR/RavenCore/actions/workflows/ci.yml).
+
+   | Système | Archive |
+   | --- | --- |
+   | Linux x86-64 | `ravenemu-libretro-vX.Y.Z-linux-x86_64.tar.gz` |
+   | Windows x86-64 | `ravenemu-libretro-vX.Y.Z-windows-x86_64.zip` |
+   | macOS 11 ou plus récent, Apple Silicon et Intel | `ravenemu-libretro-vX.Y.Z-macos-universal.zip` |
+   | Android 64 bits | `ravenemu-libretro-vX.Y.Z-android-arm64-v8a.zip` |
+   | Android 32 bits | `ravenemu-libretro-vX.Y.Z-android-armeabi-v7a.zip` |
+
+2. Installez les cœurs :
+   - **Linux, Windows, macOS** : copiez le contenu de `cores/` dans le dossier des cœurs, et celui de `info/` dans le dossier des informations des cœurs (RetroArch les indique dans **Paramètres > Dossiers**). Sous macOS, si RetroArch refuse un cœur téléchargé, retirez la quarantaine du dossier des cœurs : `xattr -dr com.apple.quarantine <dossier>`.
+   - **Android** : dans RetroArch, **Charger un cœur > Installer ou restaurer un cœur**, puis choisissez chaque fichier de `cores/`. Les fichiers de `info/` sont facultatifs : ils donnent le nom complet du cœur.
 3. Chargez le cœur voulu :
 
-| Fichier | Console |
+| Cœur | Console |
 | --- | --- |
-| `ravenemu_gb_libretro.so` | Game Boy (DMG) |
-| `ravenemu_gbc_libretro.so` | Game Boy Color, compatible Game Boy |
-| `ravenemu_gba_libretro.so` | Game Boy Advance |
+| `ravenemu_gb_libretro` | Game Boy (DMG) |
+| `ravenemu_gbc_libretro` | Game Boy Color, compatible Game Boy |
+| `ravenemu_gba_libretro` | Game Boy Advance |
 
 Les cœurs gèrent la vibration (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) et les capteurs des cartouches, pilotés au stick analogique gauche :
 
@@ -52,17 +63,23 @@ Les cœurs gèrent la vibration (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) 
 | Gyroscope GBA | WarioWare: Twisted! | Stick gauche, axe horizontal (à droite : sens horaire) |
 | Capteur solaire GBA | Boktai 1 à 3 | Option `ravenemu_gba_solar_light` |
 
-La sauvegarde et l'horloge d'un jeu GBA sont détectées automatiquement. La détection RTC couvre aussi les pilotes Pokémon/CFRU sans marqueur Seiko, à partir de leur identité interne et de références GPIO ([détails et limites](cores/gba/tests/rtc_compatibility.md)). Si la détection se trompe, deux options du cœur les imposent ; elles s'appliquent au chargement du jeu. La lumière du capteur solaire, elle, se règle à tout moment :
+La sauvegarde et l'horloge d'un jeu GBA sont détectées automatiquement. La détection RTC couvre aussi les pilotes Pokémon/CFRU sans marqueur Seiko, à partir de leur identité interne et de références GPIO ([détails et limites](cores/gba/tests/rtc_compatibility.md)). Si la détection se trompe, deux options du cœur les imposent.
 
-| Option | Valeurs |
-| --- | --- |
-| `ravenemu_gba_save_type` | `auto`, `sram`, `flash64`, `flash128`, `eeprom512`, `eeprom8k`, `none` |
-| `ravenemu_gba_rtc` | `auto`, `enabled`, `disabled` |
-| `ravenemu_gba_solar_light` | Pourcentage de plein soleil : `50` par défaut, de `0` à `100` par pas de 10 |
+Les options s'affichent en français, rangées en deux catégories, **Image** et **Cartouche**. Elles s'appliquent pendant le jeu, sauf le type de sauvegarde et l'horloge, appliqués au chargement :
+
+| Option | Clé | Cœurs | Valeurs |
+| --- | --- | --- | --- |
+| Palette | `ravenemu_gb_palette` | RavenGB | Vert (Game Boy) par défaut, ou gris (Game Boy Pocket) |
+| Correction des couleurs LCD | `ravenemu_gbc_color_correction`, `ravenemu_gba_color_correction` | RavenGBC, RavenGBA | Désactivée par défaut. Activée, elle adoucit les couleurs vives comme l'écran de la console, avec le réglage de RavenEmu Android |
+| Type de sauvegarde | `ravenemu_gba_save_type` | RavenGBA | `auto`, `sram`, `flash64`, `flash128`, `eeprom512`, `eeprom8k`, `none` |
+| Horloge (RTC) | `ravenemu_gba_rtc` | RavenGBA | `auto`, `enabled`, `disabled` |
+| Lumière du capteur solaire | `ravenemu_gba_solar_light` | RavenGBA | Pourcentage de plein soleil : `50` par défaut, de `0` à `100` par pas de 10 |
+
+Un jeu refusé affiche sa raison à l'écran et dans le journal de RetroArch. Les images que RetroArch n'affiche pas (anticipation « run-ahead », avance rapide) ne sont pas dessinées par le cœur GBA ni converties par aucun cœur.
 
 Les cœurs déclarent à RetroArch la mémoire que surveille RetroAchievements : les succès s'activent comme avec les autres cœurs, et RetroArch applique lui-même les règles du mode Hardcore. RetroAchievements n'a pas encore testé RavenCore.
 
-> Les binaires publiés visent uniquement **Linux x86-64**. Les cœurs ne sont pas proposés par le téléchargeur intégré de RetroArch.
+> Les cœurs ne sont pas encore proposés par le téléchargeur intégré de RetroArch.
 
 ## Intégrer dans un projet
 
@@ -75,7 +92,7 @@ Les cœurs déclarent à RetroArch la mémoire que surveille RetroAchievements :
 Après `cmake --install`, utilisez le paquet CMake :
 
 ```cmake
-find_package(RavenCore 0.11 REQUIRED)
+find_package(RavenCore 0.12 REQUIRED)
 target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 
@@ -118,12 +135,12 @@ ctest --test-dir build --output-on-failure
   - l'exception d'instruction indéfinie.
 - **Capteurs** : ceux des cartouches GBA suivent les mesures publiées par GBATEK, mais n'ont pas encore été essayés en jeu. Le sens des axes d'inclinaison (GBA et MBC7) et l'échelle du gyroscope restent à confirmer.
 - **RetroAchievements** : les cœurs Libretro exposent une copie de la mémoire du jeu, rafraîchie à chaque image, vérifiée avec le code de rcheevos qu'utilise RetroArch mais pas encore en jeu dans RetroArch. Sur Game Boy, les deux fenêtres de ROM suivent la banque choisie par le jeu et les registres d'E/S sont exposés ; restent hors carte la RAM du MBC7 et, pour le MBC2, les bits hauts que relit le CPU. Le détail est dans [docs/retroachievements.md](docs/retroachievements.md). Les codes de triche ne sont pas pris en charge. L'intégration de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte.
-- **Câble link distant** : deux consoles seulement, prévu pour un réseau local. La console qui cadence un transfert attend un aller-retour réseau : un jeu GBA qui enchaîne les transferts peut ralentir. Essayé par des tests avec un faux réseau, pas encore entre deux appareils. Détails dans [docs/remote_link.md](docs/remote_link.md).
+- **Câble link distant** : deux consoles seulement, prévu pour un réseau local. La console qui cadence un transfert attend un aller-retour réseau : un jeu GBA qui enchaîne les transferts peut ralentir. Essayé entre un téléphone et un PC : un échange Pokémon Émeraude ↔ Saphir va au bout, mais lentement. Détails dans [docs/remote_link.md](docs/remote_link.md).
 - **États instantanés** : un état ne se recharge pas dans une version plus ancienne que celle qui l'a créé. Les changements de format sont listés dans le [journal des modifications](CHANGELOG.md).
 
 ## Versions
 
-Version actuelle : **0.11.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro Linux. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
+Version actuelle : **0.12.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro pour Linux, Windows, macOS et Android. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
 
 Avant la 1.0, une version peut changer l'API ou le format des états ; le journal le signale à chaque fois.
 

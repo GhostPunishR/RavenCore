@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -33,6 +34,10 @@ retro_audio_sample_t sample_cb = nullptr;
 retro_audio_sample_batch_t batch_cb = nullptr;
 retro_input_poll_t poll_cb = nullptr;
 retro_input_state_t input_cb = nullptr;
+retro_log_printf_t log_cb = nullptr;
+// The frontend accepts a null frame: the previous image is shown again.
+bool can_dupe = false;
+bool run_error_logged = false;
 
 std::unique_ptr<ravenemu::Core> core;
 std::vector<std::uint8_t> rom;
@@ -91,6 +96,7 @@ std::array<std::size_t, achievement_regions.size()> achievement_sizes{};
 
 #if defined(RAVENEMU_LIBRETRO_GB)
 constexpr const char* label = "RavenGB";
+constexpr const char* name = "RavenGB";
 constexpr const char* extensions = "gb|sgb";
 constexpr unsigned width = 160, height = 144;
 constexpr double fps = 4'194'304.0 / 70'224.0;
@@ -99,21 +105,51 @@ std::unique_ptr<ravenemu::Core> new_core() {
 }
 #elif defined(RAVENEMU_LIBRETRO_GBC)
 constexpr const char* label = "RavenGBC";
+constexpr const char* name = "RavenGBC";
 constexpr const char* extensions = "gbc|gb";
 constexpr unsigned width = 160, height = 144;
 constexpr double fps = 4'194'304.0 / 70'224.0;
 std::unique_ptr<ravenemu::Core> new_core() { return ravenemu::gbc::make_core(); }
 #else
 constexpr const char* label = "RavenGBA (experimental)";
+constexpr const char* name = "RavenGBA";
 constexpr const char* extensions = "gba";
 constexpr unsigned width = 240, height = 160;
 constexpr double fps = 16'777'216.0 / 280'896.0;
 std::unique_ptr<ravenemu::Core> new_core() { return ravenemu::make_gba_core(std::nullopt); }
 #endif
 
-constexpr std::array<std::uint32_t, 4> dmg_shades{
-    0x00e0f8d0, 0x0088c070, 0x00346856, 0x00081820
-};
+// Teintes d'un jeu Game Boy, de la plus claire à la plus sombre : le vert de
+// l'écran d'origine, ou les gris du Game Boy Pocket (luminance des mêmes
+// teintes, comme la palette « Pocket » de RavenEmu Android).
+using Shades = std::array<std::uint32_t, 4>;
+constexpr Shades dmg_shades{0x00e0f8d0, 0x0088c070, 0x00346856, 0x00081820};
+#if defined(RAVENEMU_LIBRETRO_GB)
+constexpr Shades pocket_shades{0x00ececec, 0x00a6a6a6, 0x00565656, 0x00141414};
+#endif
+Shades shades = dmg_shades;
+
+// Correction LCD des consoles couleur, la même que RavenEmu Android (réglée à
+// l'œil, pas d'après les mesures d'un écran) : environ 28 % de désaturation
+// vers la luminance Rec. 709, puis le gamma 1,15 d'un écran réfléchissant.
+bool lcd_correction = false;
+const std::array<std::uint8_t, 256> lcd_gamma = [] {
+    std::array<std::uint8_t, 256> table{};
+    for (std::size_t value = 0; value < table.size(); ++value)
+        table[value] = static_cast<std::uint8_t>(std::lround(255.0 * std::pow(static_cast<double>(value) / 255.0, 1.15)));
+    return table;
+}();
+std::uint32_t lcd_corrected(std::uint32_t pixel) {
+    const int r = static_cast<int>((pixel >> 16U) & 255U);
+    const int g = static_cast<int>((pixel >> 8U) & 255U);
+    const int b = static_cast<int>(pixel & 255U);
+    const int luma = (54 * r + 183 * g + 19 * b) >> 8;
+    // 72/256 du chemin vers la luminance : un mélange, toujours entre 0 et 255.
+    const auto channel = [luma](int value) -> std::uint32_t {
+        return lcd_gamma[static_cast<std::size_t>(value + (((luma - value) * 72) >> 8))];
+    };
+    return channel(r) << 16U | channel(g) << 8U | channel(b);
+}
 // MBC7 accelerometer (Kirby Tilt 'n' Tumble, Command Master) driven by the
 // left analog stick. The cartridge reads 0x81D0 at rest and moves by about
 // 0x70 per g; a full deflection is a 1 g tilt. Signs follow accelerometer
@@ -132,13 +168,120 @@ static_assert(tilt_from_stick(-0x8000, 0).x == tilt_units_per_g);
 static_assert(tilt_from_stick(0, -0x8000).y == -tilt_units_per_g);
 static_assert(tilt_from_stick(0, 0x7fff).y == tilt_units_per_g);
 
-#if defined(RAVENEMU_LIBRETRO_GBA)
-// Core options for games whose cartridge detection fails. They are read when a
-// game loads: the SAVE_RAM size must not change while the frontend holds it.
+void log_line(retro_log_level level, const std::string& text) {
+    if (log_cb) log_cb(level, "[%s] %s\n", name, text.c_str());
+}
+// The frontend only says that the game did not load: the reason goes in the
+// log and on screen.
+void report_load_failure(const std::string& reason) {
+    log_line(RETRO_LOG_ERROR, "jeu refusé : " + reason);
+    if (!env_cb) return;
+    const std::string text = std::string(name) + " : jeu refusé (" + reason + ")";
+    retro_message message{text.c_str(), 300};
+    env_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &message);
+}
+
+// Core options, labelled in French and sorted in categories by a frontend
+// that knows options v2; an older one gets the plain « Label; a|b|c » list.
+// The first choice is the default.
+struct OptionChoice { const char* value; const char* label; };
+struct OptionSpec {
+    const char* key;
+    const char* label;
+    const char* info;
+    const char* category;
+    std::vector<OptionChoice> choices;
+};
+#if !defined(RAVENEMU_LIBRETRO_GB)
+OptionSpec lcd_option(const char* key) {
+    return {key, "Correction des couleurs LCD",
+            "Adoucit les couleurs vives pour imiter l'écran réfléchissant de la console.", "video",
+            {{"disabled", "Désactivée"}, {"enabled", "Activée"}}};
+}
+#endif
+const std::vector<OptionSpec> option_specs{
+#if defined(RAVENEMU_LIBRETRO_GB)
+    {"ravenemu_gb_palette", "Palette", "Teintes des jeux Game Boy.", "video",
+     {{"dmg", "Vert (Game Boy)"}, {"pocket", "Gris (Game Boy Pocket)"}}},
+#elif defined(RAVENEMU_LIBRETRO_GBC)
+    lcd_option("ravenemu_gbc_color_correction"),
+#else
+    lcd_option("ravenemu_gba_color_correction"),
+    // For games whose cartridge detection fails: the SAVE_RAM size must not
+    // change while the frontend holds it, so both apply when a game loads.
+    {"ravenemu_gba_save_type", "Type de sauvegarde",
+     "Appliqué au chargement du jeu. Auto reconnaît la puce de la cartouche.", "cartridge",
+     {{"auto", "Auto"}, {"sram", "SRAM 32 Kio"}, {"flash64", "Flash 64 Kio"}, {"flash128", "Flash 128 Kio"},
+      {"eeprom512", "EEPROM 512 octets"}, {"eeprom8k", "EEPROM 8 Kio"}, {"none", "Aucune"}}},
+    {"ravenemu_gba_rtc", "Horloge (RTC)", "Appliquée au chargement du jeu.", "cartridge",
+     {{"auto", "Auto"}, {"enabled", "Activée"}, {"disabled", "Désactivée"}}},
+    {"ravenemu_gba_solar_light", "Lumière du capteur solaire",
+     "Boktai : part du plein soleil que reçoit le capteur de la cartouche.", "cartridge",
+     {{"50", "50 %"}, {"60", "60 %"}, {"70", "70 %"}, {"80", "80 %"}, {"90", "90 %"}, {"100", "100 %"},
+      {"0", "0 %"}, {"10", "10 %"}, {"20", "20 %"}, {"30", "30 %"}, {"40", "40 %"}}},
+#endif
+};
+
+void declare_options() {
+    unsigned version = 0;
+    if (env_cb(RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION, &version) && version >= 2) {
+        static std::array<retro_core_option_v2_category, 3> categories{{
+            {"video", "Image", "Couleurs de l'image."},
+            {"cartridge", "Cartouche", "Matériel de la cartouche, quand sa détection se trompe."},
+            {nullptr, nullptr, nullptr},
+        }};
+        static std::vector<retro_core_option_v2_definition> definitions;
+        definitions.assign(option_specs.size() + 1, retro_core_option_v2_definition{});
+        for (std::size_t index = 0; index < option_specs.size(); ++index) {
+            const auto& spec = option_specs[index];
+            auto& definition = definitions[index];
+            definition.key = spec.key;
+            definition.desc = spec.label;
+            definition.info = spec.info;
+            definition.category_key = spec.category;
+            for (std::size_t choice = 0; choice < spec.choices.size(); ++choice)
+                definition.values[choice] = {spec.choices[choice].value, spec.choices[choice].label};
+            definition.default_value = spec.choices.front().value;
+        }
+        retro_core_options_v2 options{categories.data(), definitions.data()};
+        if (env_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2, &options)) return;
+    }
+    static std::vector<std::string> texts;
+    static std::vector<retro_variable> variables;
+    texts.clear();
+    variables.clear();
+    for (const auto& spec : option_specs) {
+        std::string text = std::string(spec.label) + "; ";
+        for (std::size_t choice = 0; choice < spec.choices.size(); ++choice)
+            text += (choice ? "|" : "") + std::string(spec.choices[choice].value);
+        texts.push_back(std::move(text));
+    }
+    for (std::size_t index = 0; index < option_specs.size(); ++index)
+        variables.push_back({option_specs[index].key, texts[index].c_str()});
+    variables.push_back({nullptr, nullptr});
+    env_cb(RETRO_ENVIRONMENT_SET_VARIABLES, variables.data());
+}
+
 const char* option(const char* key) {
     retro_variable variable{key, nullptr};
     return env_cb && env_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &variable) ? variable.value : nullptr;
 }
+bool option_is(const char* key, std::string_view value) {
+    const char* current = option(key);
+    return current && value == current;
+}
+// Image options: read when a game loads, and again whenever they change.
+void read_video_options() {
+#if defined(RAVENEMU_LIBRETRO_GB)
+    shades = option_is("ravenemu_gb_palette", "pocket") ? pocket_shades : dmg_shades;
+#elif defined(RAVENEMU_LIBRETRO_GBC)
+    lcd_correction = option_is("ravenemu_gbc_color_correction", "enabled");
+#else
+    lcd_correction = option_is("ravenemu_gba_color_correction", "enabled");
+#endif
+}
+
+#if defined(RAVENEMU_LIBRETRO_GBA)
 // Boktai's solar sensor: a percentage of full sunlight, 0 to 100.
 void apply_solar_option(ravenemu::Core& machine) {
     int percent = 50;
@@ -148,7 +291,10 @@ void apply_solar_option(ravenemu::Core& machine) {
     }
     machine.set_solar_light(percent * 255 / 100);
 }
+#endif
 void apply_options(ravenemu::Core& machine) {
+    read_video_options();
+#if defined(RAVENEMU_LIBRETRO_GBA)
     using ravenemu::GbaSaveType;
     struct SaveChoice { std::string_view value; GbaSaveType type; };
     constexpr std::array<SaveChoice, 6> save_choices{{
@@ -161,35 +307,23 @@ void apply_options(ravenemu::Core& machine) {
         for (const auto& choice : save_choices) if (choice.value == value) save_type = choice.type;
     machine.set_gba_forced_save_type(save_type);
     std::optional<bool> rtc;
-    if (const char* value = option("ravenemu_gba_rtc")) {
-        if (std::string_view(value) == "enabled") rtc = true;
-        else if (std::string_view(value) == "disabled") rtc = false;
-    }
+    if (option_is("ravenemu_gba_rtc", "enabled")) rtc = true;
+    else if (option_is("ravenemu_gba_rtc", "disabled")) rtc = false;
     machine.set_gba_forced_rtc(rtc);
     apply_solar_option(machine);
+#else
+    static_cast<void>(machine);
+#endif
 }
-void declare_options() {
-    std::array<retro_variable, 4> variables{{
-        {"ravenemu_gba_save_type",
-         "Save type (applied on game load); auto|sram|flash64|flash128|eeprom512|eeprom8k|none"},
-        {"ravenemu_gba_rtc", "Real-time clock (applied on game load); auto|enabled|disabled"},
-        {"ravenemu_gba_solar_light",
-         "Solar sensor light in % (Boktai); 50|60|70|80|90|100|0|10|20|30|40"},
-        {nullptr, nullptr},
-    }};
-    env_cb(RETRO_ENVIRONMENT_SET_VARIABLES, variables.data());
-}
-// Unlike the others, the light can change at any time during the game.
+// The image options and the solar light change at any time during the game.
 void update_options() {
     bool updated = false;
-    if (core && env_cb && env_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
-        apply_solar_option(*core);
-}
-#else
-void apply_options(ravenemu::Core&) {}
-void declare_options() {}
-void update_options() {}
+    if (!core || !env_cb || !env_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) || !updated) return;
+    read_video_options();
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    apply_solar_option(*core);
 #endif
+}
 
 struct Key { unsigned id; ravenemu::Button button; };
 constexpr std::array<Key, 10> keys{{
@@ -277,6 +411,7 @@ void clear_game() {
     pending_save_import = false;
     achievement_ram.clear();
     achievement_sizes = {};
+    run_error_logged = false;
 }
 void refresh_video() {
     if (!core || !video_cb) return;
@@ -284,7 +419,8 @@ void refresh_video() {
     const bool indexed = core->framebuffer_format() == ravenemu::FramebufferFormat::indexed_4;
     for (std::size_t i = 0; i < native_frame.size(); ++i) {
         const auto pixel = static_cast<std::uint32_t>(native_frame[i]);
-        output_frame[i] = indexed ? dmg_shades[pixel & 3U] : (pixel & 0x00ffffffU);
+        output_frame[i] = indexed ? shades[pixel & 3U]
+                        : lcd_correction ? lcd_corrected(pixel) : (pixel & 0x00ffffffU);
     }
     video_cb(output_frame.data(), static_cast<unsigned>(spec.width),
              static_cast<unsigned>(spec.height),
@@ -330,18 +466,27 @@ void declare_achievement_memory() {
     retro_memory_map map{descriptors.data(), static_cast<unsigned>(descriptors.size())};
     env_cb(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &map);
 }
-void refresh_audio() {
+// A frontend that does not want the sound of this frame still gets the
+// samples drained, or they would pile up for the next one.
+void refresh_audio(bool deliver) {
     if (!core) return;
     std::array<std::int16_t, 4096> pcm{};
     for (unsigned attempt = 0; attempt < 32; ++attempt) {
         const auto count = core->read_audio(pcm);
         if (count < 2) break;
         const auto frames = count / 2;
-        if (batch_cb) batch_cb(pcm.data(), frames);
-        else if (sample_cb) for (std::size_t i = 0; i < frames; ++i)
+        if (deliver && batch_cb) batch_cb(pcm.data(), frames);
+        else if (deliver && sample_cb) for (std::size_t i = 0; i < frames; ++i)
             sample_cb(pcm[2 * i], pcm[2 * i + 1]);
         if (count < pcm.size()) break;
     }
+}
+// What the frontend will use of this frame: it skips the image or the sound
+// of the frames it runs ahead or fast-forwards. Without an answer, both.
+int wanted_av() {
+    int flags = 0;
+    if (env_cb && env_cb(RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE, &flags)) return flags;
+    return RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;
 }
 } // namespace
 
@@ -353,6 +498,8 @@ void retro_set_environment(retro_environment_t callback) {
     // address space (see declare_achievement_memory).
     bool achievements = true;
     if (!env_cb) return;
+    retro_log_callback logging{};
+    log_cb = env_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging) ? logging.log : nullptr;
     env_cb(RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS, &achievements);
     declare_options();
 }
@@ -388,9 +535,16 @@ void retro_get_system_av_info(struct retro_system_av_info* info) {
 }
 bool retro_load_game(const struct retro_game_info* game) {
     clear_game();
-    if (!game || !game->data || !game->size || !env_cb) return false;
+    if (!env_cb) return false;
+    if (!game || !game->data || !game->size) {
+        report_load_failure("aucune donnée de jeu reçue");
+        return false;
+    }
     enum retro_pixel_format format = RETRO_PIXEL_FORMAT_XRGB8888;
-    if (!env_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &format)) return false;
+    if (!env_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &format)) {
+        report_load_failure("le frontend refuse les pixels XRGB8888");
+        return false;
+    }
     try {
         const auto* bytes = static_cast<const std::uint8_t*>(game->data);
         rom.assign(bytes, bytes + game->size);
@@ -418,8 +572,14 @@ bool retro_load_game(const struct retro_game_info* game) {
         declare_achievement_memory();
         retro_rumble_interface rumble{};
         if (env_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumble)) rumble_cb = rumble.set_rumble_state;
+        can_dupe = false;
+        env_cb(RETRO_ENVIRONMENT_GET_CAN_DUPE, &can_dupe);
         return true;
-    } catch (const std::exception&) { clear_game(); return false; }
+    } catch (const std::exception& error) {
+        clear_game();
+        report_load_failure(error.what());
+        return false;
+    }
 }
 bool retro_load_game_special(unsigned, const struct retro_game_info*, std::size_t) { return false; }
 void retro_unload_game(void) { clear_game(); }
@@ -452,14 +612,24 @@ void retro_run(void) {
 #endif
         }
         update_options();
-        core->run_frame(native_frame, true);
+        const int av = wanted_av();
+        // An image is skipped only when the frontend can show the previous one.
+        const bool video = (av & RETRO_AV_ENABLE_VIDEO) != 0 || !can_dupe;
+        core->run_frame(native_frame, video);
         update_save_ram();
         update_rumble();
         refresh_achievement_memory(false);
-        refresh_video();
-        refresh_audio();
-    } catch (const std::exception&) {
-        // Never propagate an exception through Libretro's C ABI.
+        if (video) {
+            refresh_video();
+        } else if (video_cb) {
+            const auto spec = core->video_spec();
+            video_cb(nullptr, static_cast<unsigned>(spec.width), static_cast<unsigned>(spec.height), 0);
+        }
+        refresh_audio((av & RETRO_AV_ENABLE_AUDIO) != 0);
+    } catch (const std::exception& error) {
+        // Never propagate an exception through Libretro's C ABI; say it once per game.
+        if (!run_error_logged) log_line(RETRO_LOG_ERROR, std::string("image interrompue : ") + error.what());
+        run_error_logged = true;
     }
 }
 std::size_t retro_serialize_size(void) { return core ? state_capacity : 0; }
@@ -496,7 +666,10 @@ bool retro_unserialize(const void* data, std::size_t size) {
         update_rumble();
         refresh_achievement_memory(true);
         return true;
-    } catch (const std::exception&) { return false; }
+    } catch (const std::exception& error) {
+        log_line(RETRO_LOG_WARN, std::string("état refusé : ") + error.what());
+        return false;
+    }
 }
 void retro_cheat_reset(void) {}
 void retro_cheat_set(unsigned, bool, const char*) {}
