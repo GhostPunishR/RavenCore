@@ -1,5 +1,6 @@
 #include "serial/remote_serial_link.hpp"
 
+#include <algorithm>
 #include <variant>
 
 namespace ravenemu::gba {
@@ -28,12 +29,23 @@ Serial::Mode from_remote(RemoteLink::Mode mode) noexcept {
 std::uint16_t low(std::uint32_t value) noexcept { return static_cast<std::uint16_t>(value); }
 std::uint16_t high(std::uint32_t value) noexcept { return static_cast<std::uint16_t>(value >> 16U); }
 
+// Ce que reçoit la console cadencée : en multijoueur, le parent puis elle ;
+// en mode normal, le mot du partenaire.
+Serial::Received received_by_partner(Serial::Mode mode, std::uint32_t data, std::uint32_t sent) noexcept {
+    if (mode == Serial::Mode::multiplayer) return {low(data), low(sent), 0xffff, 0xffff};
+    return {low(data), high(data), 0xffff, 0xffff};
+}
+
 } // namespace
 
 void RemoteSerialLink::attach(Serial& serial) noexcept {
     if (serial_ == &serial && serial.link() == this) return;
-    // Nouvelle machine (ROM, état chargé) : son transfert n'est pas celui en attente.
-    if (serial_ != &serial) pending_.reset();
+    // Nouvelle machine (ROM, état chargé) : son transfert n'est pas celui en
+    // attente, et son horloge repart d'ailleurs.
+    if (serial_ != &serial) {
+        pending_.reset();
+        forget_timing();
+    }
     serial_ = &serial;
     serial.attach(this, player_);
     serial.refresh_status();
@@ -46,6 +58,7 @@ void RemoteSerialLink::detach() noexcept {
     }
     serial_ = nullptr;
     pending_.reset();
+    forget_timing();
 }
 
 bool RemoteSerialLink::all_multiplayer() const noexcept {
@@ -70,8 +83,11 @@ void RemoteSerialLink::follow_plug() {
     if (plugged == plugged_ && generation == generation_) return;
     plugged_ = plugged;
     generation_ = generation;
-    // Un transfert parti vers l'ancien partenaire finira comme sans câble.
+    // Un transfert parti vers l'ancien partenaire finira comme sans câble ;
+    // celui qu'il avait lancé n'aura pas lieu.
     pending_.reset();
+    if (deferred_ && serial_ != nullptr) serial_->leave(deferred_->id);
+    forget_timing();
     partner_mode_ = RemoteLink::Mode::other;
     partner_so_low_ = false;
     published_.reset();
@@ -101,19 +117,40 @@ std::uint32_t RemoteSerialLink::start(Serial& master, Serial::Mode mode, int dur
     // Numéros pairs pour le parent, impairs pour l'autre : jamais confondus.
     const auto id = (counter_ << 1U) | static_cast<std::uint32_t>(player_ & 1);
     const auto data = master.outgoing(mode);
+    // L'écart depuis le départ précédent : l'autre console laissera autant de
+    // temps à son jeu avant d'entrer dans celui-ci.
+    const auto now = master.clock();
+    const auto interval = last_start_ ? std::clamp<std::int64_t>(now - *last_start_, 0, Serial::longest_transfer) : 0;
     pending_ = Pending{id, generation_, mode, data, std::nullopt};
     try {
-        link_.send(RemoteLink::Transfer{id, to_remote(mode), data, static_cast<std::uint32_t>(duration)});
+        link_.send(RemoteLink::Transfer{id, to_remote(mode), data, static_cast<std::uint32_t>(duration),
+                                        static_cast<std::uint32_t>(interval)});
     } catch (...) {
         pending_.reset();
         return 0;
     }
+    last_start_ = now;
     return id;
 }
 
 void RemoteSerialLink::capture(Serial& participant) {
-    // Le partenaire distant entre dans un transfert dès sa lecture du message :
-    // il n'y a pas de départ à atteindre plus tard.
+    // Le cycle d'un transfert lu trop tôt est atteint : cette console y entre
+    // maintenant, avec la donnée que son jeu a préparée entre-temps.
+    if (deferred_ && participant.transfer_id() == deferred_->id && serial_ == &participant) {
+        const auto mine = *deferred_;
+        deferred_.reset();
+        if (!participant.ready_for(mine.mode)) {
+            participant.leave(mine.id);
+            reply(mine.id, participant.idle_level(mine.mode));
+            return;
+        }
+        last_join_ = participant.clock();
+        const auto sent = participant.outgoing(mine.mode);
+        participant.receive(mine.id, received_by_partner(mine.mode, mine.data, sent));
+        participant.mark_busy();
+        reply(mine.id, sent);
+        return;
+    }
     if (participant.transfer_id() != 0) participant.mark_busy();
 }
 
@@ -150,27 +187,47 @@ void RemoteSerialLink::finish(const Serial& caller) {
 
 void RemoteSerialLink::serve(const RemoteLink::Transfer& transfer) {
     const auto mode = from_remote(transfer.mode);
-    std::uint32_t sent = 0xffff'ffffU;
-    if (serial_ != nullptr) {
-        if (!serial_->ready_for(mode)) {
-            sent = serial_->idle_level(mode);
-        } else {
-            sent = serial_->outgoing(mode);
-            // Elle entre dans le transfert maintenant, pour sa durée.
-            serial_->join(0, static_cast<int>(transfer.duration), transfer.id);
-            Serial::Received received{0xffff, 0xffff, 0xffff, 0xffff};
-            if (mode == Serial::Mode::multiplayer) {
-                received[0] = low(transfer.data);
-                received[1] = low(sent);
-            } else {
-                received[0] = low(transfer.data);
-                received[1] = high(transfer.data);
-            }
-            serial_->receive(transfer.id, received);
-            serial_->mark_busy();
+    if (serial_ == nullptr) {
+        reply(transfer.id, 0xffff'ffffU);
+        return;
+    }
+    // Le parent attend chaque réponse avant de cadencer de nouveau : un
+    // transfert encore différé ici n'a plus lieu.
+    if (deferred_) {
+        serial_->leave(deferred_->id);
+        reply(deferred_->id, serial_->idle_level(deferred_->mode));
+        deferred_.reset();
+    }
+    if (!serial_->ready_for(mode)) {
+        reply(transfer.id, serial_->idle_level(mode));
+        return;
+    }
+    // Pas plus tôt, sur cette horloge, que l'écart laissé par le parent depuis
+    // le transfert précédent : le jeu a pu y répondre.
+    const auto now = serial_->clock();
+    if (last_join_) {
+        const auto due = *last_join_ + std::min<std::int64_t>(transfer.interval, Serial::longest_transfer);
+        if (due > now) {
+            deferred_ = Deferred{transfer.id, mode, transfer.data};
+            serial_->join(due - now, static_cast<int>(transfer.duration), transfer.id);
+            return;
         }
     }
-    link_.send(RemoteLink::Reply{transfer.id, sent});
+    last_join_ = now;
+    // Elle entre dans le transfert maintenant, pour sa durée.
+    const auto sent = serial_->outgoing(mode);
+    serial_->join(0, static_cast<int>(transfer.duration), transfer.id);
+    serial_->receive(transfer.id, received_by_partner(mode, transfer.data, sent));
+    serial_->mark_busy();
+    reply(transfer.id, sent);
+}
+
+void RemoteSerialLink::reply(std::uint32_t id, std::uint32_t data) {
+    try {
+        link_.send(RemoteLink::Reply{id, data});
+    } catch (...) {
+        // Envoi impossible : l'autre console finira sans câble.
+    }
 }
 
 void RemoteSerialLink::refresh() noexcept {

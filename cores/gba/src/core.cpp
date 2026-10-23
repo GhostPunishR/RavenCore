@@ -74,8 +74,19 @@ public:
     }
     void service_remote_link() override {
         if (!remote_ || !machine_) return;
-        remote_->attach(machine_->serial);
+        auto& machine = *machine_;
+        remote_->attach(machine.serial);
         remote_->service();
+        // Entre deux images (ou console en pause), un transfert lu trop tôt
+        // attendrait l'image suivante, et l'autre console avec lui : celle-ci
+        // avance dès maintenant jusqu'à son cycle, moins d'un transfert plus
+        // loin. run_frame reprend ensuite l'image où elle en est.
+        for (int ahead = 0; remote_->deferred() && ahead <= 2 * Serial::longest_transfer;) {
+            const int advanced = machine.run_for(remote_slice);
+            if (advanced <= 0) break;
+            ahead += advanced;
+            remote_->service();
+        }
     }
     [[nodiscard]] bool link_wanted() const noexcept override {
         return machine_ != nullptr && frames_since_link_use_ < link_use_frames;

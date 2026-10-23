@@ -46,12 +46,13 @@ public:
     void run_frame(std::span<std::int32_t> framebuffer, bool) override {
         require_loaded();
         if (framebuffer.size() < Ppu::frame_pixels) throw std::invalid_argument("Framebuffer trop petit");
-        int ppu_cycles{};
+        // Le câble distant a pu faire avancer une partie de cette image (service_remote_link).
+        int ppu_cycles = std::exchange(carried_cycles_, 0);
         // Un câble distant livre les transferts du partenaire à chaque ligne,
         // moins qu'un bit à 8 kHz.
         if (link_endpoint_ != nullptr) link_endpoint_->poll();
-        int next_poll = remote_poll_interval;
-        while (ppu_cycles < 70'224) {
+        int next_poll = ppu_cycles + remote_poll_interval;
+        while (ppu_cycles < frame_cycles) {
             const int advanced = machine_->step();
             if (advanced <= 0) break;
             ppu_cycles += advanced;
@@ -132,7 +133,18 @@ public:
         return true;
     }
     void service_remote_link() override {
-        if (remote_endpoint_ != nullptr && machine_ != nullptr) remote_endpoint_->poll();
+        if (remote_endpoint_ == nullptr || machine_ == nullptr) return;
+        remote_endpoint_->poll();
+        // Entre deux images (ou console en pause), un octet lu trop tôt
+        // attendrait l'image suivante, et l'autre console avec lui : celle-ci
+        // avance dès maintenant jusqu'à son cycle, dans l'image à venir, que
+        // run_frame terminera ensuite.
+        while (remote_endpoint_->deferred() && carried_cycles_ < frame_cycles - remote_poll_interval) {
+            const int advanced = machine_->step();
+            if (advanced <= 0) break;
+            carried_cycles_ += advanced;
+            remote_endpoint_->poll();
+        }
     }
     [[nodiscard]] bool link_wanted() const noexcept override {
         return machine_ != nullptr && frames_since_link_use_ < link_use_frames;
@@ -271,6 +283,7 @@ private:
             throw std::logic_error("InfraredEndpoint refuse une nouvelle extrémité");
         }
         machine_ = std::move(replacement);
+        carried_cycles_ = 0;  // la nouvelle machine commence son image
     }
     void reconnect_current_endpoints() noexcept {
         if (!machine_) return;
@@ -292,6 +305,9 @@ private:
     gb::HardwareModel requested_hardware_{gb::HardwareModel::automatic};
     std::vector<std::uint8_t> boot_rom_;
     static constexpr int remote_poll_interval = 456;
+    static constexpr int frame_cycles = 70'224;
+    // Cycles de l'image en cours déjà joués entre deux images pour le câble distant.
+    int carried_cycles_{};
     // Trois secondes sans transfert : le jeu ne cherche plus de partenaire.
     static constexpr int link_use_frames = 180;
     LinkEndpoint* link_endpoint_{};

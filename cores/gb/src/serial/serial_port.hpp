@@ -3,6 +3,7 @@
 #include "interrupt/interrupt_controller.hpp"
 #include <ravenemu/link_endpoint.hpp>
 
+#include <cstdint>
 #include <utility>
 
 namespace ravenemu::cgb {
@@ -22,6 +23,7 @@ public:
      * la fréquence série réelle.
      */
     void tick(int cycles) noexcept {
+        clock_ += static_cast<std::uint64_t>(cycles);
         for (int cycle = 0; cycle < cycles; ++cycle) {
             serial_divider_ = (serial_divider_ + 1) & 0x1ff;
             if (internal_transfer_active() &&
@@ -51,6 +53,7 @@ public:
     [[nodiscard]] bool outgoing_bit_high() const noexcept override { return (data_ & 0x80) != 0; }
     [[nodiscard]] int transfer_bits_remaining() const noexcept override { return bits_remaining_; }
     [[nodiscard]] std::uint8_t transfer_data() const noexcept override { return static_cast<std::uint8_t>(data_); }
+    [[nodiscard]] std::uint64_t link_clock() const noexcept override { return clock_; }
 
     void set_cgb_mode(bool enabled) noexcept {
         cgb_mode_ = enabled;
@@ -150,6 +153,7 @@ private:
     int bits_remaining_{};
     int serial_divider_{};
     bool activity_{};
+    std::uint64_t clock_{};  // cycles CPU depuis la création, hors état instantané
     LinkEndpoint* endpoint_{};
 };
 

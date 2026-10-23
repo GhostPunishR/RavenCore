@@ -15,6 +15,8 @@ public:
     [[nodiscard]] virtual int transfer_bits_remaining() const noexcept { return 0; }
     /** Octet du registre de données, entier tant que le premier bit n'est pas parti. */
     [[nodiscard]] virtual std::uint8_t transfer_data() const noexcept { return 0xff; }
+    /** Cycles écoulés sur l'horloge de la console : l'écart entre deux transferts en découle. */
+    [[nodiscard]] virtual std::uint64_t link_clock() const noexcept { return 0; }
 };
 
 /**

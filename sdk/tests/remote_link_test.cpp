@@ -176,6 +176,51 @@ std::vector<std::uint8_t> gba_multiplayer_rom(bool slow) {
     return rom;
 }
 
+// Rafale Game Boy, comme un échange Pokémon : le maître envoie 0xA0 + n
+// pour n de 1 à 16, une courte pause entre chaque, et range l'octet reçu en
+// C000 + n - 1 ; l'esclave compte chaque octet (IF bit 3, sans
+// interruption), range celui du maître de la même façon et prépare n + 1.
+// Chacun écrit 1 en C100 une fois fini.
+std::vector<std::uint8_t> game_boy_burst_rom(bool master) {
+    static const std::uint8_t master_code[] = {
+        0xf3, 0xaf, 0xe0, 0x0f, 0xe0, 0xff, 0x06, 0x01, 0x21, 0x00, 0xc0, 0x78, 0xf6, 0xa0, 0xe0, 0x01,
+        0x3e, 0x81, 0xe0, 0x02, 0xf0, 0x02, 0xcb, 0x7f, 0x20, 0xfa, 0xf0, 0x01, 0x22, 0x16, 0x00, 0x15,
+        0x20, 0xfd, 0x04, 0x78, 0xfe, 0x11, 0x20, 0xe3, 0x3e, 0x01, 0xea, 0x00, 0xc1, 0x18, 0xfe};
+    static const std::uint8_t slave_code[] = {
+        0xf3, 0xaf, 0xe0, 0x0f, 0xe0, 0xff, 0x06, 0x01, 0x21, 0x00, 0xc0, 0x3e, 0x01, 0xe0, 0x01, 0x3e,
+        0x80, 0xe0, 0x02, 0xf0, 0x0f, 0xcb, 0x5f, 0x28, 0xfa, 0xaf, 0xe0, 0x0f, 0xf0, 0x01, 0x22, 0x04,
+        0x78, 0xe0, 0x01, 0x3e, 0x80, 0xe0, 0x02, 0x78, 0xfe, 0x11, 0x20, 0xe7, 0x3e, 0x01, 0xea, 0x00,
+        0xc1, 0x18, 0xfe};
+    auto rom = ravenemu::testing::minimal_game_boy_rom();
+    const std::uint8_t entry[] = {0x00, 0xc3, 0x50, 0x01};  // NOP ; JP 0150
+    std::memcpy(&rom[0x100], entry, sizeof entry);
+    if (master) std::memcpy(&rom[0x150], master_code, sizeof master_code);
+    else std::memcpy(&rom[0x150], slave_code, sizeof slave_code);
+    return rom;
+}
+
+// Rafale multijoueur, comme les échanges Pokémon : le parent lance 16
+// transferts, une pause d'environ 40 000 cycles entre chacun, et note le mot
+// de l'enfant ; l'enfant compte chaque transfert (IF bit 7, sans
+// interruption), note le mot du parent et offre le numéro suivant. Chacun
+// écrit 1 en IWRAM+0x40 une fois fini ; les mots vont en IWRAM+2n.
+std::vector<std::uint8_t> gba_burst_rom() {
+    const std::uint32_t code[] = {
+        0xe59f20b8, 0xe3a01000, 0xe1c211b4, 0xe3a07001, 0xe1c270ba, 0xe59f10ac, 0xe1c210b8, 0xe3a05403,
+        0xe1d230b8, 0xe3130004, 0x1a000014, 0xe1d230b8, 0xe3130008, 0x0afffffc, 0xe3874caa, 0xe1c240ba,
+        0xe1d230b8, 0xe3833080, 0xe1c230b8, 0xe1d230b8, 0xe3130080, 0x1afffffc, 0xe1d260b2, 0xe0858087,
+        0xe1c860b0, 0xe3a09a01, 0xe2599001, 0x1afffffd, 0xe2877001, 0xe3570011, 0x1affffee, 0xea00000c,
+        0xe59fa03c, 0xe1da30b0, 0xe3130080, 0x0afffffc, 0xe3a03080, 0xe1ca30b0, 0xe1d260b0, 0xe0858087,
+        0xe1c860b0, 0xe2877001, 0xe1c270ba, 0xe3570011, 0x1afffff3, 0xe3a06001, 0xe1c564b0, 0xeafffffe,
+        0x04000120, 0x04000202, 0x00006003};
+    // Après l'en-tête de la cartouche : B 0xC0 à l'entrée.
+    auto rom = ravenemu::testing::minimal_gba_rom();
+    const std::uint32_t entry = 0xea00002e;
+    std::memcpy(rom.data(), &entry, sizeof entry);
+    std::memcpy(rom.data() + 0xc0, code, sizeof code);
+    return rom;
+}
+
 // Fait tourner `handle` sur son fil jusqu'à `done` (vrai), ou 600 images.
 bool run_until(ravenemu_bridge* handle, ravenemu_remote_link* link, int pixels,
                bool (*done)(ravenemu_bridge*), const std::atomic<bool>* also_wait = nullptr) {
@@ -261,6 +306,101 @@ int gba_remote_test(std::chrono::milliseconds latency, bool slow) {
     return 0;
 }
 
+bool burst_done(ravenemu_bridge* handle) {
+    std::uint8_t flag = 0;
+    return ravenemu_read_achievement_memory(handle, 0x40, &flag, 1) == 1 && flag == 1;
+}
+
+bool game_boy_burst_done(ravenemu_bridge* handle) {
+    std::uint8_t flag = 0;
+    return ravenemu_read_achievement_memory(handle, 0xc100, &flag, 1) == 1 && flag == 1;
+}
+
+// Une console qui attend, comme dans une application : une image, puis elle
+// dort, et son câble est servi entre-temps.
+bool run_like_an_app(ravenemu_bridge* handle, ravenemu_remote_link* link, int pixels, bool (*done)(ravenemu_bridge*),
+                     const std::atomic<bool>& other_done) {
+    std::vector<std::uint32_t> frame(static_cast<std::size_t>(pixels));
+    for (int index = 0; index < 300 && !(done(handle) && other_done.load()); ++index) {
+        if (!ravenemu_run_frame(handle, frame.data(), frame.size())) return false;
+        const auto until = Clock::now() + std::chrono::milliseconds(12);
+        while (Clock::now() < until) {
+            ravenemu_remote_link_service(link);
+            std::this_thread::sleep_for(std::chrono::microseconds(200));
+        }
+    }
+    return done(handle);
+}
+
+// Deux octets lus pendant le sommeil de l'esclave ne reçoivent pas la même
+// réponse : le second attend que son jeu ait préparé la suivante.
+int game_boy_burst_test(std::chrono::milliseconds latency) {
+    Pair pair(load(RAVENEMU_GB, game_boy_burst_rom(true)), load(RAVENEMU_GBC, game_boy_burst_rom(false)), latency);
+    if (!pair.first || !pair.second) return 60;
+    if (!pair.plug(0, 0)) return 61;
+    // L'esclave arme son port avant que le maître ne cadence : sans quoi le
+    // premier octet se perd, comme entre deux consoles.
+    std::vector<std::uint32_t> first(160 * 144);
+    if (!ravenemu_run_frame(pair.second.get(), first.data(), first.size())) return 67;
+    std::atomic<bool> master_done{false};
+    std::atomic<bool> slave_ok{false};
+    std::thread slave([&] {
+        slave_ok = run_like_an_app(pair.second.get(), pair.second_link.get(), 160 * 144, game_boy_burst_done,
+                                   master_done);
+        if (!slave_ok) pair.unplug();
+    });
+    const auto master_ok = run_until(pair.first.get(), pair.first_link.get(), 160 * 144, game_boy_burst_done);
+    master_done = true;
+    if (!master_ok) pair.unplug();
+    slave.join();
+    if (!master_ok) return 62;
+    if (!slave_ok) return 63;
+    std::uint8_t master_log[16]{};
+    std::uint8_t slave_log[16]{};
+    ravenemu_read_achievement_memory(pair.first.get(), 0xc000, master_log, sizeof master_log);
+    ravenemu_read_achievement_memory(pair.second.get(), 0xc000, slave_log, sizeof slave_log);
+    for (int number = 1; number <= 16; ++number) {
+        if (master_log[number - 1] != number) return 64;
+        if (slave_log[number - 1] != (0xa0 | number)) return 65;
+    }
+    if (pair.to_first.bad_ || pair.to_second.bad_) return 66;
+    return 0;
+}
+
+// L'enfant tourne comme dans une application. Deux transferts lus pendant
+// son sommeil ne reçoivent pas la même donnée : le second attend que le jeu
+// de l'enfant ait répondu au premier, comme sur deux consoles.
+int gba_burst_test(std::chrono::milliseconds latency) {
+    const auto rom = gba_burst_rom();
+    Pair pair(load(RAVENEMU_GBA, rom), load(RAVENEMU_GBA, rom), latency);
+    if (!pair.first || !pair.second) return 50;
+    if (!pair.plug(0, 1)) return 51;
+    std::atomic<bool> parent_done{false};
+    std::atomic<bool> child_ok{false};
+    std::thread child([&] {
+        child_ok = run_like_an_app(pair.second.get(), pair.second_link.get(), 240 * 160, burst_done, parent_done);
+        if (!child_ok) pair.unplug();
+    });
+    const auto parent_ok = run_until(pair.first.get(), pair.first_link.get(), 240 * 160, burst_done);
+    parent_done = true;
+    if (!parent_ok) pair.unplug();
+    child.join();
+    if (!parent_ok) return 52;
+    if (!child_ok) return 53;
+    std::uint8_t parent_log[34]{};
+    std::uint8_t child_log[34]{};
+    ravenemu_read_achievement_memory(pair.first.get(), 0, parent_log, sizeof parent_log);
+    ravenemu_read_achievement_memory(pair.second.get(), 0, child_log, sizeof child_log);
+    for (int number = 1; number <= 16; ++number) {
+        const auto at = static_cast<std::size_t>(2 * number);
+        // Le parent reçoit chaque numéro une fois, dans l'ordre ; l'enfant, chaque mot du parent.
+        if ((parent_log[at] | parent_log[at + 1] << 8) != number) return 54;
+        if ((child_log[at] | child_log[at + 1] << 8) != (0xaa00 | number)) return 55;
+    }
+    if (pair.to_first.bad_ || pair.to_second.bad_) return 56;
+    return 0;
+}
+
 void ignore(void*, const uint8_t*, size_t) {}
 
 int api_test() {
@@ -296,7 +436,7 @@ int api_test() {
         ravenemu_remote_link_receive(remote.get(), nullptr, 0) || ravenemu_remote_link_receive(nullptr, malformed, 2))
         return 39;
     // Une GBA en face : incompatible.
-    const std::uint8_t gba_hello[] = {1, 1, 2};
+    const std::uint8_t gba_hello[] = {1, 2, 2};  // protocole 2, famille GBA
     if (!ravenemu_remote_link_receive(remote.get(), gba_hello, sizeof gba_hello) ||
         ravenemu_remote_link_state(remote.get()) != RAVENEMU_REMOTE_INCOMPATIBLE)
         return 40;
@@ -331,6 +471,16 @@ int main() {
     for (const auto latency : {std::chrono::milliseconds(0), std::chrono::milliseconds(5), std::chrono::milliseconds(20)}) {
         if (const int failure = game_boy_remote_test(latency)) {
             std::cerr << "Game Boy remote link failed at " << latency.count() << " ms (" << failure
+                      << "): " << ravenemu_last_error() << "\n";
+            return failure;
+        }
+        if (const int failure = game_boy_burst_test(latency)) {
+            std::cerr << "Game Boy remote burst failed at " << latency.count() << " ms (" << failure
+                      << "): " << ravenemu_last_error() << "\n";
+            return failure;
+        }
+        if (const int failure = gba_burst_test(latency)) {
+            std::cerr << "GBA remote burst failed at " << latency.count() << " ms (" << failure
                       << "): " << ravenemu_last_error() << "\n";
             return failure;
         }

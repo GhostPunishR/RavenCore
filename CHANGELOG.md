@@ -2,6 +2,34 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.10.0 - 2026-10-23
+
+Cette version corrige le câble link distant : les échanges Pokémon (Émeraude, Rubis, Saphir, et Rouge, Bleu, Or, Argent en Game Boy) finissaient en « Erreur de communication ». Le protocole du câble passe en version 2, incompatible avec la 0.9 : les deux appareils doivent se mettre à jour. L'API C ne change pas ; le format des états non plus.
+
+### Corrigé
+
+- **Câble link distant : une réponse donnée trop tôt.** La console qui ne cadence pas répondait dès la lecture du message. Deux transferts lus d'affilée, entre deux images notamment, recevaient la même donnée : son jeu n'avait pas encore traité le premier. Pokémon, qui enchaîne neuf transferts par image, voyait des données en double et coupait la liaison.
+  - Chaque transfert porte désormais l'écart, en cycles, depuis le précédent chez la console qui cadence. L'autre n'y entre pas avant que sa propre horloge ait avancé d'autant depuis le transfert précédent : son jeu a eu le temps de préparer la donnée suivante, comme sur deux consoles. Une attente ne dépasse jamais la durée du plus long transfert GBA, ou une demi-image en Game Boy.
+  - Entre deux images, ou console en pause, `ravenemu_remote_link_service` fait avancer la console jusqu'à ce cycle au lieu de laisser l'autre attendre l'image suivante. L'image suivante reprend là où elle en est.
+  - Mesuré sur un échange Pokémon Rubis ↔ Émeraude entre deux consoles tenues à 60 images par seconde : l'échange va jusqu'au bout sans erreur. La console qui cadence garde 60 images par seconde sans latence, environ 46 avec 2 ms d'aller-retour et 17 avec 6 ms pendant les transferts.
+
+### Modifié
+
+- **Protocole du câble distant, version 2.** Le transfert passe à 18 octets : il gagne l'écart depuis le transfert précédent (u32). Un appareil en version 1 voit le câble incompatible.
+- `LinkPort::link_clock()` donne l'horloge d'un port série Game Boy ; `RemoteLink::Transfer` gagne `interval`.
+
+### Compatibilité des états instantanés
+
+- **GBA : format 16** et **GB/GBC : format 11**, inchangés.
+- **API C : version 0**, inchangée ; **API C++** : `LinkPort` gagne une méthode virtuelle, recompiler le code qui en dérive. Le paquet CMake se demande désormais avec `find_package(RavenCore 0.10)`.
+
+### Tests
+
+- `ravenemu_remote_link` : rafales comme celles de Pokémon, l'enfant ou l'esclave tournant comme dans une application (une image, puis il dort et son câble est servi), à 0, 5 et 20 ms de latence.
+  - GBA : 16 transferts multijoueur, chaque numéro de l'enfant reçu une fois et dans l'ordre.
+  - Game Boy : 16 octets d'un maître GB vers un esclave GBC, de même.
+  - Les deux échouent avec la version 0.9.0.
+
 ## 0.9.0 - 2026-10-22
 
 Cette version ajoute le câble link distant : une console se relie à celle d'un autre appareil, deux téléphones par exemple, l'application transportant les messages. L'API C et l'API C++ s'enrichissent sans rien casser ; le format des états ne change pas.

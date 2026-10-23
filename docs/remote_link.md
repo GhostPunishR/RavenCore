@@ -10,6 +10,8 @@ Sur une vraie console, un transfert échange les bits des deux consoles au même
 
 - **La console qui cadence le transfert envoie sa donnée puis attend la réponse**, en temps réel, au cycle exact du transfert. Son temps émulé ne bouge pas pendant l'attente : le jeu ne voit aucun retard, seule l'image marque une pause.
 - **L'autre console répond quand elle lit le message.** Elle se comporte comme une console qui attendait l'horloge d'un partenaire : elle reçoit la donnée, rend la sienne et lève son interruption.
+- **Mais jamais plus tôt que sur une vraie console.** Chaque transfert porte l'écart, en cycles, depuis le précédent chez celle qui cadence. L'autre n'y entre pas avant que sa propre horloge ait avancé d'autant depuis le transfert précédent : son jeu a eu le temps de traiter le premier et de préparer la donnée suivante. Sans cela, deux messages lus d'affilée recevraient la même donnée, et un jeu comme Pokémon couperait la liaison.
+- **Entre deux images**, ou quand l'application est en pause, `ravenemu_remote_link_service` fait avancer la console jusqu'à ce cycle, sans attendre l'image suivante. L'image suivante reprend là où elle en est.
 - **Les deux consoles appliquent la même décision.** Chaque transfert reçoit une seule réponse, si bien qu'un échange ne peut pas donner deux résultats différents.
 
 Le coût est donc d'**un aller-retour réseau par transfert** pour la console qui cadence. Sur un réseau local (2 à 10 ms), un échange Pokémon prend quelques secondes de plus. Par Internet (50 à 100 ms par aller-retour), c'est trop lent pour jouer.
@@ -32,7 +34,7 @@ ravenemu_remote_link_destroy(link);
 
 L'hôte s'engage à :
 
-- **livrer les messages dans l'ordre et sans perte**, par exemple sur une connexion TCP. RavenCore ne découpe rien : chaque appel de `send` est un message entier, de 14 octets au plus, que l'hôte doit délimiter lui-même, par exemple avec une longueur devant ;
+- **livrer les messages dans l'ordre et sans perte**, par exemple sur une connexion TCP. RavenCore ne découpe rien : chaque appel de `send` est un message entier, de 18 octets au plus, que l'hôte doit délimiter lui-même, par exemple avec une longueur devant ;
 - **brancher le câble une fois la connexion établie**, et le débrancher dès qu'elle est perdue. Débrancher termine sur-le-champ une attente en cours : le transfert finit comme sans câble, et le jeu affiche son propre message d'erreur de liaison ;
 - **débrancher avant de détruire**, pour qu'aucun fil n'attende un câble disparu.
 
@@ -61,8 +63,8 @@ Tous les messages sont petit-boutistes et commencent par leur nature.
 
 | Nature | Octets | Contenu |
 |---|---|---|
-| 1 : annonce | 3 | version du protocole (1), famille (1 GB/GBC, 2 GBA) |
-| 2 : transfert | 14 | numéro (u32), mode (u8), donnée (u32), durée en cycles (u32) |
+| 1 : annonce | 3 | version du protocole (2), famille (1 GB/GBC, 2 GBA) |
+| 2 : transfert | 18 | numéro (u32), mode (u8), donnée (u32), durée en cycles (u32), écart depuis le transfert précédent en cycles (u32, 0 pour le premier) |
 | 3 : réponse | 9 | numéro du transfert (u32), donnée (u32) |
 | 4 : lignes d'état | 3 | mode (u8), ligne SO basse (0 ou 1) |
 
@@ -76,12 +78,15 @@ Les modes sont :
 | 3 | GBA multijoueur |
 | 4 | Autre (UART, GPIO) |
 
+La version 1 (RavenCore 0.9) n'avait pas l'écart : un appareil en version 1 voit le câble incompatible.
+
 Un message mal formé est refusé et ignoré. Sont considérés comme mal formés : une taille inattendue, un mode d'une autre famille, une durée supérieure à un million de cycles. Rien n'est retenu avant l'annonce de l'autre console. Chaque nouveau branchement repart de zéro : les messages et attentes du branchement précédent sont oubliés.
 
 ## Game Boy et Game Boy Color
 
 - **Un octet par transfert.** La console qui cadence, horloge interne, envoie son octet entier au premier bit et attend la réponse. Ses huit bits suivent ensuite leur cours au rythme de son horloge, 8 kHz ou 256 kHz en GBC.
 - **Lecture du message par l'autre console.** Elle reçoit les huit bits d'un coup, par le même chemin que le câble local. Si elle attend avec une horloge externe, son registre SB change et son interruption se lève ; sinon, elle ne change pas. Dans tous les cas, elle renvoie les bits qu'elle sortait : son bit 7 répété si elle n'attendait pas.
+- **Écart.** L'autre console attend, sur son horloge CPU, l'écart annoncé depuis l'octet précédent, une demi-image au plus, avant de prendre les huit bits.
 - **Deux consoles qui cadencent en même temps** reçoivent chacune l'octet de l'autre.
 - **Fréquence de lecture.** Pendant une image, la console lit les messages à chaque ligne, soit 456 cycles. Entre deux images, l'hôte les fait lire par `ravenemu_remote_link_service`.
 
@@ -91,7 +96,7 @@ Un message mal formé est refusé et ignoré. Sont considérés comme mal formé
 - **Lignes d'état.** Chaque console envoie son mode et sa ligne SO à chaque changement. Le parent voit ainsi la ligne SD (« tous prêts ») quand l'enfant passe en mode multijoueur ; en mode normal, la ligne SI suit la ligne SO de l'autre.
 - **Mode multijoueur.**
   - Le parent envoie sa donnée au départ du transfert, puis attend la réponse à la fin, à son propre cycle.
-  - L'enfant entre dans le transfert quand il lit le message, pour sa durée, sur sa propre horloge. Il reçoit SIOMULTI0 (parent) et SIOMULTI1 (lui-même), et 0xFFFF pour les joueurs absents.
+  - L'enfant entre dans le transfert quand il lit le message, pour sa durée, sur sa propre horloge, mais pas avant l'écart annoncé depuis le transfert précédent (au plus la durée du plus long transfert, 125 829 cycles) ; il répond à ce moment-là. Il reçoit SIOMULTI0 (parent) et SIOMULTI1 (lui-même), et 0xFFFF pour les joueurs absents.
   - Un enfant qui n'est pas en mode multijoueur répond 0xFFFF.
 - **Mode normal 8 ou 32 bits.**
   - La console à horloge interne cadence. L'autre répond si elle attend : horloge externe et bit Start levé.
@@ -100,7 +105,7 @@ Un message mal formé est refusé et ignoré. Sont considérés comme mal formé
 
 ## Limites
 
-- **Réseau.** Prévu pour un réseau local. La console qui cadence attend un aller-retour réseau par transfert : un jeu GBA qui enchaîne plusieurs transferts par image peut passer sous 60 images par seconde.
+- **Réseau.** Prévu pour un réseau local. La console qui cadence attend un aller-retour réseau par transfert : un jeu GBA qui enchaîne plusieurs transferts par image peut passer sous 60 images par seconde. Pokémon Rubis ↔ Émeraude, mesuré pendant un échange : 60 images par seconde sans latence, environ 46 avec 2 ms d'aller-retour, 17 avec 6 ms. L'autre console garde 60 images par seconde ; le jeu les attend lui-même.
 - **Consoles.** Deux consoles seulement, y compris en GBA.
 - **Non émulés** : le mode UART, le JOY Bus et l'adaptateur sans fil.
 - **États instantanés.** Le câble distant n'entre pas dans l'état d'une console. Recharger un état pendant une liaison casse l'échange en cours ; l'hôte doit l'empêcher.
@@ -123,4 +128,5 @@ Un message mal formé est refusé et ignoré. Sont considérés comme mal formé
   - deux consoles sur deux fils, reliées par un faux réseau qui livre les messages dans l'ordre avec 0, 5 et 20 ms de latence ;
   - en Game Boy (GBC et GB), un maître et un esclave échangent leurs octets ;
   - en GBA, deux consoles font un transfert multijoueur ; le résultat est celui du câble local ;
+  - rafales comme celles de Pokémon, l'enfant tournant comme dans une application (une image, puis il dort et son câble est servi) : 16 transferts multijoueur en GBA, 16 octets d'un maître GB vers un esclave GBC, chaque numéro reçu une fois et dans l'ordre ;
   - exclusion du câble local, paramètres refusés, état incompatible et destruction dans les deux ordres.
