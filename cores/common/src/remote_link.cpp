@@ -121,17 +121,24 @@ std::optional<RemoteLink::Message> RemoteLink::take() {
     return message;
 }
 
+bool RemoteLink::gone(std::uint32_t generation) const noexcept {
+    return !connected_ || !partner_ok_ || generation_.load(std::memory_order_acquire) != generation;
+}
+
 std::optional<RemoteLink::Message> RemoteLink::wait(std::uint32_t generation) {
     std::unique_lock lock(mutex_);
-    const auto unplugged = [&] {
-        return !connected_ || !partner_ok_ || generation_.load(std::memory_order_acquire) != generation;
-    };
-    arrived_.wait(lock, [&] { return !queue_.empty() || unplugged(); });
-    if (unplugged()) return std::nullopt;
+    arrived_.wait(lock, [&] { return !queue_.empty() || gone(generation); });
+    if (gone(generation)) return std::nullopt;
     auto message = queue_.front();
     queue_.pop_front();
     pending_.store(!queue_.empty(), std::memory_order_release);
     return message;
+}
+
+bool RemoteLink::wait_until(std::uint32_t generation, std::chrono::steady_clock::time_point deadline) {
+    std::unique_lock lock(mutex_);
+    arrived_.wait_until(lock, deadline, [&] { return !queue_.empty() || gone(generation); });
+    return !queue_.empty() && !gone(generation);
 }
 
 void RemoteLink::send(const Transfer& value) const {

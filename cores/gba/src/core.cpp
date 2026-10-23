@@ -494,7 +494,8 @@ private:
         machine_ = std::move(replacement);
     }
     // Une image par tranches, comme le câble local : entre deux, la console
-    // répond aux transferts du partenaire distant, au plus tard une tranche après.
+    // répond aux transferts du partenaire distant, au plus tard une tranche
+    // après. Un enfant trop en avance sur le parent l'attend d'abord.
     void run_remote_frame() {
         auto& machine = *machine_;
         remote_->attach(machine.serial);
@@ -502,6 +503,7 @@ private:
         constexpr auto frame_cycles = Ppu::cycles_per_frame();
         auto position = frame_cycles - machine.ppu.cycles_until_next_frame();
         while (position < frame_cycles) {
+            remote_->keep_pace();
             remote_->service();
             position += machine.run_for(std::min(remote_slice, frame_cycles - position));
         }

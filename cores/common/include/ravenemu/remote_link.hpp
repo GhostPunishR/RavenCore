@@ -3,6 +3,7 @@
 #include <ravenemu/link_endpoint.hpp>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -24,8 +25,10 @@ namespace ravenemu {
  * aucun retard. L'autre répond quand elle lit le message, comme une console
  * qui attend l'horloge d'un partenaire, mais jamais plus tôt, sur sa propre
  * horloge, que l'écart entre deux transferts chez celle qui cadence : son jeu
- * a toujours le temps de préparer la donnée suivante. Les deux consoles
- * appliquent la même décision : un échange ne peut pas donner deux résultats.
+ * a toujours le temps de préparer la donnée suivante. En GBA, pendant une
+ * liaison suivie, elle ne la devance pas non plus de plus de trois images. Les deux
+ * consoles appliquent la même décision : un échange ne peut pas donner deux
+ * résultats.
  *
  * receive() et set_connected() s'appellent de n'importe quel fil ; le reste,
  * du fil d'émulation. L'envoi de l'hôte peut être appelé des deux.
@@ -94,6 +97,12 @@ public:
      * rebranché depuis `generation` : une réponse attendue n'y viendra plus.
      */
     [[nodiscard]] std::optional<Message> wait(std::uint32_t generation);
+    /**
+     * Attend qu'un message arrive, sans le prendre, au plus jusqu'à
+     * `deadline`. Faux à l'échéance, ou si le câble est débranché ou
+     * rebranché depuis `generation`.
+     */
+    [[nodiscard]] bool wait_until(std::uint32_t generation, std::chrono::steady_clock::time_point deadline);
 
     void send(const Transfer& transfer) const;
     void send(const Reply& reply) const;
@@ -102,6 +111,7 @@ public:
 private:
     void send_bytes(std::span<const std::uint8_t> bytes) const;
     void accept_hello(bool compatible);  // sous le verrou
+    [[nodiscard]] bool gone(std::uint32_t generation) const noexcept;  // sous le verrou
 
     const Family family_;
     const Send send_;
