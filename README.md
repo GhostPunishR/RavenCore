@@ -65,15 +65,21 @@ Les cœurs gèrent la vibration (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) 
 
 La sauvegarde et l'horloge d'un jeu GBA sont détectées automatiquement. La détection RTC couvre aussi les pilotes Pokémon/CFRU sans marqueur Seiko, à partir de leur identité interne et de références GPIO ([détails et limites](cores/gba/tests/rtc_compatibility.md)). Si la détection se trompe, deux options du cœur les imposent.
 
-Les options s'affichent en français, rangées en deux catégories, **Image** et **Cartouche**. Elles s'appliquent pendant le jeu, sauf le type de sauvegarde et l'horloge, appliqués au chargement :
+Les options s'affichent en français, rangées en quatre catégories : **Image**, **Commandes**, **Système** et **Cartouche**. Elles s'appliquent pendant le jeu, sauf la console émulée, la boot ROM, le type de sauvegarde et l'horloge, appliqués au chargement du jeu :
 
 | Option | Clé | Cœurs | Valeurs |
 | --- | --- | --- | --- |
 | Palette | `ravenemu_gb_palette` | RavenGB | Vert (Game Boy) par défaut, ou gris (Game Boy Pocket) |
 | Correction des couleurs LCD | `ravenemu_gbc_color_correction`, `ravenemu_gba_color_correction` | RavenGBC, RavenGBA | Désactivée par défaut. Activée, elle adoucit les couleurs vives comme l'écran de la console, avec le réglage de RavenEmu Android |
+| Mélange d'images | `ravenemu_gb_frame_blending`, `ravenemu_gbc_frame_blending`, `ravenemu_gba_frame_blending` | Tous | Désactivé par défaut. **Mélange** : la moyenne des deux dernières images, pour les jeux qui font clignoter un objet une image sur deux. **Rémanence** : l'image s'efface lentement, comme sur l'écran LCD |
+| Directions opposées | `ravenemu_gb_opposing_directions`, `ravenemu_gbc_opposing_directions`, `ravenemu_gba_opposing_directions` | Tous | Bloquées par défaut : haut et bas, ou gauche et droite, tenus ensemble ne sont pas transmis, comme sur la croix de la console. Autorisées, sinon |
+| Boot ROM | `ravenemu_gb_boot_rom`, `ravenemu_gbc_boot_rom` | RavenGB, RavenGBC | Utilisée si son fichier est présent (par défaut), ou non |
+| Console émulée | `ravenemu_gbc_hardware` | RavenGBC | Game Boy Color par défaut, ou Game Boy Advance : les jeux qui la reconnaissent débloquent leurs bonus (Zelda Oracle, Shantae…) |
 | Type de sauvegarde | `ravenemu_gba_save_type` | RavenGBA | `auto`, `sram`, `flash64`, `flash128`, `eeprom512`, `eeprom8k`, `none` |
 | Horloge (RTC) | `ravenemu_gba_rtc` | RavenGBA | `auto`, `enabled`, `disabled` |
 | Lumière du capteur solaire | `ravenemu_gba_solar_light` | RavenGBA | Pourcentage de plein soleil : `50` par défaut, de `0` à `100` par pas de 10 |
+
+RavenGB et RavenGBC démarrent un jeu sans boot ROM, dans l'état où elle l'aurait laissé. Ils utilisent celle du dossier système de RetroArch si l'option le permet : `dmg_boot.bin` ou `gb_bios.bin` (Game Boy), `cgb_boot.bin` ou `gbc_bios.bin` (Game Boy Color), `agb_boot.bin` (Game Boy Advance). On retrouve alors l'animation de démarrage, et les couleurs que la boot ROM de la GBC donne aux jeux Game Boy. Aucune boot ROM n'est fournie.
 
 Un jeu refusé affiche sa raison à l'écran et dans le journal de RetroArch. Les images que RetroArch n'affiche pas (anticipation « run-ahead », avance rapide) ne sont pas dessinées par le cœur GBA ni converties par aucun cœur.
 
@@ -101,7 +107,7 @@ Les cœurs déclarent à RetroArch la mémoire que surveille RetroAchievements :
 Après `cmake --install`, utilisez le paquet CMake :
 
 ```cmake
-find_package(RavenCore 0.12 REQUIRED)
+find_package(RavenCore 0.13 REQUIRED)
 target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 
@@ -125,7 +131,7 @@ Les tests de base n'utilisent aucune ROM. La CI exécute en plus des suites de t
 
 | Console | Suites | Documentation |
 | --- | --- | --- |
-| GB / GBC | Mooneye Test Suite, Blargg, dmg-acid2, cgb-acid2 (198 tests) | [Tests GB/GBC](cores/gb/tests/README.md) |
+| GB / GBC | Mooneye Test Suite, Blargg, dmg-acid2, cgb-acid2 (200 tests) | [Tests GB/GBC](cores/gb/tests/README.md) |
 | GBA | jsmolka/gba-tests, FuzzARM | [Tests GBA](cores/gba/tests/README.md) |
 
 Pour les lancer en local :
@@ -140,7 +146,7 @@ ctest --test-dir build --output-on-failure
 
 ## État et limites
 
-- **GB / GBC** : les 198 tests publics retenus passent. Des suites plus exigeantes (Mealybug Tearoom, SameSuite, gbmicrotest) échouent encore en partie.
+- **GB / GBC** : les 200 tests publics retenus passent. Des suites plus exigeantes (Mealybug Tearoom, SameSuite, gbmicrotest) échouent encore en partie. Cartouches non prises en charge : TAMA5, Game Boy Camera, M161 et cartouches non licenciées. Le Super Game Boy n'est pas émulé. En mode Game Boy Advance, seuls les registres de démarrage distinguent la console d'une GBC.
 - **GBA** : expérimental. Les suites gba-tests et FuzzARM passent, mais le cœur n'a pas encore été essayé sur un large panel de jeux. Non émulés pour l'instant :
   - le mode UART et l'adaptateur sans fil ;
   - l'exception d'instruction indéfinie.
@@ -152,7 +158,7 @@ ctest --test-dir build --output-on-failure
 
 ## Versions
 
-Version actuelle : **0.12.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro pour Linux, Windows, macOS et Android. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
+Version actuelle : **0.13.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro pour Linux, Windows, macOS et Android. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
 
 Avant la 1.0, une version peut changer l'API ou le format des états ; le journal le signale à chaque fois.
 

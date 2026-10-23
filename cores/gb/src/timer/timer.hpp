@@ -42,10 +42,12 @@ public:
         reload_delay_ = -1;
         reload_cycle_ = false;
     }
-    void initialize_hle_post_boot() noexcept {
+    void initialize_hle_post_boot(bool agb = false) noexcept {
         // Phases observees a l'entree $0100 sur DMG ABC/MGB et CGB ABCDE.
         // Elles sont distinctes meme si DIV n'en expose que l'octet haut.
-        div_counter_ = hardware_mode_ == gb::HardwareMode::dmg ? 0xabc8 : 0x2674;
+        // La boot ROM de la GBA execute un INC B de plus : un cycle machine,
+        // 4 points (test boot_div-A de Mooneye).
+        div_counter_ = hardware_mode_ == gb::HardwareMode::dmg ? 0xabc8 : 0x2674 + (agb ? 4 : 0);
         tima_ = 0;
         tma_ = 0;
         tac_ = 0xf8;

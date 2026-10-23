@@ -9,6 +9,12 @@ enum class HardwareModel : std::uint8_t {
     automatic,
     dmg,
     cgb,
+    /**
+     * Game Boy Color d'une Game Boy Advance : une GBC qui démarre avec B = 1
+     * (Pan Docs, « Power Up Sequence »). Les jeux qui testent ce registre
+     * débloquent leurs bonus GBA (Zelda Oracle, Shantae…).
+     */
+    agb,
 };
 
 /** Mode matériel effectif après inspection de l'en-tête de cartouche. */

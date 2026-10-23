@@ -1974,6 +1974,38 @@
       }
     },
     {
+      "id": "mooneye.misc.boot_div-A.agb",
+      "category": "timer",
+      "hardware": "agb",
+      "rom": {
+        "path": "mooneye-test-suite/misc/boot_div-A.gb",
+        "sha256": "6809fa5fa4a60229ad9b23e6007445a1ce217d3bd5963fbb67c4aeefdaea70f7",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "mooneye.misc.boot_regs-A.agb",
+      "category": "memory",
+      "hardware": "agb",
+      "rom": {
+        "path": "mooneye-test-suite/misc/boot_regs-A.gb",
+        "sha256": "fb72626552a3235c22fd0264b4ab18b8235c52fe962192e5f5d9f36b7fade80e",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (Mooneye Test Suite, Joonas Javanainen)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 900,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
       "id": "mooneye.misc.ppu.vblank_stat_intr-C.cgb",
       "category": "ppu",
       "hardware": "cgb",

@@ -142,7 +142,7 @@
             "speed-switch", "serial", "apu", "mbc"
           ]
         },
-        "hardware": { "enum": ["auto", "dmg", "cgb"] },
+        "hardware": { "enum": ["auto", "dmg", "cgb", "agb"] },
         "rom": { "$ref": "#/$defs/artifact" },
         "boot_rom": { "$ref": "#/$defs/artifact" },
         "timeout_frames": {

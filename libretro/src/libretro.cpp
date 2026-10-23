@@ -3,7 +3,7 @@
 #if defined(RAVENEMU_LIBRETRO_GB)
 #include <ravenemu/gb/core.hpp>
 #elif defined(RAVENEMU_LIBRETRO_GBC)
-#include <ravenemu/gbc/core.hpp>
+#include <ravenemu/gb/core.hpp>
 #elif defined(RAVENEMU_LIBRETRO_GBA)
 #else
 #error "Choose exactly one Libretro core"
@@ -18,6 +18,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
+#include <initializer_list>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -100,23 +102,21 @@ constexpr const char* name = "RavenGB";
 constexpr const char* extensions = "gb|sgb";
 constexpr unsigned width = 160, height = 144;
 constexpr double fps = 4'194'304.0 / 70'224.0;
-std::unique_ptr<ravenemu::Core> new_core() {
-    return ravenemu::gb::make_core(ravenemu::gb::HardwareModel::dmg);
-}
+#define RAVENEMU_OPTION(name) "ravenemu_gb_" name
 #elif defined(RAVENEMU_LIBRETRO_GBC)
 constexpr const char* label = "RavenGBC";
 constexpr const char* name = "RavenGBC";
 constexpr const char* extensions = "gbc|gb";
 constexpr unsigned width = 160, height = 144;
 constexpr double fps = 4'194'304.0 / 70'224.0;
-std::unique_ptr<ravenemu::Core> new_core() { return ravenemu::gbc::make_core(); }
+#define RAVENEMU_OPTION(name) "ravenemu_gbc_" name
 #else
 constexpr const char* label = "RavenGBA (experimental)";
 constexpr const char* name = "RavenGBA";
 constexpr const char* extensions = "gba";
 constexpr unsigned width = 240, height = 160;
 constexpr double fps = 16'777'216.0 / 280'896.0;
-std::unique_ptr<ravenemu::Core> new_core() { return ravenemu::make_gba_core(std::nullopt); }
+#define RAVENEMU_OPTION(name) "ravenemu_gba_" name
 #endif
 
 // Cheats from the frontend's menu, by index. A disabled or refused cheat
@@ -155,6 +155,16 @@ std::uint32_t lcd_corrected(std::uint32_t pixel) {
     };
     return channel(r) << 16U | channel(g) << 8U | channel(b);
 }
+
+// Mélange d'images, après la conversion des couleurs. « Mélange » montre la
+// moyenne des deux dernières images : un objet affiché une image sur deux
+// reste visible, à moitié. « Rémanence » garde 3/8 de l'image affichée, comme
+// un écran LCD lent. L'historique repart à chaque jeu et à chaque changement.
+enum class Blending { off, mix, ghosting };
+Blending blending = Blending::off;
+std::vector<std::uint32_t> blend_history;
+// Haut et bas, ou gauche et droite, ensemble : impossible sur la croix.
+bool opposing_allowed = false;
 // MBC7 accelerometer (Kirby Tilt 'n' Tumble, Command Master) driven by the
 // left analog stick. The cartridge reads 0x81D0 at rest and moves by about
 // 0x70 per g; a full deflection is a 1 g tilt. Signs follow accelerometer
@@ -216,6 +226,25 @@ OptionSpec lcd_option(const char* key) {
 }
 #endif
 const std::vector<OptionSpec> option_specs{
+    {RAVENEMU_OPTION("frame_blending"), "Mélange d'images",
+     "Atténue le scintillement des jeux qui alternent deux images, comme le faisait l'écran de la console.", "video",
+     {{"disabled", "Désactivé"}, {"mix", "Mélange des deux dernières images"}, {"ghosting", "Rémanence de l'écran LCD"}}},
+    {RAVENEMU_OPTION("opposing_directions"), "Directions opposées",
+     "Haut et bas, ou gauche et droite, ensemble : impossible sur la croix de la console, et certains jeux "
+     "plantent. Bloquées, aucune des deux n'est transmise.", "input",
+     {{"blocked", "Bloquées"}, {"allowed", "Autorisées"}}},
+#if !defined(RAVENEMU_LIBRETRO_GBA)
+    {RAVENEMU_OPTION("boot_rom"), "Boot ROM",
+     "Appliquée au chargement du jeu, si son fichier est dans le dossier système : dmg_boot.bin ou gb_bios.bin "
+     "(Game Boy), cgb_boot.bin ou gbc_bios.bin (Game Boy Color), agb_boot.bin (Game Boy Advance).", "system",
+     {{"enabled", "Utilisée si présente"}, {"disabled", "Non utilisée"}}},
+#endif
+#if defined(RAVENEMU_LIBRETRO_GBC)
+    {"ravenemu_gbc_hardware", "Console émulée",
+     "Appliquée au chargement du jeu. Game Boy Advance : les jeux qui la reconnaissent débloquent leurs bonus "
+     "(Zelda Oracle, Shantae…).", "system",
+     {{"gbc", "Game Boy Color"}, {"gba", "Game Boy Advance"}}},
+#endif
 #if defined(RAVENEMU_LIBRETRO_GB)
     {"ravenemu_gb_palette", "Palette", "Teintes des jeux Game Boy.", "video",
      {{"dmg", "Vert (Game Boy)"}, {"pocket", "Gris (Game Boy Pocket)"}}},
@@ -241,8 +270,10 @@ const std::vector<OptionSpec> option_specs{
 void declare_options() {
     unsigned version = 0;
     if (env_cb(RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION, &version) && version >= 2) {
-        static std::array<retro_core_option_v2_category, 3> categories{{
-            {"video", "Image", "Couleurs de l'image."},
+        static std::array<retro_core_option_v2_category, 5> categories{{
+            {"video", "Image", "Couleurs et rendu de l'image."},
+            {"input", "Commandes", "Croix et boutons."},
+            {"system", "Système", "Console émulée et boot ROM, appliquées au chargement du jeu."},
             {"cartridge", "Cartouche", "Matériel de la cartouche, quand sa détection se trompe."},
             {nullptr, nullptr, nullptr},
         }};
@@ -286,8 +317,8 @@ bool option_is(const char* key, std::string_view value) {
     const char* current = option(key);
     return current && value == current;
 }
-// Image options: read when a game loads, and again whenever they change.
-void read_video_options() {
+// Image and input options: read when a game loads, and again whenever they change.
+void read_live_options() {
 #if defined(RAVENEMU_LIBRETRO_GB)
     shades = option_is("ravenemu_gb_palette", "pocket") ? pocket_shades : dmg_shades;
 #elif defined(RAVENEMU_LIBRETRO_GBC)
@@ -295,6 +326,12 @@ void read_video_options() {
 #else
     lcd_correction = option_is("ravenemu_gba_color_correction", "enabled");
 #endif
+    const auto previous = blending;
+    blending = option_is(RAVENEMU_OPTION("frame_blending"), "mix")        ? Blending::mix
+             : option_is(RAVENEMU_OPTION("frame_blending"), "ghosting") ? Blending::ghosting
+                                                                         : Blending::off;
+    if (blending != previous) blend_history.clear();
+    opposing_allowed = option_is(RAVENEMU_OPTION("opposing_directions"), "allowed");
 }
 
 #if defined(RAVENEMU_LIBRETRO_GBA)
@@ -309,7 +346,7 @@ void apply_solar_option(ravenemu::Core& machine) {
 }
 #endif
 void apply_options(ravenemu::Core& machine) {
-    read_video_options();
+    read_live_options();
 #if defined(RAVENEMU_LIBRETRO_GBA)
     using ravenemu::GbaSaveType;
     struct SaveChoice { std::string_view value; GbaSaveType type; };
@@ -335,11 +372,56 @@ void apply_options(ravenemu::Core& machine) {
 void update_options() {
     bool updated = false;
     if (!core || !env_cb || !env_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) || !updated) return;
-    read_video_options();
+    read_live_options();
 #if defined(RAVENEMU_LIBRETRO_GBA)
     apply_solar_option(*core);
 #endif
 }
+
+#if !defined(RAVENEMU_LIBRETRO_GBA)
+// Boot ROM du dossier système, si l'option le permet ; sinon RavenCore démarre
+// le jeu dans l'état où la boot ROM l'aurait laissé. Un fichier d'une autre
+// taille est ignoré, et le journal dit pourquoi.
+std::vector<std::uint8_t> read_boot_rom(std::initializer_list<const char*> files,
+                                        std::initializer_list<std::size_t> sizes) {
+    const char* directory = nullptr;
+    if (option_is(RAVENEMU_OPTION("boot_rom"), "disabled") || !env_cb ||
+        !env_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &directory) || !directory || !*directory)
+        return {};
+    const auto largest = std::max(sizes);
+    for (const char* file : files) {
+        const auto path = std::string(directory) + "/" + file;
+        std::ifstream input(path, std::ios::binary);
+        if (!input) continue;
+        std::vector<std::uint8_t> image(largest + 1);
+        input.read(reinterpret_cast<char*>(image.data()), static_cast<std::streamsize>(image.size()));
+        image.resize(static_cast<std::size_t>(input.gcount()));
+        if (std::find(sizes.begin(), sizes.end(), image.size()) != sizes.end()) {
+            log_line(RETRO_LOG_INFO, "boot ROM : " + path);
+            return image;
+        }
+        log_line(RETRO_LOG_WARN, "boot ROM ignorée, taille inattendue : " + path);
+    }
+    return {};
+}
+#endif
+#if defined(RAVENEMU_LIBRETRO_GB)
+std::unique_ptr<ravenemu::Core> new_core() {
+    return ravenemu::gb::make_core(ravenemu::gb::HardwareModel::dmg,
+                                   read_boot_rom({"dmg_boot.bin", "gb_bios.bin"}, {0x100}));
+}
+#elif defined(RAVENEMU_LIBRETRO_GBC)
+// La boot ROM de la GBA ne diffère de celle de la GBC que par ce qu'elle
+// laisse dans B : chacune a son fichier.
+std::unique_ptr<ravenemu::Core> new_core() {
+    const bool agb = option_is("ravenemu_gbc_hardware", "gba");
+    auto boot = agb ? read_boot_rom({"agb_boot.bin"}, {0x800, 0x900})
+                    : read_boot_rom({"cgb_boot.bin", "gbc_bios.bin"}, {0x800, 0x900});
+    return ravenemu::gb::make_core(agb ? ravenemu::gb::HardwareModel::agb : ravenemu::gb::HardwareModel::cgb, boot);
+}
+#else
+std::unique_ptr<ravenemu::Core> new_core() { return ravenemu::make_gba_core(std::nullopt); }
+#endif
 
 struct Key { unsigned id; ravenemu::Button button; };
 constexpr std::array<Key, 10> keys{{
@@ -427,7 +509,24 @@ void clear_game() {
     pending_save_import = false;
     achievement_ram.clear();
     achievement_sizes = {};
+    blend_history.clear();
     run_error_logged = false;
+}
+void blend_output() {
+    if (blending == Blending::off) return;
+    if (blend_history.size() != output_frame.size()) blend_history = output_frame;
+    for (std::size_t i = 0; i < output_frame.size(); ++i) {
+        const auto current = output_frame[i];
+        const auto previous = blend_history[i];
+        std::uint32_t blended = 0;
+        for (unsigned shift = 0; shift < 24; shift += 8) {
+            const auto now = (current >> shift) & 0xffU;
+            const auto before = (previous >> shift) & 0xffU;
+            blended |= (blending == Blending::mix ? (now + before + 1) / 2 : (now * 5 + before * 3 + 4) / 8) << shift;
+        }
+        output_frame[i] = blended;
+        blend_history[i] = blending == Blending::mix ? current : blended;
+    }
 }
 void refresh_video() {
     if (!core || !video_cb) return;
@@ -438,6 +537,7 @@ void refresh_video() {
         output_frame[i] = indexed ? shades[pixel & 3U]
                         : lcd_correction ? lcd_corrected(pixel) : (pixel & 0x00ffffffU);
     }
+    blend_output();
     video_cb(output_frame.data(), static_cast<unsigned>(spec.width),
              static_cast<unsigned>(spec.height),
              static_cast<std::size_t>(spec.width) * sizeof(std::uint32_t));
@@ -613,9 +713,17 @@ void retro_run(void) {
     try {
         import_save_ram_once();
         if (poll_cb) poll_cb();
-        if (input_cb) for (const auto& key : keys)
-            core->set_button(key.button,
-                input_cb(0, RETRO_DEVICE_JOYPAD, 0, key.id) != 0);
+        if (input_cb) {
+            std::array<bool, keys.size()> held{};
+            for (std::size_t index = 0; index < keys.size(); ++index)
+                held[index] = input_cb(0, RETRO_DEVICE_JOYPAD, 0, keys[index].id) != 0;
+            // keys commence par haut, bas, gauche, droite.
+            if (!opposing_allowed) {
+                if (held[0] && held[1]) held[0] = held[1] = false;
+                if (held[2] && held[3]) held[2] = held[3] = false;
+            }
+            for (std::size_t index = 0; index < keys.size(); ++index) core->set_button(keys[index].button, held[index]);
+        }
         if ((sensors.tilt || sensors.rotation) && input_cb) {
             const int stick_x = input_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
                                          RETRO_DEVICE_ID_ANALOG_X);

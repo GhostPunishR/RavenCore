@@ -565,9 +565,48 @@ void rom_windows_match_cpu_reads_test() {
     same_as_cpu(*mmm01, "banques MMM01 différentes de la lecture du CPU");
 }
 
+// MBC30 (Pocket Monsters Crystal, Japon) : 8 bits de banque de ROM et 8
+// banques de RAM ; un MBC3 ordinaire garde 7 bits et 4 banques.
+void mbc30_banking_test() {
+    const auto make = [](std::size_t rom_size, int ram_size_code) {
+        std::vector<std::uint8_t> rom(rom_size);
+        const auto banks = rom_size / Cartridge::rom_bank_size;
+        for (std::size_t bank = 0; bank < banks; ++bank)
+            rom[bank * Cartridge::rom_bank_size] = static_cast<std::uint8_t>(bank);
+        rom[0x147] = 0x10;  // MBC3 + horloge + RAM + pile
+        rom[0x149] = static_cast<std::uint8_t>(ram_size_code);
+        return create(std::move(rom));
+    };
+    for (const bool mbc30 : {true, false}) {
+        auto cartridge = mbc30 ? make(4U * 1024U * 1024U, 0x05) : make(2U * 1024U * 1024U, 0x03);
+        cartridge->write_control(0x2000, 0x80);
+        check(cartridge->read_rom(0x4000) == (mbc30 ? 0x80 : 0x01), "MBC30 : huitième bit de banque de ROM");
+        cartridge->write_control(0x0000, 0x0a);
+        for (int bank = 0; bank < 8; ++bank) {
+            cartridge->write_control(0x4000, bank);
+            cartridge->write_ram(0xa000, 0x10 + bank);
+        }
+        cartridge->write_control(0x4000, 5);
+        check(cartridge->read_ram(0xa000) == (mbc30 ? 0x15 : 0xff), "MBC30 : banques de RAM 4 à 7");
+        cartridge->write_control(0x4000, 3);
+        check(cartridge->read_ram(0xa000) == 0x13, "MBC3 : banque de RAM 3");
+    }
+    // Un état MBC30 garde sa banque de ROM au-delà de 0x7F.
+    auto source = make(4U * 1024U * 1024U, 0x05);
+    source->write_control(0x2000, 0xc3);
+    detail::BinaryWriter writer;
+    source->save_state(writer);
+    const auto state = std::move(writer).take();
+    auto restored = make(4U * 1024U * 1024U, 0x05);
+    detail::BinaryReader reader(state);
+    restored->load_state(reader);
+    check(restored->read_rom(0x4000) == 0xc3, "MBC30 : banque de ROM perdue dans l'état");
+}
+
 } // namespace ravenemu::cgb::testing
 
 int main() {
+    ravenemu::cgb::testing::mbc30_banking_test();
     ravenemu::cgb::testing::rom_windows_match_cpu_reads_test();
     ravenemu::cgb::testing::legacy_mapper_state_validation_test();
     ravenemu::cgb::testing::mbc3_hostile_battery_timestamp_test();

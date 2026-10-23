@@ -48,7 +48,9 @@ ou un M-cycle lorsque le CPU est arrêté. Une valeur initiale inchangée ne peu
 donc pas produire un faux positif.
 
 `--hardware cgb` sélectionne le CGB natif pour une cartouche couleur et le mode
-de compatibilité CGB pour une cartouche DMG. Une boot ROM DMG/CGB acquise
+de compatibilité CGB pour une cartouche DMG. `--hardware agb` fait de même
+pour la GBC d'une Game Boy Advance, qui ne s'en distingue que par ses
+registres de démarrage. Une boot ROM DMG/CGB acquise
 légalement peut être passée par `--boot-rom`; aucune image n'est fournie par
 RavenEmu.
 
@@ -127,7 +129,7 @@ RGB888 ; `memory_before` liste l'état intermédiaire exigé par
 
 ## Suites publiques exécutées par la CI
 
-`public-test-roms.json` fige 198 tests issus de l'archive
+`public-test-roms.json` fige 200 tests issus de l'archive
 [game-boy-test-roms v7.0](https://github.com/c-sp/game-boy-test-roms/releases/tag/v7.0)
 de Christoph Sprenger (SHA-256
 `b9a9d7a1075aa35a3d07c07c34974048672d8520dca9e07a50178f5860c3832c`), avec le
@@ -147,7 +149,7 @@ ASan/UBSan les exécutent tous.
 
 | Suite | Tests | Critère de réussite |
 | --- | --- | --- |
-| Mooneye Test Suite `8d742b9d55` (MIT), profils DMG et CGB décrits ci-dessous | 66 DMG + 58 CGB | Signature de registres ; `0x42` partout signale un échec |
+| Mooneye Test Suite `8d742b9d55` (MIT), profils DMG, CGB et AGB décrits ci-dessous | 66 DMG + 58 CGB + 2 AGB | Signature de registres ; `0x42` partout signale un échec |
 | Mooneye `emulator-only` (MBC1, MBC2, MBC5) | 28 DMG | Signature de registres |
 | Blargg `cpu_instrs`, `instr_timing`, `mem_timing` | 3 DMG + 3 CGB | Texte série `Passed` |
 | Blargg `mem_timing-2`, `dmg_sound`, `cgb_sound`, `oam_bug` (ROMs séparées) | 20 DMG + 13 CGB | Résultat en `$A000` précédé de `$80` |
@@ -190,7 +192,9 @@ des échecs. Chaque rapport doit conserver le commit de la suite, le SHA-256 de
 l'archive, le SHA du cœur RavenEmu testé et les deux compteurs séparés. Le
 runner reçoit `--hardware dmg` pour le premier profil et `--hardware cgb` pour
 le second ; comme ces ROMs ont un en-tête monochrome, ce dernier sélectionne
-explicitement le matériel CGB en mode compatibilité.
+explicitement le matériel CGB en mode compatibilité. Le profil AGB compte les
+deux tests `misc` de la Game Boy Advance, `boot_div-A.gb` et `boot_regs-A.gb`,
+exécutés avec `--hardware agb`.
 
 CTest lance un auto-test de l'orchestrateur lorsque Python 3.10 ou ultérieur est
 disponible. Il génère sa propre ROM originale en répertoire temporaire, vérifie

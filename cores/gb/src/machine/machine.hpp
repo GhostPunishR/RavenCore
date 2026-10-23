@@ -12,8 +12,8 @@ namespace ravenemu::cgb {
 class Machine {
 public:
     Machine(RomImage rom, Cartridge::Clock clock, gb::HardwareMode mode,
-            std::span<const std::uint8_t> boot_rom_image = {})
-        : infrared_router(), cartridge(Cartridge::create(rom, std::move(clock))), hardware_mode(mode),
+            std::span<const std::uint8_t> boot_rom_image = {}, bool agb = false)
+        : infrared_router(), cartridge(Cartridge::create(rom, std::move(clock))), hardware_mode(mode), agb_hardware(agb),
           boot_rom(mode, boot_rom_image),
           timer(interrupts, mode), joypad(interrupts), speed(gb::cgb_features_enabled(
               gb::boot_execution_mode(mode, !boot_rom_image.empty()))),
@@ -42,7 +42,7 @@ public:
             cpu.sp = 0; cpu.pc = 0;
         } else {
             initialize_hle_post_boot();
-            timer.initialize_hle_post_boot();
+            timer.initialize_hle_post_boot(agb_hardware);
             serial.initialize_hle_post_boot(timer.reset_aligned_phase());
             joypad.write(mode == gb::HardwareMode::dmg ? 0x00 : 0x30);
             apu.initialize_hle_post_boot();
@@ -73,6 +73,8 @@ public:
     MachineInfraredPort infrared_router;
     std::unique_ptr<Cartridge> cartridge;
     gb::HardwareMode hardware_mode{gb::HardwareMode::dmg};
+    // Console GBA : seuls les registres laissés par la boot ROM la distinguent.
+    bool agb_hardware{};
     BootRom boot_rom;
     InterruptController interrupts;
     Timer timer;
@@ -101,8 +103,8 @@ private:
             break;
         }
         case gb::HardwareMode::cgb_native:
-            cpu.set_af(0x1180);
-            cpu.set_bc(0x0000);
+            cpu.set_af(agb_hardware ? 0x1100 : 0x1180);
+            cpu.set_bc(agb_hardware ? 0x0100 : 0x0000);
             cpu.set_de(0xff56);
             cpu.set_hl(0x000d);
             break;
@@ -117,10 +119,19 @@ private:
                     b_value = byte(b_value + cartridge->read_rom(address));
                 }
             }
-            cpu.set_af(0x1180);
-            cpu.set_bc(b_value << 8);
-            cpu.set_de(0x0008);
             cpu.set_hl(b_value == 0x43 || b_value == 0x58 ? 0x991a : 0x007c);
+            cpu.set_de(0x0008);
+            if (agb_hardware) {
+                // La boot ROM de la GBA finit par INC B : Z et H en découlent,
+                // N et C restent à 0.
+                const int incremented = byte(b_value + 1);
+                const int flags = (incremented == 0 ? 0x80 : 0) | ((b_value & 0x0f) == 0x0f ? 0x20 : 0);
+                cpu.set_af(0x1100 | flags);
+                cpu.set_bc(incremented << 8);
+            } else {
+                cpu.set_af(0x1180);
+                cpu.set_bc(b_value << 8);
+            }
             break;
         }
         }

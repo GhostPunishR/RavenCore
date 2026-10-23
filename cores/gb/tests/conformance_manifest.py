@@ -46,7 +46,7 @@ CATEGORIES = frozenset(
         "mbc",
     }
 )
-HARDWARE_MODES = frozenset({"auto", "dmg", "cgb"})
+HARDWARE_MODES = frozenset({"auto", "dmg", "cgb", "agb"})
 REDISTRIBUTION_POLICIES = frozenset({"external-only", "redistributable"})
 AMBIGUOUS_LICENSES = frozenset(
     {"", "unknown", "inconnu", "inconnue", "unspecified", "n/a", "none", "todo"}
@@ -423,7 +423,7 @@ def validate_manifest(raw: Any) -> dict[str, Any]:
             raise ManifestError(f"{context}.category: catégorie inconnue {category}")
         hardware = _string(test["hardware"], f"{context}.hardware", maximum=8)
         if hardware not in HARDWARE_MODES:
-            raise ManifestError(f"{context}.hardware: auto, dmg ou cgb attendu")
+            raise ManifestError(f"{context}.hardware: auto, dmg, cgb ou agb attendu")
         timeout_frames = _integer(
             test["timeout_frames"], f"{context}.timeout_frames", 1, 1_000_000
         )
