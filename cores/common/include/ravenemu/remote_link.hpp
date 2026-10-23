@@ -22,28 +22,36 @@ namespace ravenemu {
  * La console qui cadence un transfert envoie sa donnée puis attend, en temps
  * réel, la réponse de l'autre : son temps émulé ne bouge pas, le jeu ne voit
  * aucun retard. L'autre répond quand elle lit le message, comme une console
- * qui attend l'horloge d'un partenaire. Les deux consoles appliquent la même
- * décision : un échange ne peut pas donner deux résultats.
+ * qui attend l'horloge d'un partenaire, mais jamais plus tôt, sur sa propre
+ * horloge, que l'écart entre deux transferts chez celle qui cadence : son jeu
+ * a toujours le temps de préparer la donnée suivante. Les deux consoles
+ * appliquent la même décision : un échange ne peut pas donner deux résultats.
  *
  * receive() et set_connected() s'appellent de n'importe quel fil ; le reste,
  * du fil d'émulation. L'envoi de l'hôte peut être appelé des deux.
  */
 class RemoteLink {
 public:
-    static constexpr std::uint8_t protocol_version = 1;
+    // 2 : le transfert porte l'écart depuis le précédent.
+    static constexpr std::uint8_t protocol_version = 2;
     // Plus long message : un transfert.
-    static constexpr std::size_t max_message_size = 14;
+    static constexpr std::size_t max_message_size = 18;
 
     enum class Family : std::uint8_t { game_boy = 1, game_boy_advance = 2 };
     enum class Mode : std::uint8_t { game_boy = 0, normal8 = 1, normal32 = 2, multiplayer = 3, other = 4 };
     enum class State { unplugged, waiting, plugged, incompatible };
 
-    /** Une console cadence un transfert : sa donnée, et sa durée en cycles (GBA). */
+    /**
+     * Une console cadence un transfert : sa donnée, sa durée en cycles (GBA),
+     * et les cycles écoulés depuis le départ de son transfert précédent
+     * (0 pour le premier d'un branchement).
+     */
     struct Transfer {
         std::uint32_t id{};
         Mode mode{};
         std::uint32_t data{};
         std::uint32_t duration{};
+        std::uint32_t interval{};
     };
     /** Ce que l'autre console a envoyé pendant le transfert `id`. */
     struct Reply {
@@ -112,7 +120,9 @@ private:
 /**
  * Port Game Boy relié par un câble distant : un octet par transfert. La
  * console qui cadence envoie son octet au premier bit et attend la réponse ;
- * l'autre la cadence d'un coup, bit par bit, quand elle lit le message.
+ * l'autre la cadence d'un coup, bit par bit, quand elle lit le message, mais
+ * pas avant que son horloge ait avancé, depuis l'octet précédent, de l'écart
+ * laissé par celle qui cadence : son jeu a eu le temps de préparer le suivant.
  */
 class RemoteLinkEndpoint final : public LinkEndpoint {
 public:
@@ -120,23 +130,43 @@ public:
 
     [[nodiscard]] bool attach(LinkPort& port) noexcept override {
         if (port_ != nullptr && port_ != &port) return false;
+        if (port_ != &port) forget_timing();  // une autre machine : une autre horloge
         port_ = &port;
         return true;
     }
     void detach(LinkPort& port) noexcept override {
-        if (port_ == &port) port_ = nullptr;
+        if (port_ != &port) return;
+        port_ = nullptr;
+        forget_timing();
     }
     [[nodiscard]] bool exchange_bit(LinkPort& source, bool outgoing_high) noexcept override;
     void poll() noexcept override;
+    /** Un octet du partenaire attend que cette console atteigne son cycle. */
+    [[nodiscard]] bool deferred() const noexcept { return deferred_.has_value(); }
+
+    // Au plus une demi-image d'attente, quel que soit l'écart annoncé.
+    static constexpr std::uint64_t max_interval = 35'112;
 
 private:
-    std::uint8_t transfer(std::uint8_t outgoing) noexcept;
+    std::uint8_t transfer(LinkPort& source, std::uint8_t outgoing) noexcept;
     void serve(const RemoteLink::Transfer& transfer) noexcept;
+    void clock_in(const RemoteLink::Transfer& transfer) noexcept;
+    void follow_generation() noexcept;
+    void forget_timing() noexcept {
+        deferred_.reset();
+        last_start_.reset();
+        last_serve_.reset();
+    }
 
     RemoteLink& link_;
     LinkPort* port_{};
     std::uint32_t last_id_{};
     std::uint8_t reply_{0xff};
+    std::uint32_t generation_{};
+    std::optional<RemoteLink::Transfer> deferred_;  // lu trop tôt : servi à `due_`
+    std::uint64_t due_{};
+    std::optional<std::uint64_t> last_start_;  // départ du dernier octet cadencé ici
+    std::optional<std::uint64_t> last_serve_;  // dernier octet du partenaire servi
 };
 
 } // namespace ravenemu

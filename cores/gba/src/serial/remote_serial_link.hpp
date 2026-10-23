@@ -15,7 +15,11 @@ namespace ravenemu::gba {
  * réponse à la fin, à son propre cycle : son temps émulé ne bouge pas pendant
  * l'attente. L'autre console entre dans le transfert quand elle lit le
  * message, pour sa durée sur sa propre horloge, comme un enfant que le parent
- * vient de cadencer. Les lignes d'état (mode, SO) voyagent à chaque changement.
+ * vient de cadencer ; mais pas avant que son horloge ait avancé, depuis le
+ * transfert précédent, de l'écart que le parent a laissé entre les deux. Sans
+ * cela, deux messages lus d'affilée (entre deux images) feraient répondre au
+ * second la donnée du premier, avant que le jeu ait traité son interruption.
+ * Les lignes d'état (mode, SO) voyagent à chaque changement.
  */
 class RemoteSerialLink final : public SerialLink {
 public:
@@ -31,9 +35,12 @@ public:
     void forget() noexcept {
         serial_ = nullptr;
         pending_.reset();
+        forget_timing();
     }
     // Fil d'émulation, entre deux tranches : transferts et lignes d'état du partenaire.
     void service();
+    // Un transfert du partenaire attend que cette console atteigne son cycle.
+    [[nodiscard]] bool deferred() const noexcept { return deferred_.has_value(); }
 
     [[nodiscard]] int players() const noexcept override { return link_.plugged() ? 2 : 1; }
     [[nodiscard]] bool all_multiplayer() const noexcept override;
@@ -52,9 +59,22 @@ private:
         // Réponse arrivée avant la fin du transfert, lue entre deux tranches.
         std::optional<std::uint32_t> answer;
     };
+    // Un transfert du partenaire lu trop tôt : cette console y entre à son
+    // cycle, et répond à ce moment-là.
+    struct Deferred {
+        std::uint32_t id{};
+        Serial::Mode mode{};
+        std::uint32_t data{};
+    };
     void follow_plug();
     void handle(const RemoteLink::Message& message);
     void serve(const RemoteLink::Transfer& transfer);
+    void reply(std::uint32_t id, std::uint32_t data);
+    void forget_timing() noexcept {
+        deferred_.reset();
+        last_start_.reset();
+        last_join_.reset();
+    }
     void publish_status();
 
     RemoteLink& link_;
@@ -66,6 +86,9 @@ private:
     bool partner_so_low_{};
     std::optional<RemoteLink::Status> published_;
     std::optional<Pending> pending_;
+    std::optional<Deferred> deferred_;
+    std::optional<std::int64_t> last_start_;  // départ du dernier transfert cadencé ici
+    std::optional<std::int64_t> last_join_;   // entrée dans le dernier transfert du partenaire
     std::uint32_t counter_{};
 };
 

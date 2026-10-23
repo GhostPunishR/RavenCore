@@ -1,5 +1,6 @@
 #include "ravenemu/remote_link.hpp"
 
+#include <algorithm>
 #include <array>
 #include <utility>
 
@@ -48,11 +49,12 @@ bool RemoteLink::receive(std::span<const std::uint8_t> message) {
         return true;
     }
     case transfer: {
-        if (message.size() != 14 || !valid_mode(message[5], family_)) return false;
+        if (message.size() != 18 || !valid_mode(message[5], family_)) return false;
         // Le plus long transfert GBA (multijoueur à 9600 bauds) dure 125 829 cycles.
         const auto duration = get32(message, 10);
         if (duration > 1'000'000) return false;
-        parsed = Transfer{get32(message, 1), static_cast<Mode>(message[5]), get32(message, 6), duration};
+        parsed = Transfer{get32(message, 1), static_cast<Mode>(message[5]), get32(message, 6), duration,
+                          get32(message, 14)};
         break;
     }
     case reply:
@@ -133,11 +135,12 @@ std::optional<RemoteLink::Message> RemoteLink::wait(std::uint32_t generation) {
 }
 
 void RemoteLink::send(const Transfer& value) const {
-    std::array<std::uint8_t, 14> bytes{transfer};
+    std::array<std::uint8_t, 18> bytes{transfer};
     put32(&bytes[1], value.id);
     bytes[5] = static_cast<std::uint8_t>(value.mode);
     put32(&bytes[6], value.data);
     put32(&bytes[10], value.duration);
+    put32(&bytes[14], value.interval);
     send_bytes(bytes);
 }
 
@@ -160,17 +163,24 @@ void RemoteLink::send_bytes(std::span<const std::uint8_t> bytes) const {
 bool RemoteLinkEndpoint::exchange_bit(LinkPort& source, bool) noexcept {
     const int remaining = source.transfer_bits_remaining();
     // Premier bit : l'octet entier part, la réponse de l'autre console revient.
-    if (remaining >= 8 || remaining <= 0) reply_ = transfer(source.transfer_data());
+    if (remaining >= 8 || remaining <= 0) reply_ = transfer(source, source.transfer_data());
     const int bit = remaining > 0 && remaining <= 8 ? remaining - 1 : 7;
     return ((reply_ >> bit) & 1) != 0;
 }
 
-std::uint8_t RemoteLinkEndpoint::transfer(std::uint8_t outgoing) noexcept {
+std::uint8_t RemoteLinkEndpoint::transfer(LinkPort& source, std::uint8_t outgoing) noexcept {
     try {
         const auto generation = link_.generation();
         if (!link_.plugged()) return 0xff;  // ligne SIN au repos, comme sans câble
+        follow_generation();
+        // L'écart depuis l'octet précédent : l'autre console laissera autant
+        // de temps à son jeu avant de sortir le sien.
+        const auto now = source.link_clock();
+        const auto interval = last_start_ ? std::min<std::uint64_t>(now - *last_start_, max_interval) : 0;
+        last_start_ = now;
         const auto id = ++last_id_;
-        link_.send(RemoteLink::Transfer{id, RemoteLink::Mode::game_boy, outgoing, 0});
+        link_.send(RemoteLink::Transfer{id, RemoteLink::Mode::game_boy, outgoing, 0,
+                                        static_cast<std::uint32_t>(interval)});
         while (auto message = link_.wait(generation)) {
             if (const auto* answer = std::get_if<RemoteLink::Reply>(&*message)) {
                 if (answer->id == id) return static_cast<std::uint8_t>(answer->data);
@@ -191,7 +201,14 @@ std::uint8_t RemoteLinkEndpoint::transfer(std::uint8_t outgoing) noexcept {
 
 void RemoteLinkEndpoint::poll() noexcept {
     try {
-        while (link_.pending()) {
+        follow_generation();
+        // Le cycle d'un octet lu trop tôt est atteint : il est servi maintenant.
+        if (deferred_ && (port_ == nullptr || port_->link_clock() >= due_)) {
+            const auto transfer = *deferred_;
+            deferred_.reset();
+            clock_in(transfer);
+        }
+        while (!deferred_ && link_.pending()) {
             const auto message = link_.take();
             if (!message) break;
             if (const auto* transfer = std::get_if<RemoteLink::Transfer>(&*message)) serve(*transfer);
@@ -200,9 +217,32 @@ void RemoteLinkEndpoint::poll() noexcept {
     }
 }
 
+// Branché, débranché ou rebranché : l'horloge du partenaire n'est plus la même.
+void RemoteLinkEndpoint::follow_generation() noexcept {
+    const auto generation = link_.generation();
+    if (generation == generation_) return;
+    generation_ = generation;
+    forget_timing();
+}
+
 void RemoteLinkEndpoint::serve(const RemoteLink::Transfer& transfer) noexcept {
+    // Pas plus tôt, sur cette horloge, que l'écart laissé par l'autre depuis
+    // l'octet précédent : le jeu a pu y répondre.
+    if (port_ != nullptr && last_serve_) {
+        const auto due = *last_serve_ + std::min<std::uint64_t>(transfer.interval, max_interval);
+        if (due > port_->link_clock()) {
+            deferred_ = transfer;
+            due_ = due;
+            return;
+        }
+    }
+    clock_in(transfer);
+}
+
+void RemoteLinkEndpoint::clock_in(const RemoteLink::Transfer& transfer) noexcept {
     // L'autre console cadence : celle-ci reçoit ses huit bits d'un coup et
     // renvoie ceux qu'elle sortait, comme pendant un échange bit à bit.
+    if (port_ != nullptr) last_serve_ = port_->link_clock();
     std::uint8_t sent = 0xff;
     if (port_ != nullptr) {
         sent = 0;

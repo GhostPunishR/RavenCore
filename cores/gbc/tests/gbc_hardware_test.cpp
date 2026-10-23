@@ -591,7 +591,7 @@ void remote_link_protocol_test() {
     check(link.state() == RemoteLink::State::waiting && !link.plugged(), "câble distant servi avant l'annonce de l'autre");
 
     // Un transfert avant l'annonce du partenaire n'est pas retenu.
-    const std::vector<std::uint8_t> transfer{2, 1, 0, 0, 0, 0, 0x42, 0, 0, 0, 0, 0, 0, 0};
+    const std::vector<std::uint8_t> transfer{2, 1, 0, 0, 0, 0, 0x42, 0, 0, 0, 0, 0, 0, 0, 0x10, 0, 0, 0};
     check(link.receive(transfer) && !link.pending(), "transfert retenu avant l'annonce");
 
     // Une GBA en face : le câble reste sans effet.
@@ -611,18 +611,20 @@ void remote_link_protocol_test() {
     // Messages mal formés : refusés, sans effet.
     const std::vector<std::vector<std::uint8_t>> malformed{
         {}, {9}, {2, 1, 0}, {3, 1, 0, 0, 0}, {4, 0}, {4, 3, 0},       // tailles, nature, mode GBA côté GB
-        {2, 1, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0},                   // mode inconnu
+        {2, 1, 0, 0, 0, 0, 0x42, 0, 0, 0, 0, 0, 0, 0},                // transfert du protocole 1, sans écart
+        {2, 1, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},       // mode inconnu
         {4, 0, 2},                                                    // ligne SO hors bornes
     };
     for (const auto& message : malformed) check(!link.receive(message), "message mal formé accepté");
     check(!link.pending(), "message mal formé retenu");
-    const std::vector<std::uint8_t> long_transfer{2, 1, 0, 0, 0, 0, 0x42, 0, 0, 0, 0x41, 0x42, 0x0f, 0};  // 1 000 001 cycles
+    const std::vector<std::uint8_t> long_transfer{2, 1, 0, 0, 0, 0, 0x42, 0, 0, 0, 0x41, 0x42, 0x0f, 0, 0, 0, 0, 0};  // 1 000 001 cycles
     check(!link.receive(long_transfer), "transfert d'une durée absurde accepté");
 
     check(link.receive(transfer) && link.pending(), "transfert branché non retenu");
     const auto message = link.take();
     const auto* parsed = message ? std::get_if<RemoteLink::Transfer>(&*message) : nullptr;
-    check(parsed != nullptr && parsed->id == 1 && parsed->data == 0x42 && !link.pending(), "transfert mal lu");
+    check(parsed != nullptr && parsed->id == 1 && parsed->data == 0x42 && parsed->interval == 0x10 && !link.pending(),
+          "transfert mal lu");
     // Une attente sur un branchement passé finit tout de suite.
     check(!link.wait(link.generation() - 1), "attente sur un ancien branchement");
 }
