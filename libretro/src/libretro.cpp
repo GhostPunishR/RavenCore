@@ -50,7 +50,8 @@ std::size_t state_capacity = 0;
 bool pending_save_import = false;
 retro_set_rumble_state_t rumble_cb = nullptr;
 bool rumble_on = false;
-// Sensors of the loaded cartridge, driven by the left analog stick.
+// Sensors of the loaded cartridge, driven by the left analog stick and the
+// device's own sensors.
 ravenemu::CartridgeSensors sensors{};
 
 // RetroAchievements reads emulated memory through pointers that must stay valid
@@ -166,23 +167,64 @@ Blending blending = Blending::off;
 std::vector<std::uint32_t> blend_history;
 // Haut et bas, ou gauche et droite, ensemble : impossible sur la croix.
 bool opposing_allowed = false;
-// MBC7 accelerometer (Kirby Tilt 'n' Tumble, Command Master) driven by the
-// left analog stick. The cartridge reads 0x81D0 at rest and moves by about
-// 0x70 per g; a full deflection is a 1 g tilt. Signs follow accelerometer
-// physics with the sensor's X axis to the cartridge's right and Y to its top:
-// tilting right (stick right) lowers X, tilting the top away (stick up)
-// lowers Y. Not yet checked in game: flip the signs here if it plays mirrored.
+// Cartridge tilt in the C API's units: -32768..32767 per axis for -1 g..1 g,
+// x positive when the console's right side goes down, y when its top edge
+// moves away from the player. A full stick deflection is a 1 g tilt: stick
+// right lowers the right side, stick up (negative Y) moves the top away.
 struct Tilt { int x; int y; };
-constexpr int tilt_units_per_g = 0x70;
-constexpr int scale_tilt(int stick) { return stick * tilt_units_per_g / 0x7fff; }
-constexpr Tilt tilt_from_stick(int stick_x, int stick_y) {
-    return {-scale_tilt(stick_x), scale_tilt(stick_y)};
+constexpr int clamp_axis(int value) { return std::clamp(value, -32768, 32767); }
+constexpr Tilt tilt_from_stick(int stick_x, int stick_y) { return {stick_x, clamp_axis(-stick_y)}; }
+// MBC7 accelerometer (Kirby Tilt 'n' Tumble, Command Master): 0x81D0 at rest,
+// about 0x70 per g. Signs follow accelerometer physics with the sensor's X
+// axis to the cartridge's right and Y to its top: tilting right lowers X,
+// tilting the top away lowers Y. Not yet checked in game: flip the signs here
+// if it plays mirrored.
+constexpr int mbc7_units_per_g = 0x70;
+constexpr int mbc7_axis(int tilt) { return -tilt * mbc7_units_per_g / 0x7fff; }
+static_assert(mbc7_axis(tilt_from_stick(0, 0).x) == 0 && mbc7_axis(tilt_from_stick(0, 0).y) == 0);
+static_assert(mbc7_axis(tilt_from_stick(0x7fff, 0).x) == -mbc7_units_per_g);
+static_assert(mbc7_axis(tilt_from_stick(-0x8000, 0).x) == mbc7_units_per_g);
+static_assert(mbc7_axis(tilt_from_stick(0, -0x8000).y) == -mbc7_units_per_g);
+static_assert(mbc7_axis(tilt_from_stick(0, 0x7fff).y) == mbc7_units_per_g);
+
+// The device's own sensors (a phone, a gamepad that has them), added to the
+// stick. Libretro gives the acceleration in g along the displayed screen's
+// axes (x to the right, y up), gravity included; the gyroscope in rad/s,
+// positive counterclockwise; the light in lux. Same conversions as RavenEmu
+// Android: a device lying flat is not tilted.
+retro_sensor_interface sensor_interface{};
+struct DeviceSensors { bool accelerometer, gyroscope, illuminance; };
+DeviceSensors device_sensors{};
+// Running norm of the acceleration: some older frontends give it in m/s².
+float acceleration_norm = 0.0f;
+
+// -1..1 to -32768..32767, rounded; NaN gives 0.
+constexpr int to_axis(float unit) {
+    if (!(unit == unit)) return 0;
+    const float scaled = unit * 32768.0f;
+    if (scaled >= 32767.0f) return 32767;
+    if (scaled <= -32768.0f) return -32768;
+    return static_cast<int>(scaled + (scaled < 0.0f ? -0.5f : 0.5f));
 }
-static_assert(tilt_from_stick(0, 0).x == 0 && tilt_from_stick(0, 0).y == 0);
-static_assert(tilt_from_stick(0x7fff, 0).x == -tilt_units_per_g);
-static_assert(tilt_from_stick(-0x8000, 0).x == tilt_units_per_g);
-static_assert(tilt_from_stick(0, -0x8000).y == -tilt_units_per_g);
-static_assert(tilt_from_stick(0, 0x7fff).y == tilt_units_per_g);
+// A side going down reads negative, the cartridge counts it positive.
+constexpr Tilt tilt_from_acceleration(float x_in_g, float y_in_g) { return {to_axis(-x_in_g), to_axis(-y_in_g)}; }
+// Half a turn per second is the gyroscope's full scale; the cartridge counts
+// clockwise.
+constexpr float full_rotation = 3.14159265f;
+constexpr int rotation_from_gyroscope(float z) { return to_axis(-z / full_rotation); }
+static_assert(tilt_from_acceleration(-0.5f, 0.25f).x == 16384 && tilt_from_acceleration(-0.5f, 0.25f).y == -8192);
+static_assert(tilt_from_acceleration(0.0f, -2.0f).y == 32767 && tilt_from_acceleration(0.0f, 2.0f).y == -32768);
+static_assert(rotation_from_gyroscope(-full_rotation) == 32767 && rotation_from_gyroscope(full_rotation / 2) == -16384);
+// Lux to 0..255 on a log scale, from a bright room (1000 lx: 0) to direct sun
+// (100 000 lx: 255); an overcast sky, around 10 000 lx, gives half. Like the
+// real cartridge, Boktai wants daylight.
+[[maybe_unused]] int light_from_lux(float lux) {
+    constexpr double room = 1'000.0, sun = 100'000.0;
+    if (!(lux > room)) return 0;
+    const double share =
+        (std::log10(static_cast<double>(lux)) - std::log10(room)) / (std::log10(sun) - std::log10(room));
+    return std::clamp(static_cast<int>(std::lround(share * 255.0)), 0, 255);
+}
 
 void log_line(retro_log_level level, const std::string& text) {
     if (log_cb) log_cb(level, "[%s] %s\n", name, text.c_str());
@@ -234,6 +276,18 @@ const std::vector<OptionSpec> option_specs{
      "Haut et bas, ou gauche et droite, ensemble : impossible sur la croix de la console, et certains jeux "
      "plantent. Bloquées, aucune des deux n'est transmise.", "input",
      {{"blocked", "Bloquées"}, {"allowed", "Autorisées"}}},
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    {RAVENEMU_OPTION("device_sensors"), "Capteurs de l'appareil",
+     "Yoshi Topsy-Turvy et Koro Koro Puzzle (inclinaison), WarioWare: Twisted! (rotation) : l'accéléromètre et le "
+     "gyroscope du téléphone ou de la manette, s'il en a, s'ajoutent au stick gauche. À plat, l'appareil n'est "
+     "pas incliné.", "input",
+     {{"enabled", "Utilisés s'il y en a"}, {"disabled", "Stick gauche seul"}}},
+#else
+    {RAVENEMU_OPTION("device_sensors"), "Capteurs de l'appareil",
+     "Cartouches à accéléromètre (Kirby Tilt 'n' Tumble, Command Master) : celui du téléphone ou de la manette, "
+     "s'il en a, s'ajoute au stick gauche. À plat, l'appareil n'est pas incliné.", "input",
+     {{"enabled", "Utilisés s'il y en a"}, {"disabled", "Stick gauche seul"}}},
+#endif
 #if !defined(RAVENEMU_LIBRETRO_GBA)
     {RAVENEMU_OPTION("boot_rom"), "Boot ROM",
      "Appliquée au chargement du jeu, si son fichier est dans le dossier système : dmg_boot.bin ou gb_bios.bin "
@@ -272,9 +326,11 @@ const std::vector<OptionSpec> option_specs{
      {{"disabled", "BIOS de RavenCore"}, {"enabled", "Vrai BIOS, avec son animation"},
       {"skip_intro", "Vrai BIOS, sans animation"}}},
     {"ravenemu_gba_solar_light", "Lumière du capteur solaire",
-     "Boktai : part du plein soleil que reçoit le capteur de la cartouche.", "cartridge",
+     "Boktai : part du plein soleil que reçoit le capteur de la cartouche, ou la lumière que mesure "
+     "l'appareil : rien sous 1000 lux (une pièce éclairée), le plein soleil vers 100 000 lux.", "cartridge",
      {{"50", "50 %"}, {"60", "60 %"}, {"70", "70 %"}, {"80", "80 %"}, {"90", "90 %"}, {"100", "100 %"},
-      {"0", "0 %"}, {"10", "10 %"}, {"20", "20 %"}, {"30", "30 %"}, {"40", "40 %"}}},
+      {"0", "0 %"}, {"10", "10 %"}, {"20", "20 %"}, {"30", "30 %"}, {"40", "40 %"},
+      {"sensor", "Capteur de lumière de l'appareil"}}},
 #endif
 };
 
@@ -283,7 +339,7 @@ void declare_options() {
     if (env_cb(RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION, &version) && version >= 2) {
         static std::array<retro_core_option_v2_category, 5> categories{{
             {"video", "Image", "Couleurs et rendu de l'image."},
-            {"input", "Commandes", "Croix et boutons."},
+            {"input", "Commandes", "Croix, boutons et capteurs."},
             {"system", "Système", "Console émulée, boot ROM et BIOS, appliqués au chargement du jeu."},
             {"cartridge", "Cartouche", "Matériel de la cartouche, quand sa détection se trompe."},
             {nullptr, nullptr, nullptr},
@@ -348,7 +404,8 @@ void read_live_options() {
 }
 
 #if defined(RAVENEMU_LIBRETRO_GBA)
-// Boktai's solar sensor: a percentage of full sunlight, 0 to 100.
+// Boktai's solar sensor: a percentage of full sunlight, 0 to 100. With the
+// device's light sensor, 50 % until it answers, or without one.
 void apply_solar_option(ravenemu::Core& machine) {
     int percent = 50;
     if (const char* value = option("ravenemu_gba_solar_light")) {
@@ -366,6 +423,51 @@ void apply_dmg_colors(ravenemu::Core& machine) {
                                              : ravenemu::GbcCompatibilityColors::automatic);
 }
 #endif
+// Turns on the device sensors the cartridge needs, and off the others: a
+// sensor left on drains the battery.
+void switch_device_sensors(DeviceSensors wanted) {
+    const auto set = [](bool& on, bool want, retro_sensor_action enable, retro_sensor_action disable) {
+        if (on == want) return;
+        auto* call = sensor_interface.set_sensor_state;
+        if (want) on = call && sensor_interface.get_sensor_input && call(0, enable, 60);
+        else {
+            if (call) call(0, disable, 0);
+            on = false;
+        }
+    };
+    set(device_sensors.accelerometer, wanted.accelerometer, RETRO_SENSOR_ACCELEROMETER_ENABLE,
+        RETRO_SENSOR_ACCELEROMETER_DISABLE);
+    set(device_sensors.gyroscope, wanted.gyroscope, RETRO_SENSOR_GYROSCOPE_ENABLE, RETRO_SENSOR_GYROSCOPE_DISABLE);
+    set(device_sensors.illuminance, wanted.illuminance, RETRO_SENSOR_ILLUMINANCE_ENABLE,
+        RETRO_SENSOR_ILLUMINANCE_DISABLE);
+}
+void update_device_sensors() {
+    const bool motion = core && !option_is(RAVENEMU_OPTION("device_sensors"), "disabled");
+    DeviceSensors wanted{motion && sensors.tilt, motion && sensors.rotation, false};
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    wanted.illuminance = core && sensors.solar && option_is("ravenemu_gba_solar_light", "sensor");
+    const bool light_was_on = device_sensors.illuminance;
+#endif
+    switch_device_sensors(wanted);
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    if (wanted.illuminance && !device_sensors.illuminance && !light_was_on)
+        show_message(std::string(name) + " : pas de capteur de lumière, soleil à 50 %");
+#endif
+}
+// The device's tilt, from its accelerometer.
+Tilt device_tilt() {
+    const auto read = sensor_interface.get_sensor_input;
+    const float x = read(0, RETRO_SENSOR_ACCELEROMETER_X);
+    const float y = read(0, RETRO_SENSOR_ACCELEROMETER_Y);
+    const float z = read(0, RETRO_SENSOR_ACCELEROMETER_Z);
+    // At rest, gravity alone measures 1 g, or 9.8 in m/s²: a running norm
+    // above 3 gives those units away. A zero reading (no event yet) is skipped.
+    const float norm = std::sqrt(x * x + y * y + z * z);
+    if (norm > 0.0f)
+        acceleration_norm = acceleration_norm > 0.0f ? acceleration_norm + (norm - acceleration_norm) / 32.0f : norm;
+    const float to_g = acceleration_norm > 3.0f ? 1.0f / 9.80665f : 1.0f;
+    return tilt_from_acceleration(x * to_g, y * to_g);
+}
 void apply_options(ravenemu::Core& machine) {
     read_live_options();
 #if defined(RAVENEMU_LIBRETRO_GBA)
@@ -391,11 +493,12 @@ void apply_options(ravenemu::Core& machine) {
     static_cast<void>(machine);
 #endif
 }
-// The image options and the solar light change at any time during the game.
+// The image options, the sensors and the solar light change at any time during the game.
 void update_options() {
     bool updated = false;
     if (!core || !env_cb || !env_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) || !updated) return;
     read_live_options();
+    update_device_sensors();
 #if defined(RAVENEMU_LIBRETRO_GBA)
     apply_solar_option(*core);
 #elif defined(RAVENEMU_LIBRETRO_GBC)
@@ -539,7 +642,9 @@ void clear_game() {
     if (rumble_cb && rumble_on) rumble_cb(0, RETRO_RUMBLE_STRONG, 0);
     rumble_cb = nullptr;
     rumble_on = false;
+    switch_device_sensors({});
     sensors = {};
+    acceleration_norm = 0.0f;
     core.reset();
     rom.clear();
     save_ram.clear();
@@ -726,6 +831,10 @@ bool retro_load_game(const struct retro_game_info* game) {
         core = std::move(machine);
         apply_cheats();
         sensors = core->cartridge_sensors();
+        switch_device_sensors({});
+        sensor_interface = {};
+        env_cb(RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE, &sensor_interface);
+        update_device_sensors();
         set_input_descriptors();
         declare_achievement_memory();
         retro_rumble_interface rumble{};
@@ -765,21 +874,33 @@ void retro_run(void) {
             }
             for (std::size_t index = 0; index < keys.size(); ++index) core->set_button(keys[index].button, held[index]);
         }
-        if ((sensors.tilt || sensors.rotation) && input_cb) {
-            const int stick_x = input_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
-                                         RETRO_DEVICE_ID_ANALOG_X);
-            const int stick_y = input_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
-                                         RETRO_DEVICE_ID_ANALOG_Y);
+        if (sensors.tilt || sensors.rotation) {
+            int stick_x = 0, stick_y = 0;
+            if (input_cb) {
+                stick_x = input_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X);
+                stick_y = input_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y);
+            }
+            // Stick right: clockwise rotation, or the right side down.
+            auto tilt = tilt_from_stick(stick_x, stick_y);
+            int rotation = stick_x;
+            if (device_sensors.accelerometer) {
+                const auto measured = device_tilt();
+                tilt = {clamp_axis(tilt.x + measured.x), clamp_axis(tilt.y + measured.y)};
+            }
+            if (device_sensors.gyroscope)
+                rotation = clamp_axis(rotation + rotation_from_gyroscope(
+                                                     sensor_interface.get_sensor_input(0, RETRO_SENSOR_GYROSCOPE_Z)));
 #if defined(RAVENEMU_LIBRETRO_GBA)
-            // Stick right: clockwise rotation, or the right side down; stick
-            // up (negative Y): the top edge away from the player.
-            if (sensors.rotation) core->set_rotation_speed(stick_x);
-            if (sensors.tilt) core->set_gba_tilt(stick_x, -stick_y);
+            if (sensors.rotation) core->set_rotation_speed(rotation);
+            if (sensors.tilt) core->set_gba_tilt(tilt.x, tilt.y);
 #else
-            const auto tilt = tilt_from_stick(stick_x, stick_y);
-            core->set_game_boy_acceleration(tilt.x, tilt.y);
+            core->set_game_boy_acceleration(mbc7_axis(tilt.x), mbc7_axis(tilt.y));
 #endif
         }
+#if defined(RAVENEMU_LIBRETRO_GBA)
+        if (device_sensors.illuminance)
+            core->set_solar_light(light_from_lux(sensor_interface.get_sensor_input(0, RETRO_SENSOR_ILLUMINANCE)));
+#endif
         update_options();
         const int av = wanted_av();
         // An image is skipped only when the frontend can show the previous one.

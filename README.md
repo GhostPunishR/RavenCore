@@ -54,18 +54,25 @@ Pour ne compiler que les moteurs, ajoutez `-DRAVENEMU_BUILD_LIBRETRO=OFF -DBUILD
 | `ravenemu_gbc_libretro` | Game Boy Color, compatible Game Boy |
 | `ravenemu_gba_libretro` | Game Boy Advance |
 
-Les cœurs gèrent la vibration (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) et les capteurs des cartouches, pilotés au stick analogique gauche :
+Les cœurs gèrent la vibration (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) et les capteurs des cartouches. Ils les pilotent au stick analogique gauche, et avec les capteurs du téléphone ou de la manette s'il en a :
 
 | Capteur | Jeux | Commande |
 | --- | --- | --- |
-| Accéléromètre MBC7 | Kirby Tilt 'n' Tumble, Command Master | Stick gauche |
-| Inclinaison GBA | Yoshi Topsy-Turvy, Koro Koro Puzzle | Stick gauche |
-| Gyroscope GBA | WarioWare: Twisted! | Stick gauche, axe horizontal (à droite : sens horaire) |
-| Capteur solaire GBA | Boktai 1 à 3 | Option `ravenemu_gba_solar_light` |
+| Accéléromètre MBC7 | Kirby Tilt 'n' Tumble, Command Master | Stick gauche, accéléromètre de l'appareil |
+| Inclinaison GBA | Yoshi Topsy-Turvy, Koro Koro Puzzle | Stick gauche, accéléromètre de l'appareil |
+| Gyroscope GBA | WarioWare: Twisted! | Stick gauche, axe horizontal (à droite : sens horaire), gyroscope de l'appareil |
+| Capteur solaire GBA | Boktai 1 à 3 | Option `ravenemu_gba_solar_light` : un pourcentage, ou le capteur de lumière de l'appareil |
+
+Les capteurs de l'appareil passent par l'interface de RetroArch (« Capteurs » doit y être activé), avec les conversions de RavenEmu Android :
+- **Inclinaison** : posé à plat, l'appareil n'est pas incliné ; tenu debout, il l'est de 1 g. Le jeu se cale souvent lui-même sur la position de départ.
+- **Rotation** : un demi-tour par seconde donne la pleine échelle.
+- **Lumière** : rien sous 1000 lux (une pièce éclairée), le plein soleil vers 100 000 lux, sur une échelle logarithmique.
+
+Ils ne s'allument que pour un jeu qui en a besoin. L'option **Capteurs de l'appareil** les ignore pour garder le stick seul.
 
 La sauvegarde et l'horloge d'un jeu GBA sont détectées automatiquement. La détection RTC couvre aussi les pilotes Pokémon/CFRU sans marqueur Seiko, à partir de leur identité interne et de références GPIO ([détails et limites](cores/gba/tests/rtc_compatibility.md)). Si la détection se trompe, deux options du cœur les imposent.
 
-Les options s'affichent en français, rangées en quatre catégories : **Image**, **Commandes**, **Système** et **Cartouche**. Elles s'appliquent pendant le jeu, sauf la console émulée, la boot ROM, le type de sauvegarde et l'horloge, appliqués au chargement du jeu :
+Les options s'affichent en français, rangées en quatre catégories : **Image**, **Commandes**, **Système** et **Cartouche**. Elles s'appliquent pendant le jeu, sauf la console émulée, la boot ROM, le BIOS, le type de sauvegarde et l'horloge, appliqués au chargement du jeu :
 
 | Option | Clé | Cœurs | Valeurs |
 | --- | --- | --- | --- |
@@ -78,7 +85,8 @@ Les options s'affichent en français, rangées en quatre catégories : **Image**
 | Console émulée | `ravenemu_gbc_hardware` | RavenGBC | Game Boy Color par défaut, ou Game Boy Advance : les jeux qui la reconnaissent débloquent leurs bonus (Zelda Oracle, Shantae…) |
 | Type de sauvegarde | `ravenemu_gba_save_type` | RavenGBA | `auto`, `sram`, `flash64`, `flash128`, `eeprom512`, `eeprom8k`, `none` |
 | Horloge (RTC) | `ravenemu_gba_rtc` | RavenGBA | `auto`, `enabled`, `disabled` |
-| Lumière du capteur solaire | `ravenemu_gba_solar_light` | RavenGBA | Pourcentage de plein soleil : `50` par défaut, de `0` à `100` par pas de 10 |
+| Lumière du capteur solaire | `ravenemu_gba_solar_light` | RavenGBA | Pourcentage de plein soleil : `50` par défaut, de `0` à `100` par pas de 10. Ou `sensor` : le capteur de lumière de l'appareil, 50 % s'il n'en a pas |
+| Capteurs de l'appareil | `ravenemu_gb_device_sensors`, `ravenemu_gbc_device_sensors`, `ravenemu_gba_device_sensors` | Tous | Utilisés s'il y en a (par défaut) : accéléromètre et gyroscope s'ajoutent au stick gauche. Ou stick gauche seul |
 | BIOS | `ravenemu_gba_bios` | RavenGBA | BIOS de RavenCore par défaut, ou vrai BIOS (`gba_bios.bin`), avec ou sans son animation de démarrage |
 
 RavenGB et RavenGBC démarrent un jeu sans boot ROM, dans l'état où elle l'aurait laissé. Ils utilisent celle du dossier système de RetroArch si l'option le permet : `dmg_boot.bin` ou `gb_bios.bin` (Game Boy), `cgb_boot.bin` ou `gbc_bios.bin` (Game Boy Color), `agb_boot.bin` (Game Boy Advance). On retrouve alors l'animation de démarrage, et les couleurs que la boot ROM de la GBC donne aux jeux Game Boy. Aucune boot ROM n'est fournie.

@@ -4,7 +4,7 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 ## 0.14.0 - 2026-10-24
 
-Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Game Boy Advance : RavenEmu Android et RavenEmu PC peuvent désormais les proposer. Les jeux Game Boy sur une GBC sans boot ROM prennent les couleurs de sa boot ROM au lieu de gris. Le BIOS d'une GBA peut remplacer celui de RavenCore. Le format des états GBA passe à 17.
+Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Game Boy Advance : RavenEmu Android et RavenEmu PC peuvent désormais les proposer. Les jeux Game Boy sur une GBC sans boot ROM prennent les couleurs de sa boot ROM au lieu de gris. Le BIOS d'une GBA peut remplacer celui de RavenCore. Dans RetroArch, les cartouches à capteur suivent les capteurs du téléphone. Le format des états GBA passe à 17.
 
 ### Ajouté
 
@@ -25,6 +25,12 @@ Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Ga
   - Dans RavenGBA, l'option **BIOS** (catégorie Système) lit `gba_bios.bin` dans le dossier système de RetroArch : « BIOS de RavenCore » par défaut, « Vrai BIOS, avec son animation » ou « Vrai BIOS, sans animation ». S'il manque, un message le dit et le jeu démarre avec le BIOS de RavenCore. Le fichier d'informations le déclare comme micrologiciel facultatif.
   - Un état ne se recharge qu'avec le BIOS qui l'a créé. Sinon, le refus le dit : « État pris avec un vrai BIOS GBA, absent ici », « … avec le BIOS de RavenCore, pas avec un vrai BIOS » ou « … avec un autre BIOS GBA ». Recharger un état garde le BIOS en place.
   - Aucun BIOS n'est fourni.
+- **Capteurs du téléphone ou de la manette dans RetroArch.** Les cœurs Libretro lisent ceux de l'appareil par l'interface de capteurs de Libretro, avec les conversions de RavenEmu Android :
+  - l'accéléromètre incline Kirby Tilt 'n' Tumble et Command Master (MBC7), Yoshi Topsy-Turvy et Koro Koro Puzzle. À plat, l'appareil n'est pas incliné ;
+  - le gyroscope fait tourner WarioWare: Twisted! : un demi-tour par seconde donne la pleine échelle ;
+  - le capteur de lumière éclaire Boktai si l'option **Lumière du capteur solaire** vaut « Capteur de lumière de l'appareil ». Rien sous 1000 lux, le plein soleil vers 100 000 lux. Sans capteur, un message le dit et le soleil reste à 50 %.
+  - Le stick gauche s'ajoute aux capteurs. Un capteur ne s'allume que pour un jeu qui en a besoin, et s'éteint avec lui. L'option **Capteurs de l'appareil** (catégorie Commandes) les ignore.
+  - L'accélération en m/s² de certains frontends anciens est reconnue à sa norme, et ramenée en g.
 
 ### Modifié
 
@@ -56,6 +62,11 @@ Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Ga
   - un nouveau réglage attend le prochain chargement, un état rechargé d'ici là garde le BIOS en place ;
   - une image de 16383 octets est refusée, et un cœur Game Boy refuse tout BIOS GBA.
 - `libretro_smoke_gba` : l'option BIOS déclarée, avec sa catégorie et sa valeur par défaut ; `gba_bios.bin` lu dans le dossier système, avec ou sans animation, ignoré par défaut, et son absence signalée.
+- `libretro_smoke_*`, avec un frontend qui simule les capteurs d'un téléphone :
+  - un jeu MBC7 lit 81D0h - 38h et 81D0h + 1Ch pour un appareil penché de 0,5 g à droite et de 0,25 g vers le joueur, en g comme en m/s². Il lit le repos quand l'option écarte les capteurs, et l'accéléromètre se rallume quand on la rétablit en jeu ;
+  - sur GBA, Yoshi Topsy-Turvy lit 392h + 70h et 3A0h - 38h dans son capteur. WarioWare: Twisted! lit 6C0h + 191h pour un quart de tour par seconde dans le sens horaire ;
+  - le capteur de lumière ne s'allume pour Boktai que si l'option le demande, et son absence est signalée ;
+  - chaque capteur s'éteint avec le jeu.
 - En local, avec un BIOS libre (Cult-of-GBA, licence MIT, ni fourni ni téléchargé par le projet) : les ROMs de test jsmolka (ARM, Thumb, mémoire, sauvegardes, NES, unsafe) et FuzzARM passent, avec et sans animation. Seule jsmolka bios échoue : elle vérifie des mots du BIOS officiel, absents de ce BIOS libre. Pokémon Émeraude et Zelda tournent comme avec le BIOS de RavenCore, à la même vitesse.
 - `gb_raven_core` : un jeu Game Boy sur GBC dessine la couleur `$1BEF` de la boot ROM. En gris, ses trois composantes sont égales. Après un état ou un reset, il suit le réglage du moment.
 - Les 200 tests publics GB/GBC passent toujours, captures de référence en mode de compatibilité comprises.

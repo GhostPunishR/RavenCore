@@ -50,6 +50,13 @@ std::string last_log;
 unsigned error_logs = 0;
 std::array<bool, 16> held_buttons{};  // boutons de la manette tenus, par identifiant Libretro
 std::string system_directory;         // vide : le frontend n'en donne pas
+// Capteurs de l'appareil simulé : ceux qu'il a, ceux que le cœur a allumés,
+// et leurs mesures, par identifiant RETRO_SENSOR_*.
+bool sensor_interface_offered = false;
+std::array<bool, 3> device_has_sensor{};   // accéléromètre, gyroscope, lumière
+std::array<bool, 3> device_sensor_on{};
+std::array<float, 7> device_readings{};
+unsigned sensor_reads = 0;
 
 void log_printf(retro_log_level level, const char* format, ...) {
     char line[512];
@@ -69,7 +76,25 @@ bool rumble(unsigned port, retro_rumble_effect effect, std::uint16_t strength) {
     return true;
 }
 
+bool set_sensor_state(unsigned port, retro_sensor_action action, unsigned) {
+    const auto sensor = static_cast<std::size_t>(action) / 2;
+    if (port != 0 || sensor >= device_has_sensor.size()) return false;
+    const bool enable = static_cast<unsigned>(action) % 2 == 0;
+    if (enable && !device_has_sensor[sensor]) return false;
+    device_sensor_on[sensor] = enable;
+    return true;
+}
+float sensor_input(unsigned port, unsigned id) {
+    ++sensor_reads;
+    return port == 0 && id < device_readings.size() ? device_readings[id] : 0.0f;
+}
+
 bool environment(unsigned command, void* value) {
+    if (command == RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE) {
+        if (!sensor_interface_offered) return false;
+        *static_cast<retro_sensor_interface*>(value) = {set_sensor_state, sensor_input};
+        return true;
+    }
     if (command == RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY) {
         if (system_directory.empty()) return false;
         *static_cast<const char**>(value) = system_directory.c_str();
@@ -382,7 +407,9 @@ int main() {
 #if defined(RAVENEMU_LIBRETRO_GBA)
     // Options déclarées avec « auto » par défaut, appliquées au chargement ;
     // la lumière du capteur solaire part de 50 %.
-    if (declared_options.size() != 7 ||
+    if (declared_options.size() != 8 ||
+        declared_options["ravenemu_gba_device_sensors"].find("; enabled|disabled") == std::string::npos ||
+        declared_options["ravenemu_gba_solar_light"].find("|sensor") == std::string::npos ||
         declared_options["ravenemu_gba_color_correction"].find("; disabled|enabled") == std::string::npos ||
         declared_options["ravenemu_gba_bios"].find("; disabled|enabled|skip_intro") == std::string::npos ||
         declared_options["ravenemu_gba_save_type"].find("; auto|") == std::string::npos ||
@@ -459,9 +486,9 @@ int main() {
     const char* video_choices = "; disabled|enabled";
 #endif
 #if defined(RAVENEMU_LIBRETRO_GB)
-    constexpr std::size_t option_count = 4;
+    constexpr std::size_t option_count = 5;
 #else
-    constexpr std::size_t option_count = 6;
+    constexpr std::size_t option_count = 7;
 #endif
     if (declared_options.size() != option_count ||
         declared_options[video_option].find(video_choices) == std::string::npos) {
@@ -577,6 +604,118 @@ int main() {
         return 1;
     }
     retro_unload_game();
+
+    // Accéléromètre de l'appareil : côté droit 0,5 g plus bas, haut 0,25 g plus
+    // haut. Le jeu active les registres, lance une mesure et range X puis Y en
+    // C000 : X = 81D0h - 38h, Y = 81D0h + 1Ch.
+    const std::uint8_t measure[]{0x3e, 0x0a, 0xea, 0x00, 0x00, 0x3e, 0x40, 0xea, 0x00, 0x40,  // registres
+                                 0x3e, 0x55, 0xea, 0x00, 0xa0, 0x3e, 0xaa, 0xea, 0x10, 0xa0,  // mesure
+                                 0xfa, 0x20, 0xa0, 0xea, 0x00, 0xc0, 0xfa, 0x30, 0xa0, 0xea, 0x01, 0xc0,
+                                 0xfa, 0x40, 0xa0, 0xea, 0x02, 0xc0, 0xfa, 0x50, 0xa0, 0xea, 0x03, 0xc0,
+                                 0x18, 0xfe};
+    std::copy(std::begin(measure), std::end(measure), tilt_rom.begin() + 0x100);
+    sensor_interface_offered = true;
+    device_has_sensor = {true, true, true};
+    const auto latched = [&](float x, float y, float z) {
+        device_readings = {x, y, z, 0.0f, 0.0f, 0.0f, 0.0f};
+        static_cast<void>(pixel_after(tilt_rom, 1));
+        const auto* bytes = mapped(0xc000);
+        return bytes ? std::array<int, 2>{bytes[0] | bytes[1] << 8, bytes[2] | bytes[3] << 8}
+                     : std::array<int, 2>{-1, -1};
+    };
+    const bool tilted = latched(-0.5f, 0.25f, 0.8f) == std::array<int, 2>{0x8198, 0x81ec} &&
+                        device_sensor_on == std::array<bool, 3>{true, false, false};
+    retro_unload_game();
+    // Un frontend plus ancien donne des m/s².
+    const bool metric = latched(-0.5f * 9.80665f, 0.25f * 9.80665f, 0.8f * 9.80665f) ==
+                        std::array<int, 2>{0x8198, 0x81ec};
+    retro_unload_game();
+    const bool released = device_sensor_on == std::array<bool, 3>{};
+    option_values[OPTION("device_sensors")] = "disabled";
+    sensor_reads = 0;
+    const bool stick_only = latched(-0.5f, 0.25f, 0.8f) == std::array<int, 2>{0x81d0, 0x81d0} &&
+                            sensor_reads == 0 && device_sensor_on == std::array<bool, 3>{};
+    option_values.erase(OPTION("device_sensors"));
+    options_updated = true;
+    retro_run();
+    const bool switched_on = device_sensor_on[0];
+    retro_unload_game();
+    sensor_interface_offered = false;
+    if (!tilted || !metric || !released || !stick_only || !switched_on) {
+        std::cerr << "MBC7 tilt from the device's accelerometer not handled\n";
+        return 1;
+    }
+#else
+    // Capteurs de l'appareil sur GBA. Yoshi Topsy-Turvy (KYG) : le jeu lance
+    // une mesure et range les quatre registres du capteur en 03000000. Côté
+    // droit 0,5 g plus bas, haut 0,25 g plus haut : X = 392h + 70h, Y = 3A0h - 38h.
+    {
+        const auto put = [](std::vector<std::uint8_t>& image, std::size_t offset,
+                            std::initializer_list<std::uint32_t> words) {
+            for (const auto word : words)
+                for (unsigned byte = 0; byte < 4; ++byte)
+                    image[offset++] = static_cast<std::uint8_t>(word >> (byte * 8U));
+        };
+        auto yoshi = ravenemu::testing::minimal_gba_rom();
+        put(yoshi, 0, {0xe3a0040eU, 0xe2800902U,                   // r0 = 0E008000
+                       0xe3a01055U, 0xe5c01000U, 0xe3a010aaU, 0xe5c01100U,  // 55h, AAh : mesure
+                       0xe3a02403U,                                // r2 = 03000000
+                       0xe5d01200U, 0xe5c21000U, 0xe5d01300U, 0xe5c21001U,
+                       0xe5d01400U, 0xe5c21002U, 0xe5d01500U, 0xe5c21003U, 0xeafffffeU});
+        std::copy_n("KYGE", 4, yoshi.begin() + 0xac);
+        sensor_interface_offered = true;
+        device_has_sensor = {true, true, false};
+        device_readings = {-0.5f, 0.25f, 0.8f, 0.0f, 0.0f, 0.0f, 0.0f};
+        static_cast<void>(pixel_after(yoshi, 1));
+        const auto* bytes = mapped(0x0300'0000);
+        const bool tilted = bytes && (bytes[0] | (bytes[1] & 0x0f) << 8) == 0x402 &&
+                            (bytes[2] | bytes[3] << 8) == 0x368 &&
+                            device_sensor_on == std::array<bool, 3>{true, false, false};
+        retro_unload_game();
+        // WarioWare: Twisted! allume le gyroscope. Le jeu lance une conversion
+        // et range les 16 bits lus (GBATEK) en 03000000 : un quart de tour par
+        // seconde dans le sens horaire donne 6C0h + 191h.
+        auto wario = ravenemu::testing::minimal_gba_rom();
+        put(wario, 0, {0xe3a00302U, 0xe28000c4U,                   // r0 = 080000C4
+                       0xe3a01001U, 0xe1c010b4U, 0xe3a0100bU, 0xe1c010b2U,  // lisible ; broches 0, 1, 3 en sortie
+                       0xe3a01003U, 0xe1c010b0U, 0xe3a01002U, 0xe1c010b0U,  // conversion
+                       0xe3a03000U, 0xe3a04010U,                   // 16 bits
+                       0xe1d010b0U, 0xe1a01121U, 0xe2011001U, 0xe1813083U,  // bit de la broche 2
+                       0xe3a01000U, 0xe1c010b0U, 0xe3a01002U, 0xe1c010b0U,  // horloge basse, haute
+                       0xe2544001U, 0x1afffff5U,
+                       0xe3a02403U, 0xe5823000U, 0xeafffffeU});
+        std::copy_n("RZWE", 4, wario.begin() + 0xac);
+        device_readings = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -3.14159265f / 2, 0.0f};
+        static_cast<void>(pixel_after(wario, 1));
+        const auto* sample = mapped(0x0300'0000);
+        const bool gyroscope = sample && (sample[0] | sample[1] << 8) == 0x6c0 + 0x191 &&
+                               device_sensor_on == std::array<bool, 3>{false, true, false};
+        retro_unload_game();
+        // Boktai allume la lumière si l'option le demande, et sinon le dit.
+        auto boktai = ravenemu::testing::minimal_gba_rom();
+        std::copy_n("U3IE", 4, boktai.begin() + 0xac);
+        static_cast<void>(pixel_after(boktai, 1));
+        const bool light_off = device_sensor_on == std::array<bool, 3>{};
+        retro_unload_game();
+        option_values["ravenemu_gba_solar_light"] = "sensor";
+        last_message.clear();
+        static_cast<void>(pixel_after(boktai, 1));
+        const bool no_light = device_sensor_on == std::array<bool, 3>{} &&
+                              last_message.find("capteur de lumière") != std::string::npos;
+        retro_unload_game();
+        device_has_sensor = {true, true, true};
+        sensor_reads = 0;
+        static_cast<void>(pixel_after(boktai, 2));
+        const bool light_on = device_sensor_on == std::array<bool, 3>{false, false, true} && sensor_reads == 2;
+        retro_unload_game();
+        option_values.erase("ravenemu_gba_solar_light");
+        sensor_interface_offered = false;
+        if (!tilted || !gyroscope || !light_off || !no_light || !light_on ||
+            device_sensor_on != std::array<bool, 3>{}) {
+            std::cerr << "GBA cartridge sensors from the device not handled\n";
+            return 1;
+        }
+    }
 #endif
     // Un compteur en mémoire de travail : la copie suit chaque image, garde son
     // adresse et repart de l'état rechargé ou du reset.
@@ -860,8 +999,8 @@ int main() {
 #if defined(RAVENEMU_LIBRETRO_GBA)
     const auto& light = declared_v2["ravenemu_gba_solar_light"];
     const auto& bios_option = declared_v2["ravenemu_gba_bios"];
-    if (declared_v2.size() != 7 || !declared_options.empty() || light.default_value != "50" ||
-        light.category != "cartridge" || light.values.size() != 11 || bios_option.category != "system" ||
+    if (declared_v2.size() != 8 || !declared_options.empty() || light.default_value != "50" ||
+        light.category != "cartridge" || light.values.size() != 12 || bios_option.category != "system" ||
         bios_option.default_value != "disabled" || bios_option.values.size() != 3 ||
         declared_v2["ravenemu_gba_color_correction"].desc != "Correction des couleurs LCD") {
         std::cerr << "Options v2 not declared\n";
@@ -869,7 +1008,7 @@ int main() {
     }
 #elif defined(RAVENEMU_LIBRETRO_GB)
     const auto& palette = declared_v2["ravenemu_gb_palette"];
-    if (declared_v2.size() != 4 || !declared_options.empty() || palette.default_value != "dmg" ||
+    if (declared_v2.size() != 5 || !declared_options.empty() || palette.default_value != "dmg" ||
         palette.category != "video" || palette.values.size() != 3 || palette.desc != "Palette") {
         std::cerr << "Options v2 not declared\n";
         return 1;
@@ -877,7 +1016,7 @@ int main() {
 #else
     const auto& lcd = declared_v2["ravenemu_gbc_color_correction"];
     const auto& dmg_colors = declared_v2["ravenemu_gbc_dmg_colors"];
-    if (declared_v2.size() != 6 || !declared_options.empty() || lcd.default_value != "disabled" ||
+    if (declared_v2.size() != 7 || !declared_options.empty() || lcd.default_value != "disabled" ||
         lcd.category != "video" || lcd.values.size() != 2 || dmg_colors.default_value != "auto" ||
         dmg_colors.category != "video" || dmg_colors.values.size() != 2) {
         std::cerr << "Options v2 not declared\n";
@@ -886,8 +1025,10 @@ int main() {
 #endif
     const auto& blending = declared_v2[OPTION("frame_blending")];
     const auto& directions = declared_v2[OPTION("opposing_directions")];
+    const auto& device = declared_v2[OPTION("device_sensors")];
     if (blending.category != "video" || blending.default_value != "disabled" || blending.values.size() != 3 ||
-        directions.category != "input" || directions.default_value != "blocked") {
+        directions.category != "input" || directions.default_value != "blocked" || device.category != "input" ||
+        device.default_value != "enabled" || device.values.size() != 2) {
         std::cerr << "Blending or input options v2 not declared\n";
         return 1;
     }
