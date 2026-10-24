@@ -25,7 +25,7 @@ public:
         if (rom[0xb2] != 0x96U) throw RomLoadError("Marqueur GBA 0x96 absent");
         auto image = std::make_shared<const std::vector<std::uint8_t>>(rom.begin(), rom.end());
         const auto traits = RomTraits::detect(rom);
-        auto replacement = new_machine(image, traits);
+        auto replacement = new_machine(image, traits, bios_);
         if (!battery.empty()) replacement->cartridge.import_battery(battery);
         loaded_rom_ = std::move(image);
         rom_traits_ = traits;
@@ -34,7 +34,7 @@ public:
     }
     void reset() override {
         require_loaded();
-        auto replacement = new_machine(loaded_rom_, rom_traits_);
+        auto replacement = new_machine(loaded_rom_, rom_traits_, bios_);
         replacement->cartridge.keep_battery_of(machine_->cartridge);
         configure_measurement(*replacement, measuring_time_);
         install(std::move(replacement));
@@ -189,6 +189,18 @@ public:
         apply_sensor_input();
     }
     void set_gba_forced_rtc(std::optional<bool> value) noexcept override { forced_rtc_ = value; }
+    void set_gba_bios(std::span<const std::uint8_t> image, bool skip_intro) override {
+        if (image.empty()) {
+            bios_.reset();
+            return;
+        }
+        if (image.size() != GbaBios::size) throw std::invalid_argument("Le BIOS GBA doit faire 16384 octets");
+        auto bios = std::make_shared<GbaBios>();
+        bios->image.assign(image.begin(), image.end());
+        bios->hash = detail::sha256(image);
+        bios_ = std::move(bios);
+        bios_skip_intro_ = skip_intro;
+    }
     void set_clock_epoch(std::optional<std::int64_t> value) noexcept override { clock_override_ = value; }
     void set_measuring_time(bool value) noexcept override {
         measuring_time_ = value;
@@ -317,10 +329,13 @@ public:
         // Format 15 : recharges de timer pas encore en service, âge de la ligne
         // d'IRQ, temps restant d'une fonction du BIOS interrompue. Format 16 :
         // retour d'un Halt du BIOS pas encore réveillé, puis SIOMULTI0-3.
+        // Format 17 : le BIOS (0 réécrit, 1 vrai) et son empreinte.
         for (const auto value : m.timers.export_pending_reloads()) out.i32(value);
         out.i32(m.irq_line_age());
         for (const auto value : m.export_bios_busy()) out.i32(value);
         for (const auto value : m.serial.multiplayer_data()) out.i32(value);
+        out.u8(m.bios_image ? 1 : 0);
+        out.raw(m.bios_image ? m.bios_image->hash : std::array<std::uint8_t, 32>{});
         return std::move(out).take();
     }
     void load_state(std::span<const std::uint8_t> bytes) override {
@@ -335,7 +350,9 @@ public:
         std::array<std::uint8_t, 32> hash{};
         in.raw(hash);
         if (hash != rom_hash_) throw SaveStateError("État issu d'une autre ROM");
-        auto replacement = new_machine(loaded_rom_, rom_traits_);
+        // Un état garde le BIOS en place : un nouveau réglage attend le
+        // prochain chargement de ROM ou la prochaine réinitialisation.
+        auto replacement = new_machine(loaded_rom_, rom_traits_, machine_->bios_image);
         auto& m = *replacement;
         std::array<std::int32_t, 16> registers{};
         for (auto& value : registers) value = in.i32();
@@ -446,7 +463,21 @@ public:
         for (std::size_t index = 0; index < multiplayer.size(); ++index)
             multiplayer[index] = version >= 16 ? in.i32() : m.bus.io[0x120 + 2 * index] | m.bus.io[0x121 + 2 * index] << 8;
         m.serial.import_multiplayer_data(multiplayer);
+        // Format 17 : le BIOS de l'état. Avant, toujours le BIOS réécrit. Son
+        // code peut être en cours (IRQ, SWI) : il faut le même pour reprendre.
+        bool real_bios = false;
+        std::array<std::uint8_t, 32> bios_hash{};
+        if (version >= 17) {
+            const auto kind = in.u8();
+            if (kind > 1) throw SaveStateError("État GBA corrompu (BIOS)");
+            real_bios = kind == 1;
+            in.raw(bios_hash);
+        }
         if (!in.exhausted()) throw SaveStateError("État GBA corrompu (données excédentaires)");
+        if (real_bios != (m.bios_image != nullptr))
+            throw SaveStateError(real_bios ? "État pris avec un vrai BIOS GBA, absent ici"
+                                           : "État pris avec le BIOS de RavenCore, pas avec un vrai BIOS");
+        if (real_bios && bios_hash != m.bios_image->hash) throw SaveStateError("État pris avec un autre BIOS GBA");
         if (auto* save = m.cartridge.save()) {
             const auto* previous = machine_->cartridge.save();
             save->mark_restored_after(previous ? previous->generation() : 0);
@@ -456,7 +487,7 @@ public:
     }
 
 private:
-    static constexpr std::uint16_t state_version = 16;
+    static constexpr std::uint16_t state_version = 17;
 
     template <std::size_t N>
     static void read_array(BinaryReader& in, std::array<std::uint8_t, N>& output) {
@@ -484,8 +515,10 @@ private:
         return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
             .count();
     }
-    [[nodiscard]] std::unique_ptr<Machine> new_machine(RomImage rom, const RomTraits& traits) const {
-        auto machine = std::make_unique<Machine>(rom, traits, forced_, forced_rtc_, [this] { return current_epoch(); });
+    [[nodiscard]] std::unique_ptr<Machine> new_machine(RomImage rom, const RomTraits& traits,
+                                                       GbaBiosImage bios) const {
+        auto machine = std::make_unique<Machine>(rom, traits, forced_, forced_rtc_, [this] { return current_epoch(); },
+                                                 std::move(bios), bios_skip_intro_);
         machine->cartridge.set_sensor_input(sensor_input_);
         return machine;
     }
@@ -537,6 +570,8 @@ private:
     int frames_since_link_use_{link_use_frames};
     std::optional<GbaSaveType> forced_;
     std::optional<bool> forced_rtc_;
+    GbaBiosImage bios_;  // vide : BIOS réécrit de RavenCore
+    bool bios_skip_intro_{};
     SensorInput sensor_input_{};
     std::unique_ptr<Machine> machine_;
     RomImage loaded_rom_;

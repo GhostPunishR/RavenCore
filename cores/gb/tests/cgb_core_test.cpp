@@ -498,6 +498,8 @@ void cheats_test() {
 
     const std::array<ravenemu::Cheat, 1> gba{ravenemu::parse_cheat(ravenemu::Console::game_boy_advance, "32000000 0001")};
     expect_failure<std::invalid_argument>([&] { core->set_cheats(gba); }, "code GBA accepté par la Game Boy");
+    const std::vector<std::uint8_t> bios(0x4000);
+    expect_failure<std::invalid_argument>([&] { core->set_gba_bios(bios, false); }, "BIOS GBA accepté par la Game Boy");
 }
 
 /**

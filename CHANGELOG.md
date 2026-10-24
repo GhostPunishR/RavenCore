@@ -4,7 +4,7 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 ## 0.14.0 - 2026-10-24
 
-Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Game Boy Advance : RavenEmu Android et RavenEmu PC peuvent désormais les proposer. Les jeux Game Boy sur une GBC sans boot ROM prennent les couleurs de sa boot ROM au lieu de gris. Le format des états ne change pas.
+Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Game Boy Advance : RavenEmu Android et RavenEmu PC peuvent désormais les proposer. Les jeux Game Boy sur une GBC sans boot ROM prennent les couleurs de sa boot ROM au lieu de gris. Le BIOS d'une GBA peut remplacer celui de RavenCore. Le format des états GBA passe à 17.
 
 ### Ajouté
 
@@ -19,6 +19,12 @@ Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Ga
   - Le réglage s'applique tout de suite, et survit au chargement, au reset et aux états.
   - Une boot ROM fournie choisit elle-même ses couleurs.
 - **Gris neutre** pour la palette de RavenGB.
+- **Vrai BIOS GBA, facultatif.** RavenCore répond toujours lui-même aux appels du BIOS par défaut ; le BIOS d'une console (16 Kio) peut désormais le remplacer.
+  - Les SWI et les IRQ du jeu passent alors par lui. Il joue son animation de démarrage, sauf si on la saute : le jeu démarre alors comme avec le BIOS de RavenCore.
+  - `Core::set_gba_bios()` et `ravenemu_set_gba_bios()` le donnent, ou reviennent au BIOS de RavenCore, à partir du prochain chargement ou reset.
+  - Dans RavenGBA, l'option **BIOS** (catégorie Système) lit `gba_bios.bin` dans le dossier système de RetroArch : « BIOS de RavenCore » par défaut, « Vrai BIOS, avec son animation » ou « Vrai BIOS, sans animation ». S'il manque, un message le dit et le jeu démarre avec le BIOS de RavenCore. Le fichier d'informations le déclare comme micrologiciel facultatif.
+  - Un état ne se recharge qu'avec le BIOS qui l'a créé. Sinon, le refus le dit : « État pris avec un vrai BIOS GBA, absent ici », « … avec le BIOS de RavenCore, pas avec un vrai BIOS » ou « … avec un autre BIOS GBA ». Recharger un état garde le BIOS en place.
+  - Aucun BIOS n'est fourni.
 
 ### Modifié
 
@@ -30,9 +36,10 @@ Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Ga
 
 ### Compatibilité des états instantanés
 
-- **GBA : format 16** et **GB/GBC : format 11**, inchangés.
-- **API C : version 0**, avec des ajouts seulement : une valeur de `ravenemu_system`, l'énumération `ravenemu_gbc_colors` et trois fonctions. Le paquet CMake se demande désormais avec `find_package(RavenCore 0.14)`.
-- **API C++** : `Core` gagne `set_gbc_compatibility_colors()`, avec une implémentation par défaut, et `GbcCompatibilityColors`.
+- **GBA : format 17.** L'état se termine par le BIOS utilisé : celui de RavenCore, ou l'empreinte SHA-256 du vrai. Les états aux formats 11 à 16 se rechargent, avec le BIOS de RavenCore. Un état au format 17 ne se recharge pas dans une version 0.13.x.
+- **GB/GBC : format 11**, inchangé.
+- **API C : version 0**, avec des ajouts seulement : une valeur de `ravenemu_system`, l'énumération `ravenemu_gbc_colors` et quatre fonctions. Le paquet CMake se demande désormais avec `find_package(RavenCore 0.14)`.
+- **API C++** : `Core` gagne `set_gbc_compatibility_colors()` et `set_gba_bios()`, avec une implémentation par défaut, et `GbcCompatibilityColors`.
 
 ### Tests
 
@@ -42,6 +49,14 @@ Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Ga
   - une liste dont la deuxième entrée est refusée : l'erreur la nomme, et l'ancienne liste reste active ;
   - avec `RAVENEMU_GBC_ON_GBA`, B vaut 1 au démarrage d'un jeu GBC ; avec `RAVENEMU_GBC`, il vaut 0 ;
   - les couleurs d'un jeu Game Boy, puis des gris ; le réglage est refusé sur un handle GB ou GBA.
+  - un BIOS fait maison qui marque l'IWRAM à la mise sous tension : pris au reset suivant seulement, sauté sur demande, refusé avec une autre taille ou sur un handle GB ; son état est refusé par un handle sans lui.
+- `gba_raven_core`, avec un BIOS fait maison qui marque l'IWRAM au démarrage et à chaque SWI :
+  - le démarrage et le SWI passent par lui, sauf le démarrage quand on saute l'animation ;
+  - un état repris continue au même cycle ; il est refusé sans ce BIOS, avec un autre, et un état du BIOS de RavenCore l'est avec lui ;
+  - un nouveau réglage attend le prochain chargement, un état rechargé d'ici là garde le BIOS en place ;
+  - une image de 16383 octets est refusée, et un cœur Game Boy refuse tout BIOS GBA.
+- `libretro_smoke_gba` : l'option BIOS déclarée, avec sa catégorie et sa valeur par défaut ; `gba_bios.bin` lu dans le dossier système, avec ou sans animation, ignoré par défaut, et son absence signalée.
+- En local, avec un BIOS libre (Cult-of-GBA, licence MIT, ni fourni ni téléchargé par le projet) : les ROMs de test jsmolka (ARM, Thumb, mémoire, sauvegardes, NES, unsafe) et FuzzARM passent, avec et sans animation. Seule jsmolka bios échoue : elle vérifie des mots du BIOS officiel, absents de ce BIOS libre. Pokémon Émeraude et Zelda tournent comme avec le BIOS de RavenCore, à la même vitesse.
 - `gb_raven_core` : un jeu Game Boy sur GBC dessine la couleur `$1BEF` de la boot ROM. En gris, ses trois composantes sont égales. Après un état ou un reset, il suit le réglage du moment.
 - Les 200 tests publics GB/GBC passent toujours, captures de référence en mode de compatibilité comprises.
 

@@ -279,10 +279,18 @@ void sensor_save_state_test() {
     constexpr std::size_t prefetch_bytes = 4U + 4U + 4U + 1U + 4U * 4U + 4U * Serial::link_state_words;
     constexpr std::size_t irq_bytes = 4U * 4U + 4U + 2U * 4U;
     constexpr std::size_t format16_bytes = 4U + 4U * 4U;
-    check(state[4] == 0 && state[5] == 16, "version d'état GBA inattendue");
+    constexpr std::size_t format17_bytes = 1U + 32U;  // type de BIOS et empreinte
+    check(state[4] == 0 && state[5] == 17, "version d'état GBA inattendue");
 
-    // État au format 15 : sans le bloc du format 16. Il se recharge, capteur compris.
-    std::vector<std::uint8_t> legacy(state.begin(), state.end() - static_cast<std::ptrdiff_t>(format16_bytes));
+    // État au format 16 : sans le bloc du format 17, donc pris avec le BIOS réécrit.
+    std::vector<std::uint8_t> legacy(state.begin(), state.end() - static_cast<std::ptrdiff_t>(format17_bytes));
+    legacy[5] = 16;
+    second->load_state(legacy);
+    second->run_frame(frame, false);
+    check(copied_x(*second) == tilted_low, "état 16 : mesure du capteur perdue");
+
+    // État au format 15 : sans le bloc du format 16 non plus.
+    legacy.resize(legacy.size() - format16_bytes);
     legacy[5] = 15;
     second->load_state(legacy);
     second->run_frame(frame, false);

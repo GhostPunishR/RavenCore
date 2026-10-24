@@ -303,6 +303,45 @@ int gbc_colors_test() {
     return 0;
 }
 
+// Vrai BIOS GBA : le nôtre range 0x5C en 0x03000000 à la mise sous tension,
+// puis saute au jeu.
+int gba_bios_test() {
+    std::vector<std::uint8_t> bios(0x4000);
+    const std::uint32_t words[]{0xe3a00403U, 0xe3a0105cU, 0xe5c01000U, 0xe3a0f302U};
+    const auto put = [&](std::size_t offset, std::uint32_t word) {
+        for (unsigned byte = 0; byte < 4; ++byte) bios[offset + byte] = static_cast<std::uint8_t>(word >> (byte * 8U));
+    };
+    put(0, 0xea00003eU);  // B 0x100
+    for (std::size_t index = 0; index < std::size(words); ++index) put(0x100 + index * 4, words[index]);
+    const auto rom = ravenemu::testing::minimal_gba_rom();
+    Handle handle(ravenemu_create(RAVENEMU_GBA), ravenemu_destroy);
+    std::vector<std::uint32_t> frame(240 * 160);
+    const auto marker = [&] {
+        std::uint8_t value = 0xff;
+        return ravenemu_run_frame(handle.get(), frame.data(), frame.size()) &&
+               ravenemu_read_achievement_memory(handle.get(), 0, &value, 1) == 1 ? value : -1;
+    };
+    if (!handle || !ravenemu_load(handle.get(), rom.data(), rom.size(), nullptr, 0) || marker() != 0) return 110;
+    if (!ravenemu_set_gba_bios(handle.get(), bios.data(), bios.size(), 0) || marker() != 0) return 111;
+    if (!ravenemu_reset(handle.get()) || marker() != 0x5c) return 112;
+    std::vector<std::uint8_t> state(ravenemu_state_size(handle.get()));
+    if (state.empty() || !ravenemu_save_state(handle.get(), state.data(), state.size())) return 113;
+    if (!ravenemu_set_gba_bios(handle.get(), bios.data(), bios.size(), 1) ||
+        !ravenemu_load(handle.get(), rom.data(), rom.size(), nullptr, 0) || marker() != 0) return 114;
+    Handle hle(ravenemu_create(RAVENEMU_GBA), ravenemu_destroy);
+    if (!hle || !ravenemu_load(hle.get(), rom.data(), rom.size(), nullptr, 0) ||
+        ravenemu_load_state(hle.get(), state.data(), state.size()) ||
+        std::string(ravenemu_last_error()).find("vrai BIOS") == std::string::npos) return 115;
+    Handle game_boy(ravenemu_create(RAVENEMU_GB), ravenemu_destroy);
+    if (ravenemu_set_gba_bios(handle.get(), bios.data(), 0x3fff, 0) ||
+        ravenemu_set_gba_bios(handle.get(), nullptr, bios.size(), 0) ||
+        ravenemu_set_gba_bios(game_boy.get(), bios.data(), bios.size(), 0) ||
+        ravenemu_set_gba_bios(nullptr, bios.data(), bios.size(), 0)) return 116;
+    if (!ravenemu_set_gba_bios(handle.get(), nullptr, 0, 0) || !ravenemu_reset(handle.get()) || marker() != 0)
+        return 117;
+    return 0;
+}
+
 int main() {
     if (ravenemu_api_version() != RAVENEMU_API_VERSION ||
         std::string(ravenemu_version()) != RAVENEMU_VERSION) {
@@ -343,6 +382,10 @@ int main() {
     }
     if (const int failure = gbc_on_gba_test()) {
         std::cerr << "GBC on GBA failed (" << failure << "): " << ravenemu_last_error() << "\n";
+        return failure;
+    }
+    if (const int failure = gba_bios_test()) {
+        std::cerr << "GBA BIOS failed (" << failure << "): " << ravenemu_last_error() << "\n";
         return failure;
     }
     if (ravenemu_create(99)) {

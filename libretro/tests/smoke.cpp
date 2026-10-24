@@ -382,8 +382,9 @@ int main() {
 #if defined(RAVENEMU_LIBRETRO_GBA)
     // Options déclarées avec « auto » par défaut, appliquées au chargement ;
     // la lumière du capteur solaire part de 50 %.
-    if (declared_options.size() != 6 ||
+    if (declared_options.size() != 7 ||
         declared_options["ravenemu_gba_color_correction"].find("; disabled|enabled") == std::string::npos ||
+        declared_options["ravenemu_gba_bios"].find("; disabled|enabled|skip_intro") == std::string::npos ||
         declared_options["ravenemu_gba_save_type"].find("; auto|") == std::string::npos ||
         declared_options["ravenemu_gba_rtc"].find("; auto|") == std::string::npos ||
         declared_options["ravenemu_gba_solar_light"].find("; 50|") == std::string::npos) {
@@ -803,6 +804,51 @@ int main() {
             return 1;
         }
     }
+#else
+    // Vrai BIOS du dossier système : le nôtre range 5C en 03000010 à la mise
+    // sous tension, et 5B en 03000011 à chaque SWI. Le jeu appelle un SWI,
+    // puis boucle.
+    {
+        const auto put = [](std::vector<std::uint8_t>& image, std::size_t offset,
+                            std::initializer_list<std::uint32_t> words) {
+            for (const auto word : words)
+                for (unsigned byte = 0; byte < 4; ++byte)
+                    image[offset++] = static_cast<std::uint8_t>(word >> (byte * 8U));
+        };
+        std::vector<std::uint8_t> bios(0x4000);
+        put(bios, 0x00, {0xea00003eU});                                          // B 0x100
+        put(bios, 0x08, {0xea00007cU});                                          // B 0x200
+        put(bios, 0x100, {0xe3a00403U, 0xe3a0105cU, 0xe5c01010U, 0xe3a0f302U});  // ... ; MOV PC, #0x08000000
+        put(bios, 0x200, {0xe3a00403U, 0xe3a0105bU, 0xe5c01011U, 0xe1b0f00eU});  // ... ; MOVS PC, LR
+        auto swi_rom = ravenemu::testing::minimal_gba_rom();
+        put(swi_rom, 0, {0xef0d0000U, 0xeafffffeU});                              // SWI 0x0D ; B .
+        const auto directory = std::filesystem::temp_directory_path() /
+                               ("ravenemu_smoke_" + std::string(system.library_name));
+        std::filesystem::create_directories(directory);
+        std::ofstream(directory / "gba_bios.bin", std::ios::binary)
+            .write(reinterpret_cast<const char*>(bios.data()), static_cast<std::streamsize>(bios.size()));
+        system_directory = directory.string();
+        const auto markers = [&](const char* choice) {
+            retro_unload_game();
+            option_values["ravenemu_gba_bios"] = choice;
+            last_message.clear();
+            static_cast<void>(pixel_after(swi_rom, 2));
+            const auto* power_on = mapped(0x0300'0010);
+            const auto* swi = mapped(0x0300'0011);
+            return power_on && swi ? *power_on << 8 | *swi : -1;
+        };
+        const bool intro = markers("enabled") == 0x5c5b;
+        const bool skipped = markers("skip_intro") == 0x005b;
+        const bool emulated = markers("disabled") == 0 && last_message.empty();
+        std::filesystem::remove(directory / "gba_bios.bin");
+        const bool missing = markers("enabled") == 0 && last_message.find("gba_bios.bin") != std::string::npos;
+        system_directory.clear();
+        std::filesystem::remove_all(directory);
+        if (!intro || !skipped || !emulated || !missing) {
+            std::cerr << "GBA BIOS from the system directory not handled\n";
+            return 1;
+        }
+    }
 #endif
     retro_unload_game();
     option_values.clear();
@@ -813,8 +859,10 @@ int main() {
     retro_set_environment(environment);
 #if defined(RAVENEMU_LIBRETRO_GBA)
     const auto& light = declared_v2["ravenemu_gba_solar_light"];
-    if (declared_v2.size() != 6 || !declared_options.empty() || light.default_value != "50" ||
-        light.category != "cartridge" || light.values.size() != 11 ||
+    const auto& bios_option = declared_v2["ravenemu_gba_bios"];
+    if (declared_v2.size() != 7 || !declared_options.empty() || light.default_value != "50" ||
+        light.category != "cartridge" || light.values.size() != 11 || bios_option.category != "system" ||
+        bios_option.default_value != "disabled" || bios_option.values.size() != 3 ||
         declared_v2["ravenemu_gba_color_correction"].desc != "Correction des couleurs LCD") {
         std::cerr << "Options v2 not declared\n";
         return 1;

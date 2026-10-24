@@ -21,6 +21,12 @@ public:
         state.regs[15] = entry;
         pipeline_valid_ = false;
     }
+    // Mise sous tension, avec un vrai BIOS : le CPU part de son vecteur de
+    // reset, en mode superviseur, IRQ masquées ; le BIOS règle ses piles.
+    void power_on() {
+        state.reset();
+        pipeline_valid_ = false;
+    }
     [[nodiscard]] std::int32_t read_reg(int index) const noexcept {
         if (index != 15) return state.regs[static_cast<std::size_t>(index)];
         return add32(state.regs[15], state.thumb ? 4 : 8);

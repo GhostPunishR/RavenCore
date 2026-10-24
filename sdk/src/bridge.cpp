@@ -310,6 +310,13 @@ int ravenemu_set_gba_rtc(ravenemu_bridge* handle, int rtc) {
                                                                          : std::optional<bool>{rtc == RAVENEMU_GBA_RTC_ON});
     });
 }
+int ravenemu_set_gba_bios(ravenemu_bridge* handle, const uint8_t* bios, size_t size, int skip_intro) {
+    return attempt([&] {
+        require_gba(handle);
+        if (size && !bios) throw std::invalid_argument("Null GBA BIOS");
+        handle->core->set_gba_bios({bios, size}, skip_intro != 0);
+    });
+}
 int ravenemu_rumble_active(const ravenemu_bridge* handle) {
     return handle && handle->core && handle->loaded && handle->core->rumble_active() ? 1 : 0;
 }

@@ -79,8 +79,11 @@ Les options s'affichent en français, rangées en quatre catégories : **Image**
 | Type de sauvegarde | `ravenemu_gba_save_type` | RavenGBA | `auto`, `sram`, `flash64`, `flash128`, `eeprom512`, `eeprom8k`, `none` |
 | Horloge (RTC) | `ravenemu_gba_rtc` | RavenGBA | `auto`, `enabled`, `disabled` |
 | Lumière du capteur solaire | `ravenemu_gba_solar_light` | RavenGBA | Pourcentage de plein soleil : `50` par défaut, de `0` à `100` par pas de 10 |
+| BIOS | `ravenemu_gba_bios` | RavenGBA | BIOS de RavenCore par défaut, ou vrai BIOS (`gba_bios.bin`), avec ou sans son animation de démarrage |
 
 RavenGB et RavenGBC démarrent un jeu sans boot ROM, dans l'état où elle l'aurait laissé. Ils utilisent celle du dossier système de RetroArch si l'option le permet : `dmg_boot.bin` ou `gb_bios.bin` (Game Boy), `cgb_boot.bin` ou `gbc_bios.bin` (Game Boy Color), `agb_boot.bin` (Game Boy Advance). On retrouve alors l'animation de démarrage, et les couleurs que la boot ROM de la GBC donne aux jeux Game Boy. Aucune boot ROM n'est fournie.
+
+RavenGBA n'a besoin d'aucun BIOS : RavenCore répond lui-même à ses appels. L'option **BIOS** lui fait utiliser `gba_bios.bin` (16 Kio), le BIOS d'une console, depuis le dossier système. Les appels et les interruptions du jeu passent alors par lui, avec ou sans son animation de démarrage. Un état ne se recharge qu'avec le BIOS qui l'a créé. Aucun BIOS n'est fourni.
 
 Un jeu refusé affiche sa raison à l'écran et dans le journal de RetroArch. Les images que RetroArch n'affiche pas (anticipation « run-ahead », avance rapide) ne sont pas dessinées par le cœur GBA ni converties par aucun cœur.
 

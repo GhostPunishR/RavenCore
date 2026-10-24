@@ -265,6 +265,12 @@ const std::vector<OptionSpec> option_specs{
       {"eeprom512", "EEPROM 512 octets"}, {"eeprom8k", "EEPROM 8 Kio"}, {"none", "Aucune"}}},
     {"ravenemu_gba_rtc", "Horloge (RTC)", "Appliquée au chargement du jeu.", "cartridge",
      {{"auto", "Auto"}, {"enabled", "Activée"}, {"disabled", "Désactivée"}}},
+    {"ravenemu_gba_bios", "BIOS",
+     "Appliqué au chargement du jeu. Vrai BIOS : gba_bios.bin (16 Kio) du dossier système, celui d'une console ; "
+     "sinon, ou s'il manque, RavenCore répond lui-même aux appels du BIOS. Un état ne se recharge qu'avec le "
+     "BIOS qui l'a créé.", "system",
+     {{"disabled", "BIOS de RavenCore"}, {"enabled", "Vrai BIOS, avec son animation"},
+      {"skip_intro", "Vrai BIOS, sans animation"}}},
     {"ravenemu_gba_solar_light", "Lumière du capteur solaire",
      "Boktai : part du plein soleil que reçoit le capteur de la cartouche.", "cartridge",
      {{"50", "50 %"}, {"60", "60 %"}, {"70", "70 %"}, {"80", "80 %"}, {"90", "90 %"}, {"100", "100 %"},
@@ -278,7 +284,7 @@ void declare_options() {
         static std::array<retro_core_option_v2_category, 5> categories{{
             {"video", "Image", "Couleurs et rendu de l'image."},
             {"input", "Commandes", "Croix et boutons."},
-            {"system", "Système", "Console émulée et boot ROM, appliquées au chargement du jeu."},
+            {"system", "Système", "Console émulée, boot ROM et BIOS, appliqués au chargement du jeu."},
             {"cartridge", "Cartouche", "Matériel de la cartouche, quand sa détection se trompe."},
             {nullptr, nullptr, nullptr},
         }};
@@ -397,15 +403,13 @@ void update_options() {
 #endif
 }
 
-#if !defined(RAVENEMU_LIBRETRO_GBA)
-// Boot ROM du dossier système, si l'option le permet ; sinon RavenCore démarre
-// le jeu dans l'état où la boot ROM l'aurait laissé. Un fichier d'une autre
-// taille est ignoré, et le journal dit pourquoi.
-std::vector<std::uint8_t> read_boot_rom(std::initializer_list<const char*> files,
-                                        std::initializer_list<std::size_t> sizes) {
+// Premier des fichiers du dossier système qui existe et a l'une des tailles
+// attendues ; vide sinon. Un fichier d'une autre taille est ignoré, et le
+// journal dit pourquoi.
+std::vector<std::uint8_t> read_system_file(std::initializer_list<const char*> files,
+                                           std::initializer_list<std::size_t> sizes, const std::string& what) {
     const char* directory = nullptr;
-    if (option_is(RAVENEMU_OPTION("boot_rom"), "disabled") || !env_cb ||
-        !env_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &directory) || !directory || !*directory)
+    if (!env_cb || !env_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &directory) || !directory || !*directory)
         return {};
     const auto largest = std::max(sizes);
     for (const char* file : files) {
@@ -416,12 +420,20 @@ std::vector<std::uint8_t> read_boot_rom(std::initializer_list<const char*> files
         input.read(reinterpret_cast<char*>(image.data()), static_cast<std::streamsize>(image.size()));
         image.resize(static_cast<std::size_t>(input.gcount()));
         if (std::find(sizes.begin(), sizes.end(), image.size()) != sizes.end()) {
-            log_line(RETRO_LOG_INFO, "boot ROM : " + path);
+            log_line(RETRO_LOG_INFO, what + " : " + path);
             return image;
         }
-        log_line(RETRO_LOG_WARN, "boot ROM ignorée, taille inattendue : " + path);
+        log_line(RETRO_LOG_WARN, what + " : fichier ignoré, taille inattendue : " + path);
     }
     return {};
+}
+#if !defined(RAVENEMU_LIBRETRO_GBA)
+// Boot ROM du dossier système, si l'option le permet ; sinon RavenCore démarre
+// le jeu dans l'état où la boot ROM l'aurait laissé.
+std::vector<std::uint8_t> read_boot_rom(std::initializer_list<const char*> files,
+                                        std::initializer_list<std::size_t> sizes) {
+    if (option_is(RAVENEMU_OPTION("boot_rom"), "disabled")) return {};
+    return read_system_file(files, sizes, "boot ROM");
 }
 #endif
 #if defined(RAVENEMU_LIBRETRO_GB)
@@ -439,7 +451,17 @@ std::unique_ptr<ravenemu::Core> new_core() {
     return ravenemu::gb::make_core(agb ? ravenemu::gb::HardwareModel::agb : ravenemu::gb::HardwareModel::cgb, boot);
 }
 #else
-std::unique_ptr<ravenemu::Core> new_core() { return ravenemu::make_gba_core(std::nullopt); }
+// Le vrai BIOS, si l'option le demande et que gba_bios.bin est là ; sinon le
+// BIOS réécrit de RavenCore, et un message dit pourquoi.
+std::unique_ptr<ravenemu::Core> new_core() {
+    auto machine = ravenemu::make_gba_core(std::nullopt);
+    const bool skip_intro = option_is("ravenemu_gba_bios", "skip_intro");
+    if (!skip_intro && !option_is("ravenemu_gba_bios", "enabled")) return machine;
+    const auto bios = read_system_file({"gba_bios.bin"}, {0x4000}, "BIOS GBA");
+    if (bios.empty()) show_message("gba_bios.bin (16 Kio) absent du dossier système : BIOS de RavenCore");
+    else machine->set_gba_bios(bios, skip_intro);
+    return machine;
+}
 #endif
 
 struct Key { unsigned id; ravenemu::Button button; };

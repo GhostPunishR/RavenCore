@@ -282,6 +282,19 @@ public:
      * chargement de ROM ou à la prochaine réinitialisation.
      */
     virtual void set_gba_forced_rtc(std::optional<bool>) noexcept {}
+    /**
+     * BIOS GBA d'une console (16 Kio) à la place du BIOS réécrit de RavenCore,
+     * ou une image vide pour y revenir ; pris en compte au prochain chargement
+     * de ROM ou à la prochaine réinitialisation. Le vrai BIOS joue son
+     * animation de démarrage, sauf avec `skip_intro` : le jeu démarre alors
+     * comme avec le BIOS réécrit, mais ses appels au BIOS passent par le vrai.
+     * Un état ne se recharge qu'avec le BIOS qui l'a créé. Lève
+     * std::invalid_argument pour une image d'une autre taille.
+     */
+    virtual void set_gba_bios(std::span<const std::uint8_t> image, bool skip_intro) {
+        if (!image.empty()) throw std::invalid_argument("Cette console n'a pas de BIOS GBA");
+        static_cast<void>(skip_intro);
+    }
 };
 
 /**

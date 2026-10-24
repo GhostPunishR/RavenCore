@@ -9,14 +9,27 @@
 
 namespace ravenemu::gba {
 
+/** BIOS d'une console (16 Kio) et son empreinte, rangée dans les états. */
+struct GbaBios {
+    static constexpr std::size_t size = 0x4000;
+    std::vector<std::uint8_t> image;
+    std::array<std::uint8_t, 32> hash{};
+};
+using GbaBiosImage = std::shared_ptr<const GbaBios>;
+
 class Machine {
 public:
     Machine(RomImage rom, std::optional<GbaSaveType> forced, std::optional<bool> forced_rtc, Rtc::Clock clock)
         : Machine(rom, RomTraits::detect(*rom), forced, forced_rtc, std::move(clock)) {}
+    /**
+     * Sans `bios_image`, le BIOS réécrit de RavenCore (HLE) répond aux SWI et
+     * le jeu démarre directement. Avec, ses SWI et ses IRQ passent par le vrai
+     * BIOS, qui joue son animation de démarrage sauf avec `skip_intro`.
+     */
     Machine(RomImage rom, RomTraits traits, std::optional<GbaSaveType> forced,
-            std::optional<bool> forced_rtc, Rtc::Clock clock)
+            std::optional<bool> forced_rtc, Rtc::Clock clock, GbaBiosImage bios_image = {}, bool skip_intro = false)
         : cartridge(rom, traits, forced, forced_rtc, std::move(clock)), bus(cartridge), ppu(bus), timers(interrupts),
-          dma(bus, interrupts), serial(bus, interrupts), cpu(bus), bios(cpu, bus) {
+          dma(bus, interrupts), serial(bus, interrupts), cpu(bus), bios(cpu, bus), bios_image(std::move(bios_image)) {
         bus.ppu = &ppu; bus.interrupts = &interrupts; bus.timers = &timers; bus.dma = &dma; bus.apu = &apu;
         bus.serial = &serial;
         ppu.interrupts = &interrupts; ppu.dma = &dma;
@@ -68,7 +81,22 @@ public:
         };
         interrupts.on_request = [this](int mask) { bios.interrupt_raised(mask); bus.diagnostics.interrupt(mask); };
         interrupts.on_change = [this] { track_irq_line(); };
-        cpu.reset(i32(0x08000000U));
+        if (!this->bios_image) {
+            cpu.reset(i32(0x08000000U));
+            return;
+        }
+        // Vrai BIOS : son code remplace celui du BIOS réécrit, ses fonctions
+        // répondent aux SWI, et son gestionnaire d'IRQ laisse au jeu le soin
+        // de noter l'interruption en 0x03007FF8.
+        std::copy(this->bios_image->image.begin(), this->bios_image->image.end(), bus.bios.begin());
+        cpu.swi_handler = nullptr;
+        interrupts.on_request = [this](int mask) { bus.diagnostics.interrupt(mask); };
+        if (skip_intro) {
+            cpu.reset(i32(0x08000000U));
+        } else {
+            cpu.power_on();
+            bus.executing_bios = true;
+        }
     }
     void run_frame() {
         // Une instruction peut franchir la frontière PPU. La position courante
@@ -250,6 +278,7 @@ public:
     Apu apu;
     Cpu cpu;
     Bios bios;
+    GbaBiosImage bios_image;  // vide : BIOS réécrit de RavenCore
 
 private:
     // Suit la ligne d'IRQ : l'instant où elle s'est levée, rien au repos.

@@ -120,6 +120,13 @@ enum ravenemu_gba_rtc {
 };
 int ravenemu_set_gba_rtc(ravenemu_bridge* handle, int rtc);
 
+/* GBA BIOS dumped from a console (16384 bytes, copied) instead of RavenCore's
+ * own, from the next ravenemu_load or ravenemu_reset; size 0 goes back to
+ * RavenCore's. The real BIOS plays its boot animation unless skip_intro is
+ * nonzero. A state only loads with the BIOS it was taken with, and keeps the
+ * BIOS in place. Returns 1, or 0 for a GB/GBC handle or another size. */
+int ravenemu_set_gba_bios(ravenemu_bridge* handle, const uint8_t* bios, size_t size, int skip_intro);
+
 /* 1 while the cartridge's rumble motor runs (GB MBC5 Rumble, GBA Drill Dozer
  * and WarioWare: Twisted!). Sample it after each ravenemu_run_frame. */
 int ravenemu_rumble_active(const ravenemu_bridge* handle);

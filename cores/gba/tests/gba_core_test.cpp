@@ -21,8 +21,10 @@ using ravenemu::testing::minimal_gba_rom;
 
 namespace {
 // Le format 16 finit par l'instruction qui suit un Halt du BIOS en cours,
-// puis SIOMULTI0-3 : un mot chacun.
+// puis SIOMULTI0-3 : un mot chacun. Le format 17 y ajoute le type de BIOS et
+// son empreinte.
 constexpr std::ptrdiff_t format16_bytes = 4 + 4 * 4;
+constexpr std::ptrdiff_t format17_bytes = 1 + 32;
 
 void gba_smoke_test() {
     auto core = ravenemu::make_gba_core(ravenemu::GbaSaveType::sram);
@@ -255,6 +257,85 @@ void cheats_test() {
     expect_failure<std::invalid_argument>([&] { core->set_cheats(game_boy); }, "code Game Boy accepté par la GBA");
 }
 
+/**
+ * Vrai BIOS : ses SWI et son démarrage remplacent ceux du BIOS réécrit. Le
+ * BIOS de test, fait maison, marque 0x03000000 au démarrage et 0x03000001 à
+ * chaque SWI, puis rend la main ; le jeu appelle GetBiosChecksum et marque
+ * 0x03000002.
+ */
+std::vector<std::uint8_t> test_bios(std::uint8_t boot_marker) {
+    std::vector<std::uint8_t> bios(0x4000);
+    const auto store = [&](std::size_t address, std::uint32_t word) {
+        for (unsigned byte = 0; byte < 4; ++byte) bios[address + byte] = static_cast<std::uint8_t>(word >> (8U * byte));
+    };
+    for (std::size_t vector = 0; vector < 0x20; vector += 4) store(vector, 0xeafffffeU);  // b .
+    store(0x00, 0xea00003eU);  // reset : b 0x100
+    store(0x08, 0xea00007cU);  // SWI : b 0x200
+    // mov r0, #0x03000000 ; mov r1, #marque ; strb r1, [r0] ; mov pc, #0x08000000
+    store(0x100, 0xe3a00403U);
+    store(0x104, 0xe3a01000U | boot_marker);
+    store(0x108, 0xe5c01000U);
+    store(0x10c, 0xe3a0f302U);
+    // mov r0, #0x03000000 ; mov r1, #0x5C ; strb r1, [r0, #1] ; movs pc, lr
+    store(0x200, 0xe3a00403U);
+    store(0x204, 0xe3a0105cU);
+    store(0x208, 0xe5c01001U);
+    store(0x20c, 0xe1b0f00eU);
+    return bios;
+}
+
+void real_bios_test() {
+    // swi 0x0D0000 (GetBiosChecksum) ; mov r0, #0x03000000 ; mov r1, #0xCA ; strb r1, [r0, #2] ; b .
+    const std::array<std::uint32_t, 5> code{0xef0d0000U, 0xe3a00403U, 0xe3a010caU, 0xe5c01002U, 0xeafffffeU};
+    const auto rom = rom_with(code);
+    const auto bios = test_bios(0xb0);
+    std::vector<std::int32_t> frame(240 * 160);
+    struct Case {
+        bool real;
+        bool skip_intro;
+        std::uint32_t markers;  // octets 0x03000000-02, petit-boutiste
+    };
+    for (const auto [real, skip_intro, markers] : {Case{false, false, 0xca0000U}, Case{true, false, 0xca5cb0U},
+                                                   Case{true, true, 0xca5c00U}}) {
+        auto core = ravenemu::make_gba_core(std::nullopt);
+        if (real) core->set_gba_bios(bios, skip_intro);
+        core->load_rom(rom, {});
+        core->run_frame(frame, false);
+        check(iwram(*core, 0, 3) == markers, "vrai BIOS GBA : démarrage ou SWI inattendu");
+    }
+
+    // Un état ne se recharge qu'avec le BIOS qui l'a créé.
+    auto real = ravenemu::make_gba_core(std::nullopt);
+    real->set_gba_bios(bios, false);
+    real->load_rom(rom, {});
+    real->run_frame(frame, false);
+    const auto state = real->save_state();
+    real->run_frame(frame, false);
+    const auto continued = real->save_state();
+    real->load_state(state);
+    real->run_frame(frame, false);
+    check(real->save_state() == continued, "vrai BIOS GBA : reprise d'état décalée");
+    auto hle = ravenemu::make_gba_core(std::nullopt);
+    hle->load_rom(rom, {});
+    expect_failure<ravenemu::SaveStateError>([&] { hle->load_state(state); }, "état du vrai BIOS accepté sans lui");
+    expect_failure<ravenemu::SaveStateError>([&] { real->load_state(hle->save_state()); },
+                                             "état du BIOS réécrit accepté avec un vrai BIOS");
+    auto other = ravenemu::make_gba_core(std::nullopt);
+    other->set_gba_bios(test_bios(0xb1), false);
+    other->load_rom(rom, {});
+    expect_failure<ravenemu::SaveStateError>([&] { other->load_state(state); }, "état d'un autre BIOS accepté");
+
+    // Retour au BIOS réécrit au prochain chargement : d'ici là, un état garde
+    // le BIOS en place. Une taille fausse est refusée.
+    real->set_gba_bios({}, false);
+    real->load_state(state);
+    real->load_rom(rom, {});
+    real->run_frame(frame, false);
+    check(iwram(*real, 0, 3) == 0xca0000U, "BIOS réécrit non rétabli");
+    expect_failure<std::invalid_argument>([&] { real->set_gba_bios(std::span(bios).first(0x3fff), false); },
+                                          "BIOS GBA de mauvaise taille accepté");
+}
+
 void irq_state_continuation_test() {
     // IRQ de VCount à la ligne 0 : elle se lève à la fin de chaque trame, et
     // l'état est pris avant qu'elle ne soit synchronisée. Le jeu compte dans
@@ -283,7 +364,7 @@ void irq_state_continuation_test() {
         // mots pour le BIOS et le bloc du format 16 ; la ligne n'est
         // synchronisée qu'à 4 cycles.
         std::uint32_t age = 0;
-        const auto at = state.end() - format16_bytes - 12;
+        const auto at = state.end() - format17_bytes - format16_bytes - 12;
         for (auto byte = at; byte != at + 4; ++byte) age = age << 8U | *byte;
         if (age < 4) ++settling;
         core->run_frame(frame, false);
@@ -322,7 +403,7 @@ void bios_busy_state_continuation_test() {
         // Le temps restant d'une fonction du BIOS (gros-boutiste) précède
         // l'instruction qui la suit et le bloc du format 16.
         std::uint32_t remaining = 0;
-        const auto at = state.end() - format16_bytes - 8;
+        const auto at = state.end() - format17_bytes - format16_bytes - 8;
         for (auto byte = at; byte != at + 4; ++byte) remaining = remaining << 8U | *byte;
         if (remaining > 0) ++busy;
         core->run_frame(frame, false);
@@ -359,9 +440,10 @@ void bios_halt_state_continuation_test() {
     auto halted = 0;
     for (int index = 0; index < 4; ++index) {
         const auto state = core->save_state();
-        // L'instruction qui suit le Halt en cours (gros-boutiste) précède SIOMULTI0-3.
+        // L'instruction qui suit le Halt en cours (gros-boutiste) précède
+        // SIOMULTI0-3 et le bloc du format 17.
         std::uint32_t resume = 0;
-        const auto at = state.end() - 16 - 4;
+        const auto at = state.end() - format17_bytes - 16 - 4;
         for (auto byte = at; byte != at + 4; ++byte) resume = resume << 8U | *byte;
         if (resume == 0x0800'0040U) ++halted;
         core->run_frame(frame, false);
@@ -861,6 +943,7 @@ int main() {
     audio_state_continuation_test();
     prefetch_state_continuation_test();
     cheats_test();
+    real_bios_test();
     irq_state_continuation_test();
     bios_busy_state_continuation_test();
     bios_halt_state_continuation_test();
