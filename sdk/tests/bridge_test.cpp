@@ -299,7 +299,12 @@ int gbc_colors_test() {
     Handle advance(ravenemu_create(RAVENEMU_GBA), ravenemu_destroy);
     if (ravenemu_set_gbc_colors(game_boy.get(), RAVENEMU_GBC_COLORS_GRAY) ||
         ravenemu_set_gbc_colors(advance.get(), RAVENEMU_GBC_COLORS_GRAY) ||
-        ravenemu_set_gbc_colors(handle.get(), 7) || ravenemu_set_gbc_colors(nullptr, 0)) return 103;
+        ravenemu_set_gbc_colors(handle.get(), 14) || ravenemu_set_gbc_colors(handle.get(), -1) ||
+        ravenemu_set_gbc_colors(nullptr, 0)) return 103;
+    // B + Droite, au démarrage de la console : le négatif, sans rouge, vert et bleu égaux.
+    if (!ravenemu_set_gbc_colors(handle.get(), RAVENEMU_GBC_COLORS_B_RIGHT)) return 104;
+    const auto negative = pixel();
+    if (((negative >> 16) & 0xffU) != 0 || ((negative >> 8) & 0xffU) != (negative & 0xffU)) return 105;
     return 0;
 }
 

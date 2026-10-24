@@ -321,9 +321,13 @@ const std::vector<OptionSpec> option_specs{
 #elif defined(RAVENEMU_LIBRETRO_GBC)
     lcd_option("ravenemu_gbc_color_correction"),
     {"ravenemu_gbc_dmg_colors", "Couleurs des jeux Game Boy",
-     "Sans boot ROM. Comme sur la GBC : les couleurs que sa boot ROM donne à un jeu qu'elle ne reconnaît "
-     "pas. Gris : quatre gris.", "video",
-     {{"auto", "Comme sur la GBC"}, {"grayscale", "Gris"}}},
+     "Sans boot ROM. Comme sur la GBC : celles que sa boot ROM choisit d'après le titre du jeu (Pokémon Rouge "
+     "en rouge…). Les autres choix sont ceux des touches tenues pendant son logo.", "video",
+     {{"auto", "Comme sur la GBC"}, {"grayscale", "Gris"}, {"up", "Haut : brun"}, {"a_up", "A + Haut : rouge"},
+      {"b_up", "B + Haut : sépia"}, {"left", "Gauche : bleu"}, {"a_left", "A + Gauche : bleu-violet"},
+      {"b_left", "B + Gauche : gris"}, {"down", "Bas : pastel"}, {"a_down", "A + Bas : jaune et rouge"},
+      {"b_down", "B + Bas : jaune et brun"}, {"right", "Droite : vert et rouge"},
+      {"a_right", "A + Droite : vert et bleu"}, {"b_right", "B + Droite : négatif"}}},
 #else
     lcd_option("ravenemu_gba_color_correction"),
     // For games whose cartridge detection fails: the SAVE_RAM size must not
@@ -431,11 +435,18 @@ void apply_solar_option(ravenemu::Core& machine) {
 }
 #endif
 #if defined(RAVENEMU_LIBRETRO_GBC)
-// Couleurs des jeux Game Boy : sans effet sur un jeu GBC, appliquées tout de suite.
+// Couleurs des jeux Game Boy : sans effet sur un jeu GBC, appliquées tout de
+// suite. Les valeurs de l'option suivent l'ordre de GbcCompatibilityColors.
 void apply_dmg_colors(ravenemu::Core& machine) {
-    machine.set_gbc_compatibility_colors(option_is("ravenemu_gbc_dmg_colors", "grayscale")
-                                             ? ravenemu::GbcCompatibilityColors::grayscale
-                                             : ravenemu::GbcCompatibilityColors::automatic);
+    constexpr std::array<std::string_view, 14> values{"auto", "grayscale", "up", "a_up", "b_up", "left", "a_left",
+                                                      "b_left", "down", "a_down", "b_down", "right", "a_right",
+                                                      "b_right"};
+    static_assert(values.size() == static_cast<std::size_t>(ravenemu::GbcCompatibilityColors::b_right) + 1);
+    auto colors = ravenemu::GbcCompatibilityColors::automatic;
+    if (const char* value = option("ravenemu_gbc_dmg_colors"))
+        for (std::size_t index = 0; index < values.size(); ++index)
+            if (values[index] == value) colors = static_cast<ravenemu::GbcCompatibilityColors>(index);
+    machine.set_gbc_compatibility_colors(colors);
 }
 #endif
 // Turns on the device sensors the cartridge needs, and off the others: a

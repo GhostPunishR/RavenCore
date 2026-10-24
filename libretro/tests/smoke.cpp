@@ -1128,7 +1128,7 @@ int main() {
     const auto& dmg_colors = declared_v2["ravenemu_gbc_dmg_colors"];
     if (declared_v2.size() != 7 || !declared_options.empty() || lcd.default_value != "disabled" ||
         lcd.category != "video" || lcd.values.size() != 2 || dmg_colors.default_value != "auto" ||
-        dmg_colors.category != "video" || dmg_colors.values.size() != 2) {
+        dmg_colors.category != "video" || dmg_colors.values.size() != 14) {
         std::cerr << "Options v2 not declared\n";
         return 1;
     }

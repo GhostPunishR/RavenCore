@@ -49,10 +49,26 @@ enum class GbaSaveType : std::uint8_t {
     eeprom_8k,
 };
 
-/** Couleurs d'un jeu Game Boy sur une Game Boy Color, sans boot ROM. */
+/**
+ * Couleurs d'un jeu Game Boy sur une Game Boy Color, sans boot ROM :
+ * celles que sa boot ROM choisit pour le jeu, ou celles d'une combinaison de
+ * touches tenue pendant son logo (dans l'ordre de la boot ROM).
+ */
 enum class GbcCompatibilityColors : std::uint8_t {
-    automatic,  ///< celles que la boot ROM de la GBC lui donnerait
-    grayscale,  ///< quatre gris
+    automatic,  ///< celles que la boot ROM de la GBC lui donnerait (Pokémon Rouge en rouge…)
+    grayscale,  ///< quatre gris, ceux de B + Gauche
+    up,         ///< Haut : brun
+    a_up,       ///< A + Haut : rouge
+    b_up,       ///< B + Haut : sépia
+    left,       ///< Gauche : bleu
+    a_left,     ///< A + Gauche : bleu-violet
+    b_left,     ///< B + Gauche : gris
+    down,       ///< Bas : pastel
+    a_down,     ///< A + Bas : jaune et rouge
+    b_down,     ///< B + Bas : jaune et brun
+    right,      ///< Droite : vert et rouge
+    a_right,    ///< A + Droite : vert et bleu, celles d'un jeu inconnu
+    b_right,    ///< B + Droite : négatif
 };
 
 /** Capteurs portés par la cartouche chargée. */

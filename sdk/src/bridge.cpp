@@ -468,11 +468,13 @@ int ravenemu_remote_link_service(ravenemu_remote_link* link) {
 }
 int ravenemu_set_gbc_colors(ravenemu_bridge* handle, int colors) {
     if (!handle || !handle->core || (handle->system != RAVENEMU_GBC && handle->system != RAVENEMU_GBC_ON_GBA)) return 0;
-    if (colors != RAVENEMU_GBC_COLORS_AUTO && colors != RAVENEMU_GBC_COLORS_GRAY) return 0;
+    // Les valeurs C suivent l'énumération C++.
+    static_assert(RAVENEMU_GBC_COLORS_GRAY == static_cast<int>(ravenemu::GbcCompatibilityColors::grayscale));
+    static_assert(RAVENEMU_GBC_COLORS_UP == static_cast<int>(ravenemu::GbcCompatibilityColors::up));
+    static_assert(RAVENEMU_GBC_COLORS_B_RIGHT == static_cast<int>(ravenemu::GbcCompatibilityColors::b_right));
+    if (colors < RAVENEMU_GBC_COLORS_AUTO || colors > RAVENEMU_GBC_COLORS_B_RIGHT) return 0;
     machine_may_change(handle);
-    handle->core->set_gbc_compatibility_colors(colors == RAVENEMU_GBC_COLORS_GRAY
-                                                   ? ravenemu::GbcCompatibilityColors::grayscale
-                                                   : ravenemu::GbcCompatibilityColors::automatic);
+    handle->core->set_gbc_compatibility_colors(static_cast<ravenemu::GbcCompatibilityColors>(colors));
     return 1;
 }
 int ravenemu_check_cheat(int system, const char* code) {

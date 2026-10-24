@@ -1,6 +1,7 @@
 #pragma once
 
 #include "interrupt/interrupt_controller.hpp"
+#include "ppu/compatibility_palettes.hpp"
 #include <ravenemu/gb/hardware_mode.hpp>
 
 #include <algorithm>
@@ -187,22 +188,15 @@ public:
         ocps_auto_ = true;
     }
 
-    /**
-     * Couleurs d'un jeu Game Boy sur une GBC : la palette BG 0 et les palettes
-     * OBJ 0 et 1, en RGB555, que BGP, OBP0 et OBP1 indexent (Pan Docs,
-     * « Compatibility palettes »).
-     */
-    struct CompatibilityPalettes {
-        std::array<int, 4> background;
-        std::array<int, 4> object0;
-        std::array<int, 4> object1;
-    };
+    using CompatibilityPalettes = cgb::CompatibilityPalettes;
     // Palettes $00 de la boot ROM de la GBC : celles d'un jeu qu'elle ne
     // reconnaît pas, comme sur les captures de référence des suites publiques.
-    static constexpr CompatibilityPalettes boot_default_palettes{
-        {0x7fff, 0x1bef, 0x6180, 0x0000}, {0x7fff, 0x421f, 0x1cf2, 0x0000}, {0x7fff, 0x421f, 0x1cf2, 0x0000}};
-    static constexpr CompatibilityPalettes grayscale_palettes{
-        {0x7fff, 0x56b5, 0x294a, 0x0000}, {0x7fff, 0x56b5, 0x294a, 0x0000}, {0x7fff, 0x56b5, 0x294a, 0x0000}};
+    static constexpr CompatibilityPalettes boot_default_palettes =
+        compatibility::palettes_of(compatibility::default_entry, compatibility::default_flags);
+    static_assert(boot_default_palettes.background == std::array<int, 4>{0x7fff, 0x1bef, 0x6180, 0x0000});
+    // Les gris que donne B + Gauche au démarrage.
+    static constexpr CompatibilityPalettes grayscale_palettes =
+        compatibility::palettes_of(compatibility::manual_choices[5].entry, compatibility::manual_choices[5].flags);
 
     void set_compatibility_palettes(const CompatibilityPalettes& palettes) noexcept {
         const auto store = [](auto& cram, int palette, const std::array<int, 4>& colors) {

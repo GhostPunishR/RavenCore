@@ -153,13 +153,27 @@ int ravenemu_set_rotation(ravenemu_bridge* handle, int speed);
 int ravenemu_set_tilt(ravenemu_bridge* handle, int x, int y);
 
 /* Colors of Game Boy games on a GBC handle (RAVENEMU_GBC, RAVENEMU_GBC_ON_GBA)
- * started without boot ROM. AUTO gives the colors the GBC boot ROM gives a
- * game it does not recognize; GRAY, four greys. Applied at once, and kept
- * across ravenemu_load, ravenemu_reset and state loads. Returns 1, or 0 for
- * another handle or an unknown value. */
+ * started without boot ROM. AUTO gives the colors the GBC boot ROM picks for
+ * the game from its title (Pokemon Red in red...), and its default ones to a
+ * game it does not know; GRAY, four greys (those of B + Left). The others are
+ * the button combinations held during the boot ROM's logo. Applied at once,
+ * and kept across ravenemu_load, ravenemu_reset and state loads. Returns 1,
+ * or 0 for another handle or an unknown value. */
 enum ravenemu_gbc_colors {
     RAVENEMU_GBC_COLORS_AUTO = 0,
-    RAVENEMU_GBC_COLORS_GRAY = 1
+    RAVENEMU_GBC_COLORS_GRAY = 1,
+    RAVENEMU_GBC_COLORS_UP = 2,       /* brown */
+    RAVENEMU_GBC_COLORS_A_UP = 3,     /* red */
+    RAVENEMU_GBC_COLORS_B_UP = 4,     /* sepia */
+    RAVENEMU_GBC_COLORS_LEFT = 5,     /* blue */
+    RAVENEMU_GBC_COLORS_A_LEFT = 6,   /* blue-violet */
+    RAVENEMU_GBC_COLORS_B_LEFT = 7,   /* grey */
+    RAVENEMU_GBC_COLORS_DOWN = 8,     /* pastel */
+    RAVENEMU_GBC_COLORS_A_DOWN = 9,   /* yellow and red */
+    RAVENEMU_GBC_COLORS_B_DOWN = 10,  /* yellow and brown */
+    RAVENEMU_GBC_COLORS_RIGHT = 11,   /* green and red */
+    RAVENEMU_GBC_COLORS_A_RIGHT = 12, /* green and blue, an unknown game's */
+    RAVENEMU_GBC_COLORS_B_RIGHT = 13  /* negative */
 };
 int ravenemu_set_gbc_colors(ravenemu_bridge* handle, int colors);
 

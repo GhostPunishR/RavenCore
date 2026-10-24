@@ -319,9 +319,27 @@ private:
     // PPU, le jeu ne la voit pas. Une boot ROM fournie a choisi la sienne.
     void apply_compatibility_colors(Machine& machine) const noexcept {
         if (machine.hardware_mode != gb::HardwareMode::cgb_compatibility || machine.boot_rom.supplied()) return;
-        machine.ppu.set_compatibility_palettes(compatibility_colors_ == GbcCompatibilityColors::grayscale
-                                                   ? Ppu::grayscale_palettes
-                                                   : Ppu::boot_default_palettes);
+        machine.ppu.set_compatibility_palettes(compatibility_palettes(machine));
+    }
+    [[nodiscard]] const Ppu::CompatibilityPalettes& compatibility_palettes(const Machine& machine) const noexcept {
+        switch (compatibility_colors_) {
+        case GbcCompatibilityColors::automatic: {
+            const auto read = [&machine](int address) { return machine.cartridge->read_rom(address); };
+            return compatibility::automatic(compatibility::title_checksum(read), read(0x0137));
+        }
+        case GbcCompatibilityColors::grayscale: return Ppu::grayscale_palettes;
+        default: {
+            // Les choix manuels suivent, dans l'ordre de la boot ROM.
+            static_assert(static_cast<std::size_t>(GbcCompatibilityColors::b_right) -
+                              static_cast<std::size_t>(GbcCompatibilityColors::up) + 1 ==
+                          compatibility::manual_choices.size());
+            const auto index = static_cast<std::size_t>(compatibility_colors_) -
+                               static_cast<std::size_t>(GbcCompatibilityColors::up);
+            if (index >= compatibility::manual_choices.size()) return Ppu::boot_default_palettes;
+            const auto& choice = compatibility::manual_choices[index];
+            return compatibility::palettes_of(choice.entry, choice.flags);
+        }
+        }
     }
     void install_machine(std::unique_ptr<Machine> replacement) {
         if (machine_) {

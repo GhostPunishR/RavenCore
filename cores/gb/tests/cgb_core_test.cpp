@@ -611,6 +611,56 @@ void gbc_compatibility_colors_test() {
     check(color() == gray, "réglage des couleurs perdu au reset");
 }
 
+/**
+ * Couleurs choisies par la boot ROM d'après le titre, quand l'éditeur est
+ * Nintendo (données TCRF), et couleurs des combinaisons de touches. Le jeu
+ * dessine la couleur 1 de la palette de fond sous le premier pixel.
+ */
+void gbc_title_palettes_test() {
+    const auto game = [](int licensee, int checksum, char fourth_letter) {
+        auto rom = rom_running(minimal_game_boy_rom(),
+                               {0xaf, 0xe0, 0x40, 0x21, 0x00, 0x80, 0x06, 0x08, 0x3e, 0xff, 0x22, 0xaf, 0x22,
+                                0x05, 0x20, 0xf8, 0x3e, 0xe4, 0xe0, 0x47, 0x3e, 0x91, 0xe0, 0x40, 0x18, 0xfe});
+        rom[0x14b] = static_cast<std::uint8_t>(licensee);
+        rom[0x144] = '0';
+        rom[0x145] = '1';
+        rom[0x137] = static_cast<std::uint8_t>(fourth_letter);
+        rom[0x134] = static_cast<std::uint8_t>(checksum - fourth_letter);  // somme du titre = checksum
+        return rom;
+    };
+    const auto color_1 = [](const std::vector<std::uint8_t>& rom, ravenemu::GbcCompatibilityColors colors) {
+        auto core = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::cgb);
+        core->set_gbc_compatibility_colors(colors);
+        core->load_rom(rom, {});
+        std::vector<std::int32_t> frame(160 * 144);
+        core->run_frame(frame, true);
+        core->run_frame(frame, true);
+        return static_cast<std::uint32_t>(frame[0]) & 0xffffffU;
+    };
+    // RGB555 tel que la GBC l'affiche : chaque composante (c << 3) | (c >> 2).
+    const auto shown = [](int rgb555) {
+        const auto expand = [](int c) { return static_cast<std::uint32_t>((c << 3) | (c >> 2)); };
+        return expand(rgb555 & 31) << 16 | expand((rgb555 >> 5) & 31) << 8 | expand((rgb555 >> 10) & 31);
+    };
+    constexpr auto automatic = ravenemu::GbcCompatibilityColors::automatic;
+    // Pokémon Rouge (somme 14h) : rouge 0xFF8484. Pokémon Bleu (61h, 4e lettre E) : bleu 0x63A5FF.
+    check(color_1(game(0x01, 0x14, 'K'), automatic) == shown(0x421f), "Pokémon Rouge n'est pas rouge");
+    check(color_1(game(0x33, 0x14, 'K'), automatic) == shown(0x421f), "éditeur Nintendo en 33h + « 01 » ignoré");
+    check(color_1(game(0x01, 0x61, 'E'), automatic) == shown(0x7e8c), "Pokémon Bleu n'est pas bleu");
+    // Même somme, autre 4e lettre, ou autre éditeur : couleurs d'un jeu inconnu.
+    check(color_1(game(0x01, 0x61, 'X'), automatic) == shown(0x1bef), "4e lettre ignorée");
+    check(color_1(game(0x08, 0x14, 'K'), automatic) == shown(0x1bef), "jeu d'un autre éditeur colorié");
+    auto other_licensee = game(0x33, 0x14, 'K');
+    other_licensee[0x145] = '8';
+    check(color_1(other_licensee, automatic) == shown(0x1bef), "nouvel éditeur autre que Nintendo colorié");
+    // Touches au démarrage : B + Droite (négatif, 0x008484), B + Gauche (gris) comme « gris ».
+    check(color_1(game(0x01, 0x14, 'K'), ravenemu::GbcCompatibilityColors::b_right) == shown(0x4200),
+          "B + Droite ignoré");
+    check(color_1(game(0x08, 0x00, 'K'), ravenemu::GbcCompatibilityColors::grayscale) == shown(0x5294) &&
+              color_1(game(0x08, 0x00, 'K'), ravenemu::GbcCompatibilityColors::b_left) == shown(0x5294),
+          "gris différent de B + Gauche");
+}
+
 void link_cable_test() {
     auto master = ravenemu::make_game_boy_core();
     auto slave = ravenemu::make_game_boy_core();
@@ -637,6 +687,7 @@ int main() {
     link_cable_test();
     agb_hardware_test();
     gbc_compatibility_colors_test();
+    gbc_title_palettes_test();
     boot_rom_state_test();
     cheats_test();
     game_boy_color_and_battery_test();
