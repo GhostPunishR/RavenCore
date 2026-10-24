@@ -1,6 +1,7 @@
 #include <ravenemu/bridge.h>
 #include <synthetic_roms.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -225,6 +226,56 @@ int link_cable_test() {
     return 0;
 }
 
+// Codes de triche : vérifiés un par un pour le joueur, activés en bloc.
+int cheats_test() {
+    if (!ravenemu_check_cheat(RAVENEMU_GB, "3EA-12B-FAE+01AA10C0") ||
+        !ravenemu_check_cheat(RAVENEMU_GBC_ON_GBA, "01AA10C0") ||
+        !ravenemu_check_cheat(RAVENEMU_GBA, "82000100 1234")) return 80;
+    if (ravenemu_check_cheat(RAVENEMU_GB, "01021234") ||
+        std::string(ravenemu_last_error()).find("vise la ROM") == std::string::npos) return 81;
+    if (ravenemu_check_cheat(RAVENEMU_GBA, "01AA10C0") || ravenemu_check_cheat(99, "01AA10C0") ||
+        ravenemu_check_cheat(RAVENEMU_GB, nullptr)) return 82;
+
+    auto rom = ravenemu::testing::minimal_game_boy_rom();
+    Handle handle(ravenemu_create(RAVENEMU_GB), ravenemu_destroy);
+    if (!handle || !ravenemu_load(handle.get(), rom.data(), rom.size(), nullptr, 0)) return 83;
+    std::vector<std::uint32_t> frame(160 * 144);
+    const char* const codes[] = {"01AA10C0", "01BB11C0"};
+    std::uint8_t written[3]{};
+    if (!ravenemu_set_cheats(handle.get(), codes, 2) || !ravenemu_run_frame(handle.get(), frame.data(), frame.size()) ||
+        ravenemu_read_achievement_memory(handle.get(), 0xc010, written, sizeof written) != sizeof written ||
+        written[0] != 0xaa || written[1] != 0xbb) return 84;
+    // Un code refusé : la liste précédente reste, et l'erreur nomme l'entrée.
+    const char* const refused[] = {"01CC12C0", "XYZ"};
+    if (ravenemu_set_cheats(handle.get(), refused, 2) ||
+        std::string(ravenemu_last_error()).find("code de triche 2") == std::string::npos) return 85;
+    if (!ravenemu_run_frame(handle.get(), frame.data(), frame.size()) ||
+        ravenemu_read_achievement_memory(handle.get(), 0xc010, written, sizeof written) != sizeof written ||
+        written[2] != 0) return 86;
+    if (!ravenemu_set_cheats(handle.get(), nullptr, 0) || ravenemu_set_cheats(nullptr, codes, 1) ||
+        ravenemu_set_cheats(handle.get(), nullptr, 1)) return 87;
+    return 0;
+}
+
+// La GBC d'une GBA démarre un jeu GBC avec B = 1, la GBC seule avec B = 0.
+int gbc_on_gba_test() {
+    auto rom = ravenemu::testing::minimal_game_boy_rom();
+    rom[0x143] = 0x80;
+    rom[0x101] = 0x50;  // JP $0150
+    const std::uint8_t program[] = {0x78, 0xea, 0x00, 0xc0, 0x18, 0xfe};  // LD A,B ; LD ($C000),A ; JR $
+    std::copy(std::begin(program), std::end(program), rom.begin() + 0x150);
+    for (const int system : {RAVENEMU_GBC, RAVENEMU_GBC_ON_GBA}) {
+        Handle handle(ravenemu_create(system), ravenemu_destroy);
+        std::vector<std::uint32_t> frame(160 * 144);
+        std::uint8_t b = 0xff;
+        if (!handle || !ravenemu_load(handle.get(), rom.data(), rom.size(), nullptr, 0) ||
+            ravenemu_video_width(handle.get()) != 160 || !ravenemu_run_frame(handle.get(), frame.data(), frame.size()) ||
+            ravenemu_read_achievement_memory(handle.get(), 0xc000, &b, 1) != 1) return 90;
+        if (b != (system == RAVENEMU_GBC_ON_GBA ? 1 : 0)) return 91;
+    }
+    return 0;
+}
+
 int main() {
     if (ravenemu_api_version() != RAVENEMU_API_VERSION ||
         std::string(ravenemu_version()) != RAVENEMU_VERSION) {
@@ -253,6 +304,14 @@ int main() {
     }
     if (const int failure = sensors_test()) {
         std::cerr << "Cartridge sensors failed (" << failure << "): " << ravenemu_last_error() << "\n";
+        return failure;
+    }
+    if (const int failure = cheats_test()) {
+        std::cerr << "Cheats failed (" << failure << "): " << ravenemu_last_error() << "\n";
+        return failure;
+    }
+    if (const int failure = gbc_on_gba_test()) {
+        std::cerr << "GBC on GBA failed (" << failure << "): " << ravenemu_last_error() << "\n";
         return failure;
     }
     if (ravenemu_create(99)) {

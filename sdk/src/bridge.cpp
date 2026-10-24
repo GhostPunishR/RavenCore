@@ -74,6 +74,15 @@ void require_gba(const ravenemu_bridge* handle) {
     if (handle->core->console() != ravenemu::Console::game_boy_advance) throw std::invalid_argument("Not a GBA handle");
 }
 
+// Console d'une valeur de ravenemu_system, pour décoder ses codes de triche.
+std::optional<ravenemu::Console> console_of(int system) noexcept {
+    switch (system) {
+    case RAVENEMU_GB: case RAVENEMU_GBC: case RAVENEMU_GBC_ON_GBA: return ravenemu::Console::game_boy;
+    case RAVENEMU_GBA: return ravenemu::Console::game_boy_advance;
+    default: return std::nullopt;
+    }
+}
+
 void require_loaded(const ravenemu_bridge* handle) {
     if (!handle || !handle->core || !handle->loaded)
         throw std::runtime_error("No ROM loaded");
@@ -118,6 +127,9 @@ ravenemu_bridge* ravenemu_create(int system) {
             break;
         case RAVENEMU_GBA:
             handle->core = ravenemu::make_gba_core(std::nullopt);
+            break;
+        case RAVENEMU_GBC_ON_GBA:
+            handle->core = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::agb);
             break;
         default:
             throw std::invalid_argument("Invalid system");
@@ -443,6 +455,31 @@ int ravenemu_remote_link_service(ravenemu_remote_link* link) {
         if (!link->handle->loaded) return;
         machine_may_change(link->handle);
         link->handle->core->service_remote_link();
+    });
+}
+int ravenemu_check_cheat(int system, const char* code) {
+    return attempt([&] {
+        const auto console = console_of(system);
+        if (!console) throw std::invalid_argument("Invalid system");
+        if (!code) throw std::invalid_argument("Null cheat code");
+        static_cast<void>(ravenemu::parse_cheat(*console, code));
+    });
+}
+int ravenemu_set_cheats(ravenemu_bridge* handle, const char* const* codes, size_t count) {
+    return attempt([&] {
+        if (!handle || !handle->core) throw std::invalid_argument("Null handle");
+        if (count > 0 && !codes) throw std::invalid_argument("Null cheat list");
+        std::vector<ravenemu::Cheat> cheats;
+        cheats.reserve(count);
+        for (size_t index = 0; index < count; ++index) {
+            if (!codes[index]) throw std::invalid_argument("Null cheat code");
+            try {
+                cheats.push_back(ravenemu::parse_cheat(handle->core->console(), codes[index]));
+            } catch (const ravenemu::CheatError& error) {
+                throw std::runtime_error("code de triche " + std::to_string(index + 1) + " : " + error.what());
+            }
+        }
+        handle->core->set_cheats(cheats);
     });
 }
 int ravenemu_link_wanted(const ravenemu_bridge* handle) {

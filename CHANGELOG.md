@@ -2,6 +2,31 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.14.0 - 2026-10-24
+
+Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Game Boy Advance : RavenEmu Android et RavenEmu PC peuvent désormais les proposer. Les moteurs et le format des états ne changent pas.
+
+### Ajouté
+
+- **Codes de triche dans l'API C.**
+  - `ravenemu_check_cheat()` vérifie un code sans handle, au moment où le joueur le saisit, et laisse la raison d'un refus, en français, dans `ravenemu_last_error()`.
+  - `ravenemu_set_cheats()` active une liste de codes à partir de l'image suivante. Si une entrée est refusée, la liste précédente reste active et l'erreur nomme l'entrée, par exemple « code de triche 2 : … ».
+  - Formats, survie aux chargements, réinitialisations et états : comme dans RetroArch depuis la 0.12.0.
+- **`RAVENEMU_GBC_ON_GBA`** pour `ravenemu_create()`, et `sdk::System::game_boy_color_on_gba` dans le SDK C++ : la GBC d'une Game Boy Advance, `gb::HardwareModel::agb` depuis la 0.13.0.
+
+### Compatibilité des états instantanés
+
+- **GBA : format 16** et **GB/GBC : format 11**, inchangés.
+- **API C : version 0**, avec des ajouts seulement : une valeur de `ravenemu_system` et deux fonctions. Le paquet CMake se demande désormais avec `find_package(RavenCore 0.14)`.
+
+### Tests
+
+- `ravenemu_c_api` :
+  - codes vérifiés sans handle : acceptés, ou refusés avec leur raison, pour une autre console, un système inconnu ou un code absent ;
+  - deux codes GameShark appliqués dès l'image suivante ;
+  - une liste dont la deuxième entrée est refusée : l'erreur la nomme, et l'ancienne liste reste active ;
+  - avec `RAVENEMU_GBC_ON_GBA`, B vaut 1 au démarrage d'un jeu GBC ; avec `RAVENEMU_GBC`, il vaut 0.
+
 ## 0.13.0 - 2026-10-23
 
 Cette version comble une partie des écarts relevés face aux émulateurs de référence (mGBA, SameBoy, Gambatte, VBA-M, gpSP). Elle prend en charge le MBC30 et le mode Game Boy Advance des jeux GBC. Les cœurs Libretro gagnent le mélange d'images, le blocage des directions opposées et les boot ROMs du dossier système. L'API C et le format des états ne changent pas ; l'API C++ gagne un modèle de console.

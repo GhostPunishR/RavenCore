@@ -107,7 +107,7 @@ Les cœurs déclarent à RetroArch la mémoire que surveille RetroAchievements :
 Après `cmake --install`, utilisez le paquet CMake :
 
 ```cmake
-find_package(RavenCore 0.13 REQUIRED)
+find_package(RavenCore 0.14 REQUIRED)
 target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 
@@ -119,11 +119,11 @@ L'API C couvre :
 - les capteurs des cartouches : lumière, rotation et inclinaison ;
 - le câble link entre consoles d'une même application (deux jeux sur un même appareil) ;
 - le câble link vers une console d'un autre appareil, l'application transportant les messages (voir [docs/remote_link.md](docs/remote_link.md)) ;
-- la lecture de la mémoire surveillée par RetroAchievements.
+- la lecture de la mémoire surveillée par RetroAchievements ;
+- les codes de triche, vérifiés un par un pour le joueur puis activés en bloc ;
+- la Game Boy Color d'une Game Boy Advance, pour les bonus des jeux qui la reconnaissent.
 
-Détails dans le [README du SDK](sdk/README.md).
-
-Les codes de triche ne passent pour l'instant que par l'API C++ : `parse_cheat` décode une entrée, `Core::set_cheats` active la liste.
+Détails dans le [README du SDK](sdk/README.md). En C++, `parse_cheat` décode un code de triche, `Core::set_cheats` active la liste, et `gb::HardwareModel::agb` crée la GBC d'une Game Boy Advance.
 
 ## Tests
 
@@ -158,7 +158,7 @@ ctest --test-dir build --output-on-failure
 
 ## Versions
 
-Version actuelle : **0.13.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro pour Linux, Windows, macOS et Android. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
+Version actuelle : **0.14.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro pour Linux, Windows, macOS et Android. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
 
 Avant la 1.0, une version peut changer l'API ou le format des états ; le journal le signale à chaque fois.
 

@@ -26,7 +26,12 @@ const char* ravenemu_version(void);
 enum ravenemu_system {
     RAVENEMU_GB = 0,
     RAVENEMU_GBC = 1,
-    RAVENEMU_GBA = 2
+    RAVENEMU_GBA = 2,
+    /* The Game Boy Color inside a Game Boy Advance: it runs GBC and GB games
+     * like RAVENEMU_GBC, but starts them with B = 1 (B + 1 for a GB game), so
+     * that games which detect a GBA unlock their extras (Zelda Oracle,
+     * Shantae...). */
+    RAVENEMU_GBC_ON_GBA = 3
 };
 
 enum ravenemu_button {
@@ -139,6 +144,24 @@ int ravenemu_set_rotation(ravenemu_bridge* handle, int speed);
 /* Tilt: -32768..32767 per axis for -1 g..1 g. x > 0 when the right side of
  * the console goes down, y > 0 when its top edge moves away from the player. */
 int ravenemu_set_tilt(ravenemu_bridge* handle, int x, int y);
+
+/* Cheat codes. An entry is one cheat of a cheat menu: one or more lines
+ * separated by spaces, line breaks or '+'.
+ * - GB/GBC: Game Genie (ABC-DEF-GHI or ABC-DEF) and GameShark (8 digits,
+ *   like 010238CD), mixed as needed.
+ * - GBA: unencrypted Codebreaker (XAAAAAAA YYYY), and GameShark v1/v2 or
+ *   Pro Action Replay v3 encrypted as the device shows them
+ *   (XXXXXXXX YYYYYYYY), told apart by their decryption.
+ * GBA ROM patches, DEADFACE seed changes and encrypted Codebreaker codes are
+ * refused. Refusal reasons are in French, meant for the player. */
+/* 1 if `code` is a usable cheat for `system` (enum ravenemu_system), else 0
+ * with the reason in ravenemu_last_error(). Needs no handle. */
+int ravenemu_check_cheat(int system, const char* code);
+/* Replaces the active cheats from the next frame; count 0 removes them all.
+ * They survive ravenemu_load, ravenemu_reset and state loads, without being
+ * stored in states. Returns 0 if an entry is refused: the previous list
+ * stays, and ravenemu_last_error() names the entry (from 1) and the reason. */
+int ravenemu_set_cheats(ravenemu_bridge* handle, const char* const* codes, size_t count);
 
 /* Link cable between handles of this process, for example two games side by
  * side on one device. Link 2 GB/GBC handles (a GB and a GBC can be mixed) or

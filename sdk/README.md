@@ -14,6 +14,15 @@ Pour un jeu GBA dont la détection échoue, `ravenemu_set_gba_save_type()` impos
 
 `ravenemu_remote_link_create()` relie un handle à une console d'**un autre appareil** : l'application transporte les messages dans l'ordre et sans perte (une connexion TCP, par exemple), puis branche le câble par `ravenemu_remote_link_set_connected()`. La console qui cadence un transfert attend la réponse de l'autre en temps réel, dans `ravenemu_run_frame()` : son temps émulé ne bouge pas, le jeu ne voit aucun retard. L'autre répond depuis sa propre `ravenemu_run_frame()`, ou entre deux images depuis `ravenemu_remote_link_service()`. Deux consoles : GB/GBC entre elles, GBA entre elles, le joueur 0 étant le parent GBA. `ravenemu_link_wanted()` dit quand le jeu se sert de son port link, pour ne chercher un partenaire qu'à ce moment. Protocole, fils et limites : [docs/remote_link.md](../docs/remote_link.md).
 
+`ravenemu_set_cheats()` active une liste de codes de triche à partir de l'image suivante ; une liste vide les retire. Chaque entrée est un code d'un menu de triche, en une ou plusieurs lignes séparées par des espaces, des retours à la ligne ou des « + » :
+
+- Game Boy et Game Boy Color : Game Genie (`ABC-DEF-GHI` ou `ABC-DEF`) et GameShark (8 chiffres, comme `010238CD`) ;
+- GBA : Codebreaker non chiffré (`XAAAAAAA YYYY`), GameShark v1/v2 et Pro Action Replay v3 chiffrés tels que l'appareil les affiche (`XXXXXXXX YYYYYYYY`), reconnus à leur déchiffrement.
+
+`ravenemu_check_cheat()` vérifie un code sans handle, au moment où le joueur le saisit. Un code refusé laisse sa raison, en français, dans `ravenemu_last_error()`, par exemple « le code GameShark « 01021234 » vise la ROM : c'est le rôle d'un code Game Genie ». Si une entrée de `ravenemu_set_cheats()` est refusée, la liste précédente reste active, et l'erreur nomme l'entrée, numérotée à partir de 1. Les codes survivent au chargement, au reset et aux états instantanés, sans y être enregistrés. Restent refusés : les patchs de ROM GBA, le changement de chiffrement `DEADFACE` et les codes Codebreaker chiffrés.
+
+`ravenemu_create(RAVENEMU_GBC_ON_GBA)` crée la Game Boy Color d'une Game Boy Advance. Elle lance les jeux GBC et Game Boy comme `RAVENEMU_GBC`, mais les démarre avec B = 1 (B + 1 pour un jeu Game Boy). Les jeux qui testent ce registre débloquent leurs bonus GBA, comme Zelda Oracle ou Shantae. Elle se relie par câble comme une GBC.
+
 `ravenemu_read_achievement_memory()` lit l'espace d'adresses de RetroAchievements sans faire avancer l'émulation. Une zone non exposée donne une lecture plus courte que demandé : le frontend doit utiliser le nombre d'octets renvoyé.
 
 La bibliothèque est liée statiquement aux moteurs C++20. Les structures C++ ne traversent jamais cette interface. La version 0 de l'API est une préversion : ne pas supposer une ABI stabilisée. Pour connaître les erreurs, utiliser `ravenemu_last_error()` sur le même thread que l'appel ayant échoué.
@@ -37,7 +46,7 @@ cmake --install build --prefix /chemin/ravencore
 ```
 
 ```cmake
-find_package(RavenCore 0.7 REQUIRED)
+find_package(RavenCore 0.14 REQUIRED)
 target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 
