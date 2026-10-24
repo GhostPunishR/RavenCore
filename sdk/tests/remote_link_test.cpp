@@ -243,19 +243,44 @@ std::vector<std::uint8_t> gba_pace_rom() {
     return rom;
 }
 
-// Fait tourner `handle` sur son fil jusqu'à `done` (vrai), ou 600 images.
+// Une console qui a fini son programme n'a plus à consommer des images
+// émulées pour attendre l'autre fil. Le câble reste servi pendant l'attente.
+bool wait_for_peer(ravenemu_remote_link* link, const std::atomic<bool>* peer_done) {
+    if (peer_done == nullptr) return true;
+    const auto deadline = Clock::now() + std::chrono::seconds(5);
+    while (!peer_done->load()) {
+        if (Clock::now() >= deadline) {
+            std::cerr << "peer did not finish within 5 s after local completion\n";
+            return false;
+        }
+        if (!ravenemu_remote_link_service(link)) {
+            std::cerr << "remote link service failed while waiting for peer: " << ravenemu_last_error() << "\n";
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return true;
+}
+
+// Fait tourner `handle` jusqu'à la fin de sa ROM (au plus 600 images),
+// puis attend séparément la fin de l'autre fil, si demandée.
 bool run_until(ravenemu_bridge* handle, ravenemu_remote_link* link, int pixels,
                bool (*done)(ravenemu_bridge*), const std::atomic<bool>* also_wait = nullptr) {
     std::vector<std::uint32_t> frame(static_cast<std::size_t>(pixels));
     for (int index = 0; index < 600; ++index) {
-        if (done(handle) && (also_wait == nullptr || also_wait->load())) return true;
+        if (done(handle)) return wait_for_peer(link, also_wait);
         if (!ravenemu_run_frame(handle, frame.data(), frame.size())) {
             std::cerr << "run_frame failed: " << ravenemu_last_error() << "\n";
             return false;
         }
         ravenemu_remote_link_service(link);
     }
-    return done(handle) && (also_wait == nullptr || also_wait->load());
+    if (!done(handle)) {
+        std::cerr << "ROM did not finish after 600 frames; peer finished: "
+                  << (also_wait == nullptr ? "n/a" : (also_wait->load() ? "yes" : "no")) << "\n";
+        return false;
+    }
+    return wait_for_peer(link, also_wait);
 }
 
 bool game_boy_done(ravenemu_bridge* handle) {
