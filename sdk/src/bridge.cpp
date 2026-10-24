@@ -22,6 +22,7 @@
 
 struct ravenemu_bridge {
     std::unique_ptr<ravenemu::Core> core;
+    int system = -1;  // valeur de ravenemu_system donnée à ravenemu_create
     std::vector<std::int32_t> framebuffer;
     bool loaded = false;
     // État sérialisé par ravenemu_state_size : un frontend appelle presque
@@ -74,6 +75,15 @@ void require_gba(const ravenemu_bridge* handle) {
     if (handle->core->console() != ravenemu::Console::game_boy_advance) throw std::invalid_argument("Not a GBA handle");
 }
 
+// Console d'une valeur de ravenemu_system, pour décoder ses codes de triche.
+std::optional<ravenemu::Console> console_of(int system) noexcept {
+    switch (system) {
+    case RAVENEMU_GB: case RAVENEMU_GBC: case RAVENEMU_GBC_ON_GBA: return ravenemu::Console::game_boy;
+    case RAVENEMU_GBA: return ravenemu::Console::game_boy_advance;
+    default: return std::nullopt;
+    }
+}
+
 void require_loaded(const ravenemu_bridge* handle) {
     if (!handle || !handle->core || !handle->loaded)
         throw std::runtime_error("No ROM loaded");
@@ -119,10 +129,14 @@ ravenemu_bridge* ravenemu_create(int system) {
         case RAVENEMU_GBA:
             handle->core = ravenemu::make_gba_core(std::nullopt);
             break;
+        case RAVENEMU_GBC_ON_GBA:
+            handle->core = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::agb);
+            break;
         default:
             throw std::invalid_argument("Invalid system");
         }
         handle->framebuffer.resize(handle->core->video_spec().pixel_count());
+        handle->system = system;
         result = handle.release();
     });
     return result;
@@ -296,6 +310,13 @@ int ravenemu_set_gba_rtc(ravenemu_bridge* handle, int rtc) {
                                                                          : std::optional<bool>{rtc == RAVENEMU_GBA_RTC_ON});
     });
 }
+int ravenemu_set_gba_bios(ravenemu_bridge* handle, const uint8_t* bios, size_t size, int skip_intro) {
+    return attempt([&] {
+        require_gba(handle);
+        if (size && !bios) throw std::invalid_argument("Null GBA BIOS");
+        handle->core->set_gba_bios({bios, size}, skip_intro != 0);
+    });
+}
 int ravenemu_rumble_active(const ravenemu_bridge* handle) {
     return handle && handle->core && handle->loaded && handle->core->rumble_active() ? 1 : 0;
 }
@@ -443,6 +464,42 @@ int ravenemu_remote_link_service(ravenemu_remote_link* link) {
         if (!link->handle->loaded) return;
         machine_may_change(link->handle);
         link->handle->core->service_remote_link();
+    });
+}
+int ravenemu_set_gbc_colors(ravenemu_bridge* handle, int colors) {
+    if (!handle || !handle->core || (handle->system != RAVENEMU_GBC && handle->system != RAVENEMU_GBC_ON_GBA)) return 0;
+    // Les valeurs C suivent l'énumération C++.
+    static_assert(RAVENEMU_GBC_COLORS_GRAY == static_cast<int>(ravenemu::GbcCompatibilityColors::grayscale));
+    static_assert(RAVENEMU_GBC_COLORS_UP == static_cast<int>(ravenemu::GbcCompatibilityColors::up));
+    static_assert(RAVENEMU_GBC_COLORS_B_RIGHT == static_cast<int>(ravenemu::GbcCompatibilityColors::b_right));
+    if (colors < RAVENEMU_GBC_COLORS_AUTO || colors > RAVENEMU_GBC_COLORS_B_RIGHT) return 0;
+    machine_may_change(handle);
+    handle->core->set_gbc_compatibility_colors(static_cast<ravenemu::GbcCompatibilityColors>(colors));
+    return 1;
+}
+int ravenemu_check_cheat(int system, const char* code) {
+    return attempt([&] {
+        const auto console = console_of(system);
+        if (!console) throw std::invalid_argument("Invalid system");
+        if (!code) throw std::invalid_argument("Null cheat code");
+        static_cast<void>(ravenemu::parse_cheat(*console, code));
+    });
+}
+int ravenemu_set_cheats(ravenemu_bridge* handle, const char* const* codes, size_t count) {
+    return attempt([&] {
+        if (!handle || !handle->core) throw std::invalid_argument("Null handle");
+        if (count > 0 && !codes) throw std::invalid_argument("Null cheat list");
+        std::vector<ravenemu::Cheat> cheats;
+        cheats.reserve(count);
+        for (size_t index = 0; index < count; ++index) {
+            if (!codes[index]) throw std::invalid_argument("Null cheat code");
+            try {
+                cheats.push_back(ravenemu::parse_cheat(handle->core->console(), codes[index]));
+            } catch (const ravenemu::CheatError& error) {
+                throw std::runtime_error("code de triche " + std::to_string(index + 1) + " : " + error.what());
+            }
+        }
+        handle->core->set_cheats(cheats);
     });
 }
 int ravenemu_link_wanted(const ravenemu_bridge* handle) {

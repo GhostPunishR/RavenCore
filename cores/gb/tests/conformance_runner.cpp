@@ -290,17 +290,10 @@ void snap_to_dmg_shades(std::vector<std::uint8_t>& rgb) {
  * de référence en mode compatibilité supposent celles-ci. Elles passent par
  * les mêmes registres que le boot ROM.
  */
+// Depuis la 0.14.0, le mode de compatibilité sans boot ROM part déjà de ces
+// palettes : l'option reste acceptée pour les manifestes qui la demandent.
 void apply_boot_default_compatibility_palette(Ppu& ppu) {
-    static constexpr std::array<int, 4> background{0x7fff, 0x1bef, 0x6180, 0x0000};
-    static constexpr std::array<int, 4> objects{0x7fff, 0x421f, 0x1cf2, 0x0000};
-    ppu.write_bcps(0x80);
-    for (const int color : background) { ppu.write_bcpd(color & 0xff); ppu.write_bcpd(color >> 8); }
-    ppu.write_ocps(0x80);
-    for (int palette = 0; palette < 2; ++palette) {
-        for (const int color : objects) { ppu.write_ocpd(color & 0xff); ppu.write_ocpd(color >> 8); }
-    }
-    ppu.write_bcps(0);
-    ppu.write_ocps(0);
+    ppu.set_compatibility_palettes(Ppu::boot_default_palettes);
 }
 
 std::string frame_hash(const std::vector<std::uint8_t>& bytes) {

@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(ravenemu_package_consumer LANGUAGES CXX)
 
-find_package(RavenCore 0.13 REQUIRED)
+find_package(RavenCore 0.14 REQUIRED)
 
 add_executable(ravenemu_package_consumer main.cpp)
 target_link_libraries(ravenemu_package_consumer PRIVATE

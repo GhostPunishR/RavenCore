@@ -54,22 +54,30 @@ Pour ne compiler que les moteurs, ajoutez `-DRAVENEMU_BUILD_LIBRETRO=OFF -DBUILD
 | `ravenemu_gbc_libretro` | Game Boy Color, compatible Game Boy |
 | `ravenemu_gba_libretro` | Game Boy Advance |
 
-Les cœurs gèrent la vibration (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) et les capteurs des cartouches, pilotés au stick analogique gauche :
+Les cœurs gèrent la vibration (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) et les capteurs des cartouches. Ils les pilotent au stick analogique gauche, et avec les capteurs du téléphone ou de la manette s'il en a :
 
 | Capteur | Jeux | Commande |
 | --- | --- | --- |
-| Accéléromètre MBC7 | Kirby Tilt 'n' Tumble, Command Master | Stick gauche |
-| Inclinaison GBA | Yoshi Topsy-Turvy, Koro Koro Puzzle | Stick gauche |
-| Gyroscope GBA | WarioWare: Twisted! | Stick gauche, axe horizontal (à droite : sens horaire) |
-| Capteur solaire GBA | Boktai 1 à 3 | Option `ravenemu_gba_solar_light` |
+| Accéléromètre MBC7 | Kirby Tilt 'n' Tumble, Command Master | Stick gauche, accéléromètre de l'appareil |
+| Inclinaison GBA | Yoshi Topsy-Turvy, Koro Koro Puzzle | Stick gauche, accéléromètre de l'appareil |
+| Gyroscope GBA | WarioWare: Twisted! | Stick gauche, axe horizontal (à droite : sens horaire), gyroscope de l'appareil |
+| Capteur solaire GBA | Boktai 1 à 3 | Option `ravenemu_gba_solar_light` : un pourcentage, ou le capteur de lumière de l'appareil |
+
+Les capteurs de l'appareil passent par l'interface de RetroArch (« Capteurs » doit y être activé), avec les conversions de RavenEmu Android :
+- **Inclinaison** : posé à plat, l'appareil n'est pas incliné ; tenu debout, il l'est de 1 g. Le jeu se cale souvent lui-même sur la position de départ.
+- **Rotation** : un demi-tour par seconde donne la pleine échelle.
+- **Lumière** : rien sous 1000 lux (une pièce éclairée), le plein soleil vers 100 000 lux, sur une échelle logarithmique.
+
+Ils ne s'allument que pour un jeu qui en a besoin. L'option **Capteurs de l'appareil** les ignore pour garder le stick seul.
 
 La sauvegarde et l'horloge d'un jeu GBA sont détectées automatiquement. La détection RTC couvre aussi les pilotes Pokémon/CFRU sans marqueur Seiko, à partir de leur identité interne et de références GPIO ([détails et limites](cores/gba/tests/rtc_compatibility.md)). Si la détection se trompe, deux options du cœur les imposent.
 
-Les options s'affichent en français, rangées en quatre catégories : **Image**, **Commandes**, **Système** et **Cartouche**. Elles s'appliquent pendant le jeu, sauf la console émulée, la boot ROM, le type de sauvegarde et l'horloge, appliqués au chargement du jeu :
+Les options s'affichent en français, rangées en quatre catégories : **Image**, **Commandes**, **Système** et **Cartouche**. Elles s'appliquent pendant le jeu, sauf la console émulée, la boot ROM, le BIOS, le type de sauvegarde et l'horloge, appliqués au chargement du jeu :
 
 | Option | Clé | Cœurs | Valeurs |
 | --- | --- | --- | --- |
-| Palette | `ravenemu_gb_palette` | RavenGB | Vert (Game Boy) par défaut, ou gris (Game Boy Pocket) |
+| Palette | `ravenemu_gb_palette` | RavenGB | Vert (Game Boy) par défaut, gris (Game Boy Pocket) ou gris neutre |
+| Couleurs des jeux Game Boy | `ravenemu_gbc_dmg_colors` | RavenGBC | Sans boot ROM. « Comme sur la GBC » par défaut : celles que sa boot ROM choisit d'après le titre du jeu (Pokémon Rouge en rouge…), ou ses couleurs par défaut pour un jeu qu'elle ne connaît pas. Ou l'une des douze combinaisons de touches tenues pendant son logo (B + Gauche : gris, B + Droite : négatif…) |
 | Correction des couleurs LCD | `ravenemu_gbc_color_correction`, `ravenemu_gba_color_correction` | RavenGBC, RavenGBA | Désactivée par défaut. Activée, elle adoucit les couleurs vives comme l'écran de la console, avec le réglage de RavenEmu Android |
 | Mélange d'images | `ravenemu_gb_frame_blending`, `ravenemu_gbc_frame_blending`, `ravenemu_gba_frame_blending` | Tous | Désactivé par défaut. **Mélange** : la moyenne des deux dernières images, pour les jeux qui font clignoter un objet une image sur deux. **Rémanence** : l'image s'efface lentement, comme sur l'écran LCD |
 | Directions opposées | `ravenemu_gb_opposing_directions`, `ravenemu_gbc_opposing_directions`, `ravenemu_gba_opposing_directions` | Tous | Bloquées par défaut : haut et bas, ou gauche et droite, tenus ensemble ne sont pas transmis, comme sur la croix de la console. Autorisées, sinon |
@@ -77,9 +85,13 @@ Les options s'affichent en français, rangées en quatre catégories : **Image**
 | Console émulée | `ravenemu_gbc_hardware` | RavenGBC | Game Boy Color par défaut, ou Game Boy Advance : les jeux qui la reconnaissent débloquent leurs bonus (Zelda Oracle, Shantae…) |
 | Type de sauvegarde | `ravenemu_gba_save_type` | RavenGBA | `auto`, `sram`, `flash64`, `flash128`, `eeprom512`, `eeprom8k`, `none` |
 | Horloge (RTC) | `ravenemu_gba_rtc` | RavenGBA | `auto`, `enabled`, `disabled` |
-| Lumière du capteur solaire | `ravenemu_gba_solar_light` | RavenGBA | Pourcentage de plein soleil : `50` par défaut, de `0` à `100` par pas de 10 |
+| Lumière du capteur solaire | `ravenemu_gba_solar_light` | RavenGBA | Pourcentage de plein soleil : `50` par défaut, de `0` à `100` par pas de 10. Ou `sensor` : le capteur de lumière de l'appareil, 50 % s'il n'en a pas |
+| Capteurs de l'appareil | `ravenemu_gb_device_sensors`, `ravenemu_gbc_device_sensors`, `ravenemu_gba_device_sensors` | Tous | Utilisés s'il y en a (par défaut) : accéléromètre et gyroscope s'ajoutent au stick gauche. Ou stick gauche seul |
+| BIOS | `ravenemu_gba_bios` | RavenGBA | BIOS de RavenCore par défaut, ou vrai BIOS (`gba_bios.bin`), avec ou sans son animation de démarrage |
 
-RavenGB et RavenGBC démarrent un jeu sans boot ROM, dans l'état où elle l'aurait laissé. Ils utilisent celle du dossier système de RetroArch si l'option le permet : `dmg_boot.bin` ou `gb_bios.bin` (Game Boy), `cgb_boot.bin` ou `gbc_bios.bin` (Game Boy Color), `agb_boot.bin` (Game Boy Advance). On retrouve alors l'animation de démarrage, et les couleurs que la boot ROM de la GBC donne aux jeux Game Boy. Aucune boot ROM n'est fournie.
+RavenGB et RavenGBC démarrent un jeu sans boot ROM, dans l'état où elle l'aurait laissé. Ils utilisent celle du dossier système de RetroArch si l'option le permet : `dmg_boot.bin` ou `gb_bios.bin` (Game Boy), `cgb_boot.bin` ou `gbc_bios.bin` (Game Boy Color), `agb_boot.bin` (Game Boy Advance). On retrouve alors l'animation de démarrage. Sans elle, un jeu Game Boy sur RavenGBC prend quand même les couleurs que la boot ROM de la GBC lui aurait choisies, d'après la table relevée par [The Cutting Room Floor](https://tcrf.net/Notes:Game_Boy_Color_Bootstrap_ROM) (CC BY 3.0, voir [NOTICE.md](NOTICE.md)). Aucune boot ROM n'est fournie.
+
+RavenGBA n'a besoin d'aucun BIOS : RavenCore répond lui-même à ses appels. L'option **BIOS** lui fait utiliser `gba_bios.bin` (16 Kio), le BIOS d'une console, depuis le dossier système. Les appels et les interruptions du jeu passent alors par lui, avec ou sans son animation de démarrage. Un état ne se recharge qu'avec le BIOS qui l'a créé. Aucun BIOS n'est fourni.
 
 Un jeu refusé affiche sa raison à l'écran et dans le journal de RetroArch. Les images que RetroArch n'affiche pas (anticipation « run-ahead », avance rapide) ne sont pas dessinées par le cœur GBA ni converties par aucun cœur.
 
@@ -94,6 +106,15 @@ Un code refusé affiche sa raison. Les patchs de ROM GBA, le changement de chiff
 
 Les cœurs déclarent à RetroArch la mémoire que surveille RetroAchievements : les succès s'activent comme avec les autres cœurs, et RetroArch applique lui-même les règles du mode Hardcore. RetroAchievements n'a pas encore testé RavenCore.
 
+**Deux joueurs reliés par câble link.** Chaque cœur déclare le sous-système « Deux joueurs (câble link) ». Dans RetroArch, charger le cœur, puis choisir « Deux joueurs (câble link) » dans **Charger du contenu** : le jeu du joueur 1, puis celui du joueur 2, deux jeux de la même console. Ils démarrent reliés, comme deux consoles et un câble :
+- les deux écrans s'affichent côte à côte, le joueur 1 à gauche ;
+- le joueur 1 joue sur la manette du port 1, le joueur 2 sur celle du port 2 ;
+- chacun garde sa sauvegarde, au nom de son jeu (`Pokémon Rubis.srm`…) : celle d'une partie en solo sert telle quelle ;
+- on entend le joueur 1 ;
+- les états instantanés, le reset et le mélange d'images couvrent les deux consoles.
+
+RetroAchievements, les codes de triche et les capteurs de l'appareil ne concernent que le joueur 1. Sur GBA, le joueur 1 est la console parente des jeux multijoueurs.
+
 > Les cœurs ne sont pas encore proposés par le téléchargeur intégré de RetroArch.
 
 ## Intégrer dans un projet
@@ -107,7 +128,7 @@ Les cœurs déclarent à RetroArch la mémoire que surveille RetroAchievements :
 Après `cmake --install`, utilisez le paquet CMake :
 
 ```cmake
-find_package(RavenCore 0.13 REQUIRED)
+find_package(RavenCore 0.14 REQUIRED)
 target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 
@@ -119,11 +140,12 @@ L'API C couvre :
 - les capteurs des cartouches : lumière, rotation et inclinaison ;
 - le câble link entre consoles d'une même application (deux jeux sur un même appareil) ;
 - le câble link vers une console d'un autre appareil, l'application transportant les messages (voir [docs/remote_link.md](docs/remote_link.md)) ;
-- la lecture de la mémoire surveillée par RetroAchievements.
+- la lecture de la mémoire surveillée par RetroAchievements ;
+- les codes de triche, vérifiés un par un pour le joueur puis activés en bloc ;
+- les couleurs des jeux Game Boy sur une Game Boy Color ;
+- la Game Boy Color d'une Game Boy Advance, pour les bonus des jeux qui la reconnaissent.
 
-Détails dans le [README du SDK](sdk/README.md).
-
-Les codes de triche ne passent pour l'instant que par l'API C++ : `parse_cheat` décode une entrée, `Core::set_cheats` active la liste.
+Détails dans le [README du SDK](sdk/README.md). En C++, `parse_cheat` décode un code de triche, `Core::set_cheats` active la liste, et `gb::HardwareModel::agb` crée la GBC d'une Game Boy Advance.
 
 ## Tests
 
@@ -158,7 +180,7 @@ ctest --test-dir build --output-on-failure
 
 ## Versions
 
-Version actuelle : **0.13.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro pour Linux, Windows, macOS et Android. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
+Version actuelle : **0.14.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro pour Linux, Windows, macOS et Android. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
 
 Avant la 1.0, une version peut changer l'API ou le format des états ; le journal le signale à chaque fois.
 

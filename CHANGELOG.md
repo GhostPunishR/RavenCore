@@ -2,6 +2,94 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.14.0 - 2026-10-24
+
+Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Game Boy Advance : RavenEmu Android et RavenEmu PC peuvent désormais les proposer. Les jeux Game Boy sur une GBC sans boot ROM prennent les couleurs que sa boot ROM leur choisit, jeu par jeu, au lieu de gris. Le BIOS d'une GBA peut remplacer celui de RavenCore. Dans RetroArch, les cartouches à capteur suivent les capteurs du téléphone, et deux joueurs peuvent se relier par câble link. Le format des états GBA passe à 17.
+
+### Ajouté
+
+- **Codes de triche dans l'API C.**
+  - `ravenemu_check_cheat()` vérifie un code sans handle, au moment où le joueur le saisit, et laisse la raison d'un refus, en français, dans `ravenemu_last_error()`.
+  - `ravenemu_set_cheats()` active une liste de codes à partir de l'image suivante. Si une entrée est refusée, la liste précédente reste active et l'erreur nomme l'entrée, par exemple « code de triche 2 : … ».
+  - Formats, survie aux chargements, réinitialisations et états : comme dans RetroArch depuis la 0.12.0.
+- **`RAVENEMU_GBC_ON_GBA`** pour `ravenemu_create()`, et `sdk::System::game_boy_color_on_gba` dans le SDK C++ : la GBC d'une Game Boy Advance, `gb::HardwareModel::agb` depuis la 0.13.0.
+- **Couleurs des jeux Game Boy sur une GBC.**
+  - `Core::set_gbc_compatibility_colors()` et `ravenemu_set_gbc_colors()` choisissent entre les couleurs de la boot ROM, quatre gris et les douze combinaisons de touches tenues pendant son logo : Haut (brun), A + Haut (rouge), B + Haut (sépia), Gauche (bleu), A + Gauche (bleu-violet), B + Gauche (gris), Bas (pastel), A + Bas (jaune et rouge), B + Bas (jaune et brun), Droite (vert et rouge), A + Droite (vert et bleu), B + Droite (négatif).
+  - Dans RavenGBC, l'option **Couleurs des jeux Game Boy** fait de même.
+  - Le réglage s'applique tout de suite, et survit au chargement, au reset et aux états.
+  - Les gris sont ceux de B + Gauche.
+  - Une boot ROM fournie choisit elle-même ses couleurs.
+- **Gris neutre** pour la palette de RavenGB.
+- **Vrai BIOS GBA, facultatif.** RavenCore répond toujours lui-même aux appels du BIOS par défaut ; le BIOS d'une console (16 Kio) peut désormais le remplacer.
+  - Les SWI et les IRQ du jeu passent alors par lui. Il joue son animation de démarrage, sauf si on la saute : le jeu démarre alors comme avec le BIOS de RavenCore.
+  - `Core::set_gba_bios()` et `ravenemu_set_gba_bios()` le donnent, ou reviennent au BIOS de RavenCore, à partir du prochain chargement ou reset.
+  - Dans RavenGBA, l'option **BIOS** (catégorie Système) lit `gba_bios.bin` dans le dossier système de RetroArch : « BIOS de RavenCore » par défaut, « Vrai BIOS, avec son animation » ou « Vrai BIOS, sans animation ». S'il manque, un message le dit et le jeu démarre avec le BIOS de RavenCore. Le fichier d'informations le déclare comme micrologiciel facultatif.
+  - Un état ne se recharge qu'avec le BIOS qui l'a créé. Sinon, le refus le dit : « État pris avec un vrai BIOS GBA, absent ici », « … avec le BIOS de RavenCore, pas avec un vrai BIOS » ou « … avec un autre BIOS GBA ». Recharger un état garde le BIOS en place.
+  - Aucun BIOS n'est fourni.
+- **Capteurs du téléphone ou de la manette dans RetroArch.** Les cœurs Libretro lisent ceux de l'appareil par l'interface de capteurs de Libretro, avec les conversions de RavenEmu Android :
+  - l'accéléromètre incline Kirby Tilt 'n' Tumble et Command Master (MBC7), Yoshi Topsy-Turvy et Koro Koro Puzzle. À plat, l'appareil n'est pas incliné ;
+  - le gyroscope fait tourner WarioWare: Twisted! : un demi-tour par seconde donne la pleine échelle ;
+  - le capteur de lumière éclaire Boktai si l'option **Lumière du capteur solaire** vaut « Capteur de lumière de l'appareil ». Rien sous 1000 lux, le plein soleil vers 100 000 lux. Sans capteur, un message le dit et le soleil reste à 50 %.
+  - Le stick gauche s'ajoute aux capteurs. Un capteur ne s'allume que pour un jeu qui en a besoin, et s'éteint avec lui. L'option **Capteurs de l'appareil** (catégorie Commandes) les ignore.
+  - L'accélération en m/s² de certains frontends anciens est reconnue à sa norme, et ramenée en g.
+- **Deux joueurs reliés par câble link dans RetroArch.** Les trois cœurs déclarent le sous-système « Deux joueurs (câble link) » (`link`). Il charge deux jeux de la même console et les relie par le câble local de RavenCore :
+  - les deux écrans côte à côte, le joueur 1 à gauche ;
+  - une manette par joueur, ports 1 et 2 ;
+  - une sauvegarde par joueur, que RetroArch nomme d'après la ROM de chacun : celle d'une partie en solo sert telle quelle ;
+  - le son du joueur 1 ;
+  - les états, le reset et le mélange d'images pour les deux consoles. L'état d'une paire ne se recharge pas dans un jeu seul, ni l'inverse. Si la console du joueur 2 refuse le sien, le joueur 1 reprend le sien.
+  - RetroAchievements, les codes de triche et les capteurs de l'appareil restent au joueur 1. Sur GBA, il est la console parente.
+  - Un jeu refusé nomme son joueur : « joueur 2 : … ».
+
+### Modifié
+
+- **Jeu Game Boy sur une GBC sans boot ROM : en couleurs.** Il prend les palettes que la boot ROM de la GBC lui aurait choisies, au lieu de quatre gris (Pan Docs, « Compatibility palettes ») :
+  - Pour un jeu Nintendo, d'après la somme des octets de son titre, départagée par sa 4e lettre quand il le faut : Pokémon Rouge en rouge, Bleu en bleu, Pikachu en jaune et rouge, Link's Awakening, Metroid II, Kirby… La table vient de [The Cutting Room Floor](https://tcrf.net/Notes:Game_Boy_Color_Bootstrap_ROM) (CC BY 3.0, voir `NOTICE.md`) : 94 sommes de titre, 51 triplets de palettes.
+  - Pour un jeu inconnu ou d'un autre éditeur, ses couleurs par défaut. Ce sont celles des captures de référence des suites publiques.
+  - Le B qu'elle laisse au jeu (la somme du titre) et le choix des palettes partagent désormais le même calcul.
+  - L'option **Gris** rend l'ancien rendu.
+  - `gb_conformance_runner --compatibility-palette boot-default` reste accepté, mais n'est plus nécessaire.
+
+### Compatibilité des états instantanés
+
+- **GBA : format 17.** L'état se termine par le BIOS utilisé : celui de RavenCore, ou l'empreinte SHA-256 du vrai. Les états aux formats 11 à 16 se rechargent, avec le BIOS de RavenCore. Un état au format 17 ne se recharge pas dans une version 0.13.x.
+- **GB/GBC : format 11**, inchangé.
+- **API C : version 0**, avec des ajouts seulement : une valeur de `ravenemu_system`, l'énumération `ravenemu_gbc_colors` (automatique, gris et douze combinaisons de touches) et quatre fonctions. Le paquet CMake se demande désormais avec `find_package(RavenCore 0.14)`.
+- **API C++** : `Core` gagne `set_gbc_compatibility_colors()` et `set_gba_bios()`, avec une implémentation par défaut, et `GbcCompatibilityColors`.
+
+### Tests
+
+- `ravenemu_c_api` :
+  - codes vérifiés sans handle : acceptés, ou refusés avec leur raison, pour une autre console, un système inconnu ou un code absent ;
+  - deux codes GameShark appliqués dès l'image suivante ;
+  - une liste dont la deuxième entrée est refusée : l'erreur la nomme, et l'ancienne liste reste active ;
+  - avec `RAVENEMU_GBC_ON_GBA`, B vaut 1 au démarrage d'un jeu GBC ; avec `RAVENEMU_GBC`, il vaut 0 ;
+  - les couleurs d'un jeu Game Boy, puis des gris, puis le négatif de B + Droite ; le réglage est refusé sur un handle GB ou GBA, ou pour une valeur hors de l'énumération.
+  - un BIOS fait maison qui marque l'IWRAM à la mise sous tension : pris au reset suivant seulement, sauté sur demande, refusé avec une autre taille ou sur un handle GB ; son état est refusé par un handle sans lui.
+- `gba_raven_core`, avec un BIOS fait maison qui marque l'IWRAM au démarrage et à chaque SWI :
+  - le démarrage et le SWI passent par lui, sauf le démarrage quand on saute l'animation ;
+  - un état repris continue au même cycle ; il est refusé sans ce BIOS, avec un autre, et un état du BIOS de RavenCore l'est avec lui ;
+  - un nouveau réglage attend le prochain chargement, un état rechargé d'ici là garde le BIOS en place ;
+  - une image de 16383 octets est refusée, et un cœur Game Boy refuse tout BIOS GBA.
+- `libretro_smoke_gba` : l'option BIOS déclarée, avec sa catégorie et sa valeur par défaut ; `gba_bios.bin` lu dans le dossier système, avec ou sans animation, ignoré par défaut, et son absence signalée.
+- `libretro_smoke_*`, avec un frontend qui simule les capteurs d'un téléphone :
+  - un jeu MBC7 lit 81D0h - 38h et 81D0h + 1Ch pour un appareil penché de 0,5 g à droite et de 0,25 g vers le joueur, en g comme en m/s². Il lit le repos quand l'option écarte les capteurs, et l'accéléromètre se rallume quand on la rétablit en jeu ;
+  - sur GBA, Yoshi Topsy-Turvy lit 392h + 70h et 3A0h - 38h dans son capteur. WarioWare: Twisted! lit 6C0h + 191h pour un quart de tour par seconde dans le sens horaire ;
+  - le capteur de lumière ne s'allume pour Boktai que si l'option le demande, et son absence est signalée ;
+  - chaque capteur s'éteint avec le jeu.
+- `libretro_smoke_*`, deux joueurs reliés :
+  - le sous-système est déclaré, avec une sauvegarde par joueur ;
+  - l'image fait deux largeurs et les deux manettes sont lues ;
+  - le joueur 1 reçoit par le port série le mot du joueur 2 : 99h sur Game Boy (horloge interne contre externe), 5678h sur GBA en mode multijoueur. Sans câble, il lirait FFh ;
+  - la sauvegarde du joueur 2 est exposée, et un état de la paire se recharge à l'identique ;
+  - un état de jeu seul est refusé, comme un sous-système inconnu ou un seul jeu.
+- En local, Pokémon Émeraude et Rubis chargés ensemble par le sous-système, chacun avec sa sauvegarde, s'affichent côte à côte. Rubis reprend sa partie jusqu'au Club Link.
+- En local, avec un BIOS libre (Cult-of-GBA, licence MIT, ni fourni ni téléchargé par le projet) : les ROMs de test jsmolka (ARM, Thumb, mémoire, sauvegardes, NES, unsafe) et FuzzARM passent, avec et sans animation. Seule jsmolka bios échoue : elle vérifie des mots du BIOS officiel, absents de ce BIOS libre. Pokémon Émeraude et Zelda tournent comme avec le BIOS de RavenCore, à la même vitesse.
+- `gb_raven_core` : un jeu Game Boy sur GBC dessine la couleur `$1BEF` de la boot ROM. En gris, ses trois composantes sont égales. Après un état ou un reset, il suit le réglage du moment.
+- `gb_raven_core`, couleurs par jeu : un titre de somme 14h (Pokémon Rouge) dessine le rouge `$421F`, avec l'éditeur 01h comme avec 33h et « 01 ». La somme 61h dessine le bleu `$7E8C` avec la 4e lettre E (Pokémon Bleu), et les couleurs par défaut avec une autre lettre. Un autre éditeur garde aussi les couleurs par défaut. B + Droite donne le négatif, et « Gris » les gris de B + Gauche. Le test échoue quand on ignore la 4e lettre ou l'éditeur (vérifié).
+- Les tables se vérifient à la compilation : chaque titre et chaque combinaison renvoie à un triplet, aucun titre n'est ambigu, et le triplet par défaut est celui des captures de référence.
+- Les 200 tests publics GB/GBC passent toujours, captures de référence en mode de compatibilité comprises.
+
 ## 0.13.0 - 2026-10-23
 
 Cette version comble une partie des écarts relevés face aux émulateurs de référence (mGBA, SameBoy, Gambatte, VBA-M, gpSP). Elle prend en charge le MBC30 et le mode Game Boy Advance des jeux GBC. Les cœurs Libretro gagnent le mélange d'images, le blocage des directions opposées et les boot ROMs du dossier système. L'API C et le format des états ne changent pas ; l'API C++ gagne un modèle de console.

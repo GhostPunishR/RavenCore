@@ -1,6 +1,7 @@
 #include <ravenemu/bridge.h>
 #include <synthetic_roms.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -225,6 +226,127 @@ int link_cable_test() {
     return 0;
 }
 
+// Codes de triche : vérifiés un par un pour le joueur, activés en bloc.
+int cheats_test() {
+    if (!ravenemu_check_cheat(RAVENEMU_GB, "3EA-12B-FAE+01AA10C0") ||
+        !ravenemu_check_cheat(RAVENEMU_GBC_ON_GBA, "01AA10C0") ||
+        !ravenemu_check_cheat(RAVENEMU_GBA, "82000100 1234")) return 80;
+    if (ravenemu_check_cheat(RAVENEMU_GB, "01021234") ||
+        std::string(ravenemu_last_error()).find("vise la ROM") == std::string::npos) return 81;
+    if (ravenemu_check_cheat(RAVENEMU_GBA, "01AA10C0") || ravenemu_check_cheat(99, "01AA10C0") ||
+        ravenemu_check_cheat(RAVENEMU_GB, nullptr)) return 82;
+
+    auto rom = ravenemu::testing::minimal_game_boy_rom();
+    Handle handle(ravenemu_create(RAVENEMU_GB), ravenemu_destroy);
+    if (!handle || !ravenemu_load(handle.get(), rom.data(), rom.size(), nullptr, 0)) return 83;
+    std::vector<std::uint32_t> frame(160 * 144);
+    const char* const codes[] = {"01AA10C0", "01BB11C0"};
+    std::uint8_t written[3]{};
+    if (!ravenemu_set_cheats(handle.get(), codes, 2) || !ravenemu_run_frame(handle.get(), frame.data(), frame.size()) ||
+        ravenemu_read_achievement_memory(handle.get(), 0xc010, written, sizeof written) != sizeof written ||
+        written[0] != 0xaa || written[1] != 0xbb) return 84;
+    // Un code refusé : la liste précédente reste, et l'erreur nomme l'entrée.
+    const char* const refused[] = {"01CC12C0", "XYZ"};
+    if (ravenemu_set_cheats(handle.get(), refused, 2) ||
+        std::string(ravenemu_last_error()).find("code de triche 2") == std::string::npos) return 85;
+    if (!ravenemu_run_frame(handle.get(), frame.data(), frame.size()) ||
+        ravenemu_read_achievement_memory(handle.get(), 0xc010, written, sizeof written) != sizeof written ||
+        written[2] != 0) return 86;
+    if (!ravenemu_set_cheats(handle.get(), nullptr, 0) || ravenemu_set_cheats(nullptr, codes, 1) ||
+        ravenemu_set_cheats(handle.get(), nullptr, 1)) return 87;
+    return 0;
+}
+
+// La GBC d'une GBA démarre un jeu GBC avec B = 1, la GBC seule avec B = 0.
+int gbc_on_gba_test() {
+    auto rom = ravenemu::testing::minimal_game_boy_rom();
+    rom[0x143] = 0x80;
+    rom[0x101] = 0x50;  // JP $0150
+    const std::uint8_t program[] = {0x78, 0xea, 0x00, 0xc0, 0x18, 0xfe};  // LD A,B ; LD ($C000),A ; JR $
+    std::copy(std::begin(program), std::end(program), rom.begin() + 0x150);
+    for (const int system : {RAVENEMU_GBC, RAVENEMU_GBC_ON_GBA}) {
+        Handle handle(ravenemu_create(system), ravenemu_destroy);
+        std::vector<std::uint32_t> frame(160 * 144);
+        std::uint8_t b = 0xff;
+        if (!handle || !ravenemu_load(handle.get(), rom.data(), rom.size(), nullptr, 0) ||
+            ravenemu_video_width(handle.get()) != 160 || !ravenemu_run_frame(handle.get(), frame.data(), frame.size()) ||
+            ravenemu_read_achievement_memory(handle.get(), 0xc000, &b, 1) != 1) return 90;
+        if (b != (system == RAVENEMU_GBC_ON_GBA ? 1 : 0)) return 91;
+    }
+    return 0;
+}
+
+// Couleurs d'un jeu Game Boy sur une GBC : celles de la boot ROM, ou des gris.
+int gbc_colors_test() {
+    auto rom = ravenemu::testing::minimal_game_boy_rom();
+    rom[0x101] = 0x50;  // JP $0150 : LCD éteint, tuile 0 en couleur 1, BGP = E4, LCD allumé, JR $
+    const std::uint8_t program[] = {0xaf, 0xe0, 0x40, 0x21, 0x00, 0x80, 0x06, 0x08, 0x3e, 0xff, 0x22, 0xaf, 0x22,
+                                    0x05, 0x20, 0xf8, 0x3e, 0xe4, 0xe0, 0x47, 0x3e, 0x91, 0xe0, 0x40, 0x18, 0xfe};
+    std::copy(std::begin(program), std::end(program), rom.begin() + 0x150);
+    Handle handle(ravenemu_create(RAVENEMU_GBC), ravenemu_destroy);
+    std::vector<std::uint32_t> frame(160 * 144);
+    const auto pixel = [&] {
+        return ravenemu_run_frame(handle.get(), frame.data(), frame.size()) &&
+               ravenemu_run_frame(handle.get(), frame.data(), frame.size()) ? frame[0] : 0u;
+    };
+    if (!handle || !ravenemu_load(handle.get(), rom.data(), rom.size(), nullptr, 0)) return 100;
+    const auto colored = pixel();
+    if (!ravenemu_set_gbc_colors(handle.get(), RAVENEMU_GBC_COLORS_GRAY)) return 101;
+    const auto gray = pixel();
+    const auto r = (gray >> 16) & 0xffU, g = (gray >> 8) & 0xffU, b = gray & 0xffU;
+    if (colored == gray || r != g || g != b) return 102;
+    Handle game_boy(ravenemu_create(RAVENEMU_GB), ravenemu_destroy);
+    Handle advance(ravenemu_create(RAVENEMU_GBA), ravenemu_destroy);
+    if (ravenemu_set_gbc_colors(game_boy.get(), RAVENEMU_GBC_COLORS_GRAY) ||
+        ravenemu_set_gbc_colors(advance.get(), RAVENEMU_GBC_COLORS_GRAY) ||
+        ravenemu_set_gbc_colors(handle.get(), 14) || ravenemu_set_gbc_colors(handle.get(), -1) ||
+        ravenemu_set_gbc_colors(nullptr, 0)) return 103;
+    // B + Droite, au démarrage de la console : le négatif, sans rouge, vert et bleu égaux.
+    if (!ravenemu_set_gbc_colors(handle.get(), RAVENEMU_GBC_COLORS_B_RIGHT)) return 104;
+    const auto negative = pixel();
+    if (((negative >> 16) & 0xffU) != 0 || ((negative >> 8) & 0xffU) != (negative & 0xffU)) return 105;
+    return 0;
+}
+
+// Vrai BIOS GBA : le nôtre range 0x5C en 0x03000000 à la mise sous tension,
+// puis saute au jeu.
+int gba_bios_test() {
+    std::vector<std::uint8_t> bios(0x4000);
+    const std::uint32_t words[]{0xe3a00403U, 0xe3a0105cU, 0xe5c01000U, 0xe3a0f302U};
+    const auto put = [&](std::size_t offset, std::uint32_t word) {
+        for (unsigned byte = 0; byte < 4; ++byte) bios[offset + byte] = static_cast<std::uint8_t>(word >> (byte * 8U));
+    };
+    put(0, 0xea00003eU);  // B 0x100
+    for (std::size_t index = 0; index < std::size(words); ++index) put(0x100 + index * 4, words[index]);
+    const auto rom = ravenemu::testing::minimal_gba_rom();
+    Handle handle(ravenemu_create(RAVENEMU_GBA), ravenemu_destroy);
+    std::vector<std::uint32_t> frame(240 * 160);
+    const auto marker = [&] {
+        std::uint8_t value = 0xff;
+        return ravenemu_run_frame(handle.get(), frame.data(), frame.size()) &&
+               ravenemu_read_achievement_memory(handle.get(), 0, &value, 1) == 1 ? value : -1;
+    };
+    if (!handle || !ravenemu_load(handle.get(), rom.data(), rom.size(), nullptr, 0) || marker() != 0) return 110;
+    if (!ravenemu_set_gba_bios(handle.get(), bios.data(), bios.size(), 0) || marker() != 0) return 111;
+    if (!ravenemu_reset(handle.get()) || marker() != 0x5c) return 112;
+    std::vector<std::uint8_t> state(ravenemu_state_size(handle.get()));
+    if (state.empty() || !ravenemu_save_state(handle.get(), state.data(), state.size())) return 113;
+    if (!ravenemu_set_gba_bios(handle.get(), bios.data(), bios.size(), 1) ||
+        !ravenemu_load(handle.get(), rom.data(), rom.size(), nullptr, 0) || marker() != 0) return 114;
+    Handle hle(ravenemu_create(RAVENEMU_GBA), ravenemu_destroy);
+    if (!hle || !ravenemu_load(hle.get(), rom.data(), rom.size(), nullptr, 0) ||
+        ravenemu_load_state(hle.get(), state.data(), state.size()) ||
+        std::string(ravenemu_last_error()).find("vrai BIOS") == std::string::npos) return 115;
+    Handle game_boy(ravenemu_create(RAVENEMU_GB), ravenemu_destroy);
+    if (ravenemu_set_gba_bios(handle.get(), bios.data(), 0x3fff, 0) ||
+        ravenemu_set_gba_bios(handle.get(), nullptr, bios.size(), 0) ||
+        ravenemu_set_gba_bios(game_boy.get(), bios.data(), bios.size(), 0) ||
+        ravenemu_set_gba_bios(nullptr, bios.data(), bios.size(), 0)) return 116;
+    if (!ravenemu_set_gba_bios(handle.get(), nullptr, 0, 0) || !ravenemu_reset(handle.get()) || marker() != 0)
+        return 117;
+    return 0;
+}
+
 int main() {
     if (ravenemu_api_version() != RAVENEMU_API_VERSION ||
         std::string(ravenemu_version()) != RAVENEMU_VERSION) {
@@ -253,6 +375,22 @@ int main() {
     }
     if (const int failure = sensors_test()) {
         std::cerr << "Cartridge sensors failed (" << failure << "): " << ravenemu_last_error() << "\n";
+        return failure;
+    }
+    if (const int failure = cheats_test()) {
+        std::cerr << "Cheats failed (" << failure << "): " << ravenemu_last_error() << "\n";
+        return failure;
+    }
+    if (const int failure = gbc_colors_test()) {
+        std::cerr << "GBC colors failed (" << failure << "): " << ravenemu_last_error() << "\n";
+        return failure;
+    }
+    if (const int failure = gbc_on_gba_test()) {
+        std::cerr << "GBC on GBA failed (" << failure << "): " << ravenemu_last_error() << "\n";
+        return failure;
+    }
+    if (const int failure = gba_bios_test()) {
+        std::cerr << "GBA BIOS failed (" << failure << "): " << ravenemu_last_error() << "\n";
         return failure;
     }
     if (ravenemu_create(99)) {

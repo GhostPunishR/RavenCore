@@ -109,16 +109,8 @@ private:
             cpu.set_hl(0x000d);
             break;
         case gb::HardwareMode::cgb_compatibility: {
-            int b_value{};
-            const int old_licensee = cartridge->read_rom(0x014b);
-            const bool nintendo_licensee = old_licensee == 0x01 ||
-                (old_licensee == 0x33 && cartridge->read_rom(0x0144) == 0x30 &&
-                 cartridge->read_rom(0x0145) == 0x31);
-            if (nintendo_licensee) {
-                for (int address = 0x0134; address <= 0x0143; ++address) {
-                    b_value = byte(b_value + cartridge->read_rom(address));
-                }
-            }
+            const int b_value =
+                compatibility::title_checksum([this](int address) { return cartridge->read_rom(address); });
             cpu.set_hl(b_value == 0x43 || b_value == 0x58 ? 0x991a : 0x007c);
             cpu.set_de(0x0008);
             if (agb_hardware) {

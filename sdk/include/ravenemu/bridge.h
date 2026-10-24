@@ -26,7 +26,12 @@ const char* ravenemu_version(void);
 enum ravenemu_system {
     RAVENEMU_GB = 0,
     RAVENEMU_GBC = 1,
-    RAVENEMU_GBA = 2
+    RAVENEMU_GBA = 2,
+    /* The Game Boy Color inside a Game Boy Advance: it runs GBC and GB games
+     * like RAVENEMU_GBC, but starts them with B = 1 (B + 1 for a GB game), so
+     * that games which detect a GBA unlock their extras (Zelda Oracle,
+     * Shantae...). */
+    RAVENEMU_GBC_ON_GBA = 3
 };
 
 enum ravenemu_button {
@@ -115,6 +120,13 @@ enum ravenemu_gba_rtc {
 };
 int ravenemu_set_gba_rtc(ravenemu_bridge* handle, int rtc);
 
+/* GBA BIOS dumped from a console (16384 bytes, copied) instead of RavenCore's
+ * own, from the next ravenemu_load or ravenemu_reset; size 0 goes back to
+ * RavenCore's. The real BIOS plays its boot animation unless skip_intro is
+ * nonzero. A state only loads with the BIOS it was taken with, and keeps the
+ * BIOS in place. Returns 1, or 0 for a GB/GBC handle or another size. */
+int ravenemu_set_gba_bios(ravenemu_bridge* handle, const uint8_t* bios, size_t size, int skip_intro);
+
 /* 1 while the cartridge's rumble motor runs (GB MBC5 Rumble, GBA Drill Dozer
  * and WarioWare: Twisted!). Sample it after each ravenemu_run_frame. */
 int ravenemu_rumble_active(const ravenemu_bridge* handle);
@@ -139,6 +151,49 @@ int ravenemu_set_rotation(ravenemu_bridge* handle, int speed);
 /* Tilt: -32768..32767 per axis for -1 g..1 g. x > 0 when the right side of
  * the console goes down, y > 0 when its top edge moves away from the player. */
 int ravenemu_set_tilt(ravenemu_bridge* handle, int x, int y);
+
+/* Colors of Game Boy games on a GBC handle (RAVENEMU_GBC, RAVENEMU_GBC_ON_GBA)
+ * started without boot ROM. AUTO gives the colors the GBC boot ROM picks for
+ * the game from its title (Pokemon Red in red...), and its default ones to a
+ * game it does not know; GRAY, four greys (those of B + Left). The others are
+ * the button combinations held during the boot ROM's logo. Applied at once,
+ * and kept across ravenemu_load, ravenemu_reset and state loads. Returns 1,
+ * or 0 for another handle or an unknown value. */
+enum ravenemu_gbc_colors {
+    RAVENEMU_GBC_COLORS_AUTO = 0,
+    RAVENEMU_GBC_COLORS_GRAY = 1,
+    RAVENEMU_GBC_COLORS_UP = 2,       /* brown */
+    RAVENEMU_GBC_COLORS_A_UP = 3,     /* red */
+    RAVENEMU_GBC_COLORS_B_UP = 4,     /* sepia */
+    RAVENEMU_GBC_COLORS_LEFT = 5,     /* blue */
+    RAVENEMU_GBC_COLORS_A_LEFT = 6,   /* blue-violet */
+    RAVENEMU_GBC_COLORS_B_LEFT = 7,   /* grey */
+    RAVENEMU_GBC_COLORS_DOWN = 8,     /* pastel */
+    RAVENEMU_GBC_COLORS_A_DOWN = 9,   /* yellow and red */
+    RAVENEMU_GBC_COLORS_B_DOWN = 10,  /* yellow and brown */
+    RAVENEMU_GBC_COLORS_RIGHT = 11,   /* green and red */
+    RAVENEMU_GBC_COLORS_A_RIGHT = 12, /* green and blue, an unknown game's */
+    RAVENEMU_GBC_COLORS_B_RIGHT = 13  /* negative */
+};
+int ravenemu_set_gbc_colors(ravenemu_bridge* handle, int colors);
+
+/* Cheat codes. An entry is one cheat of a cheat menu: one or more lines
+ * separated by spaces, line breaks or '+'.
+ * - GB/GBC: Game Genie (ABC-DEF-GHI or ABC-DEF) and GameShark (8 digits,
+ *   like 010238CD), mixed as needed.
+ * - GBA: unencrypted Codebreaker (XAAAAAAA YYYY), and GameShark v1/v2 or
+ *   Pro Action Replay v3 encrypted as the device shows them
+ *   (XXXXXXXX YYYYYYYY), told apart by their decryption.
+ * GBA ROM patches, DEADFACE seed changes and encrypted Codebreaker codes are
+ * refused. Refusal reasons are in French, meant for the player. */
+/* 1 if `code` is a usable cheat for `system` (enum ravenemu_system), else 0
+ * with the reason in ravenemu_last_error(). Needs no handle. */
+int ravenemu_check_cheat(int system, const char* code);
+/* Replaces the active cheats from the next frame; count 0 removes them all.
+ * They survive ravenemu_load, ravenemu_reset and state loads, without being
+ * stored in states. Returns 0 if an entry is refused: the previous list
+ * stays, and ravenemu_last_error() names the entry (from 1) and the reason. */
+int ravenemu_set_cheats(ravenemu_bridge* handle, const char* const* codes, size_t count);
 
 /* Link cable between handles of this process, for example two games side by
  * side on one device. Link 2 GB/GBC handles (a GB and a GBC can be mixed) or

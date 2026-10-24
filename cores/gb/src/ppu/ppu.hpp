@@ -1,6 +1,7 @@
 #pragma once
 
 #include "interrupt/interrupt_controller.hpp"
+#include "ppu/compatibility_palettes.hpp"
 #include <ravenemu/gb/hardware_mode.hpp>
 
 #include <algorithm>
@@ -187,22 +188,34 @@ public:
         ocps_auto_ = true;
     }
 
-    /** Palettes HLE déterministes du mode de compatibilité sans firmware. */
+    using CompatibilityPalettes = cgb::CompatibilityPalettes;
+    // Palettes $00 de la boot ROM de la GBC : celles d'un jeu qu'elle ne
+    // reconnaît pas, comme sur les captures de référence des suites publiques.
+    static constexpr CompatibilityPalettes boot_default_palettes =
+        compatibility::palettes_of(compatibility::default_entry, compatibility::default_flags);
+    static_assert(boot_default_palettes.background == std::array<int, 4>{0x7fff, 0x1bef, 0x6180, 0x0000});
+    // Les gris que donne B + Gauche au démarrage.
+    static constexpr CompatibilityPalettes grayscale_palettes =
+        compatibility::palettes_of(compatibility::manual_choices[5].entry, compatibility::manual_choices[5].flags);
+
+    void set_compatibility_palettes(const CompatibilityPalettes& palettes) noexcept {
+        const auto store = [](auto& cram, int palette, const std::array<int, 4>& colors) {
+            for (int color = 0; color < 4; ++color) {
+                const int value = colors[static_cast<std::size_t>(color)];
+                const auto index = static_cast<std::size_t>((palette * 4 + color) * 2);
+                cram[index] = static_cast<std::uint8_t>(value);
+                cram[index + 1] = static_cast<std::uint8_t>(value >> 8);
+            }
+        };
+        store(bg_cram, 0, palettes.background);
+        store(obj_cram, 0, palettes.object0);
+        store(obj_cram, 1, palettes.object1);
+        rebuild_color_cache();
+    }
+    /** Mode de compatibilité sans boot ROM : les palettes qu'elle donne à un jeu inconnu. */
     void initialize_hle_compatibility_palettes() noexcept {
         if (hardware_mode_ != gb::HardwareMode::cgb_compatibility) return;
-        constexpr std::array<int, 4> grayscale{0x7fff, 0x56b5, 0x294a, 0x0000};
-        for (int palette = 0; palette < 2; ++palette) {
-            for (int color = 0; color < 4; ++color) {
-                const int value = grayscale[static_cast<std::size_t>(color)];
-                const int bg_index = color * 2;
-                bg_cram[static_cast<std::size_t>(bg_index)] = static_cast<std::uint8_t>(value);
-                bg_cram[static_cast<std::size_t>(bg_index + 1)] = static_cast<std::uint8_t>(value >> 8);
-                const int obj_index = (palette * 4 + color) * 2;
-                obj_cram[static_cast<std::size_t>(obj_index)] = static_cast<std::uint8_t>(value);
-                obj_cram[static_cast<std::size_t>(obj_index + 1)] = static_cast<std::uint8_t>(value >> 8);
-            }
-        }
-        rebuild_color_cache();
+        set_compatibility_palettes(boot_default_palettes);
     }
 
     void reset_for_boot_rom() noexcept {

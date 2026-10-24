@@ -49,6 +49,28 @@ enum class GbaSaveType : std::uint8_t {
     eeprom_8k,
 };
 
+/**
+ * Couleurs d'un jeu Game Boy sur une Game Boy Color, sans boot ROM :
+ * celles que sa boot ROM choisit pour le jeu, ou celles d'une combinaison de
+ * touches tenue pendant son logo (dans l'ordre de la boot ROM).
+ */
+enum class GbcCompatibilityColors : std::uint8_t {
+    automatic,  ///< celles que la boot ROM de la GBC lui donnerait (Pokémon Rouge en rouge…)
+    grayscale,  ///< quatre gris, ceux de B + Gauche
+    up,         ///< Haut : brun
+    a_up,       ///< A + Haut : rouge
+    b_up,       ///< B + Haut : sépia
+    left,       ///< Gauche : bleu
+    a_left,     ///< A + Gauche : bleu-violet
+    b_left,     ///< B + Gauche : gris
+    down,       ///< Bas : pastel
+    a_down,     ///< A + Bas : jaune et rouge
+    b_down,     ///< B + Bas : jaune et brun
+    right,      ///< Droite : vert et rouge
+    a_right,    ///< A + Droite : vert et bleu, celles d'un jeu inconnu
+    b_right,    ///< B + Droite : négatif
+};
+
 /** Capteurs portés par la cartouche chargée. */
 struct CartridgeSensors {
     bool solar{};     ///< capteur solaire : Boktai 1 à 3
@@ -238,6 +260,12 @@ public:
      */
     virtual void set_gba_tilt(int, int) noexcept {}
     /**
+     * Couleurs des jeux Game Boy sur une GBC, appliquées tout de suite et
+     * gardées au chargement, au reset et aux états. Une boot ROM fournie
+     * choisit elle-même. Sans effet sur une autre console.
+     */
+    virtual void set_gbc_compatibility_colors(GbcCompatibilityColors) noexcept {}
+    /**
      * Codes de triche actifs à partir de l'image suivante, à la place des
      * précédents ; une liste vide les retire. Ils survivent aux changements
      * de ROM, aux réinitialisations et aux états, sans y être enregistrés.
@@ -270,6 +298,19 @@ public:
      * chargement de ROM ou à la prochaine réinitialisation.
      */
     virtual void set_gba_forced_rtc(std::optional<bool>) noexcept {}
+    /**
+     * BIOS GBA d'une console (16 Kio) à la place du BIOS réécrit de RavenCore,
+     * ou une image vide pour y revenir ; pris en compte au prochain chargement
+     * de ROM ou à la prochaine réinitialisation. Le vrai BIOS joue son
+     * animation de démarrage, sauf avec `skip_intro` : le jeu démarre alors
+     * comme avec le BIOS réécrit, mais ses appels au BIOS passent par le vrai.
+     * Un état ne se recharge qu'avec le BIOS qui l'a créé. Lève
+     * std::invalid_argument pour une image d'une autre taille.
+     */
+    virtual void set_gba_bios(std::span<const std::uint8_t> image, bool skip_intro) {
+        if (!image.empty()) throw std::invalid_argument("Cette console n'a pas de BIOS GBA");
+        static_cast<void>(skip_intro);
+    }
 };
 
 /**
