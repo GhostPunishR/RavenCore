@@ -49,6 +49,12 @@ enum class GbaSaveType : std::uint8_t {
     eeprom_8k,
 };
 
+/** Couleurs d'un jeu Game Boy sur une Game Boy Color, sans boot ROM. */
+enum class GbcCompatibilityColors : std::uint8_t {
+    automatic,  ///< celles que la boot ROM de la GBC lui donnerait
+    grayscale,  ///< quatre gris
+};
+
 /** Capteurs portés par la cartouche chargée. */
 struct CartridgeSensors {
     bool solar{};     ///< capteur solaire : Boktai 1 à 3
@@ -237,6 +243,12 @@ public:
      * son bord supérieur s'éloigne du joueur.
      */
     virtual void set_gba_tilt(int, int) noexcept {}
+    /**
+     * Couleurs des jeux Game Boy sur une GBC, appliquées tout de suite et
+     * gardées au chargement, au reset et aux états. Une boot ROM fournie
+     * choisit elle-même. Sans effet sur une autre console.
+     */
+    virtual void set_gbc_compatibility_colors(GbcCompatibilityColors) noexcept {}
     /**
      * Codes de triche actifs à partir de l'image suivante, à la place des
      * précédents ; une liste vide les retire. Ils survivent aux changements

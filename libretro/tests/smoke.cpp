@@ -460,7 +460,7 @@ int main() {
 #if defined(RAVENEMU_LIBRETRO_GB)
     constexpr std::size_t option_count = 4;
 #else
-    constexpr std::size_t option_count = 5;
+    constexpr std::size_t option_count = 6;
 #endif
     if (declared_options.size() != option_count ||
         declared_options[video_option].find(video_choices) == std::string::npos) {
@@ -822,14 +822,16 @@ int main() {
 #elif defined(RAVENEMU_LIBRETRO_GB)
     const auto& palette = declared_v2["ravenemu_gb_palette"];
     if (declared_v2.size() != 4 || !declared_options.empty() || palette.default_value != "dmg" ||
-        palette.category != "video" || palette.values.size() != 2 || palette.desc != "Palette") {
+        palette.category != "video" || palette.values.size() != 3 || palette.desc != "Palette") {
         std::cerr << "Options v2 not declared\n";
         return 1;
     }
 #else
     const auto& lcd = declared_v2["ravenemu_gbc_color_correction"];
-    if (declared_v2.size() != 5 || !declared_options.empty() || lcd.default_value != "disabled" ||
-        lcd.category != "video" || lcd.values.size() != 2) {
+    const auto& dmg_colors = declared_v2["ravenemu_gbc_dmg_colors"];
+    if (declared_v2.size() != 6 || !declared_options.empty() || lcd.default_value != "disabled" ||
+        lcd.category != "video" || lcd.values.size() != 2 || dmg_colors.default_value != "auto" ||
+        dmg_colors.category != "video" || dmg_colors.values.size() != 2) {
         std::cerr << "Options v2 not declared\n";
         return 1;
     }

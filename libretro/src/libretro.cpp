@@ -131,6 +131,7 @@ using Shades = std::array<std::uint32_t, 4>;
 constexpr Shades dmg_shades{0x00e0f8d0, 0x0088c070, 0x00346856, 0x00081820};
 #if defined(RAVENEMU_LIBRETRO_GB)
 constexpr Shades pocket_shades{0x00ececec, 0x00a6a6a6, 0x00565656, 0x00141414};
+constexpr Shades gray_shades{0x00ffffff, 0x00aaaaaa, 0x00555555, 0x00000000};
 #endif
 Shades shades = dmg_shades;
 
@@ -247,9 +248,13 @@ const std::vector<OptionSpec> option_specs{
 #endif
 #if defined(RAVENEMU_LIBRETRO_GB)
     {"ravenemu_gb_palette", "Palette", "Teintes des jeux Game Boy.", "video",
-     {{"dmg", "Vert (Game Boy)"}, {"pocket", "Gris (Game Boy Pocket)"}}},
+     {{"dmg", "Vert (Game Boy)"}, {"pocket", "Gris (Game Boy Pocket)"}, {"gray", "Gris neutre"}}},
 #elif defined(RAVENEMU_LIBRETRO_GBC)
     lcd_option("ravenemu_gbc_color_correction"),
+    {"ravenemu_gbc_dmg_colors", "Couleurs des jeux Game Boy",
+     "Sans boot ROM. Comme sur la GBC : les couleurs que sa boot ROM donne à un jeu qu'elle ne reconnaît "
+     "pas. Gris : quatre gris.", "video",
+     {{"auto", "Comme sur la GBC"}, {"grayscale", "Gris"}}},
 #else
     lcd_option("ravenemu_gba_color_correction"),
     // For games whose cartridge detection fails: the SAVE_RAM size must not
@@ -320,7 +325,9 @@ bool option_is(const char* key, std::string_view value) {
 // Image and input options: read when a game loads, and again whenever they change.
 void read_live_options() {
 #if defined(RAVENEMU_LIBRETRO_GB)
-    shades = option_is("ravenemu_gb_palette", "pocket") ? pocket_shades : dmg_shades;
+    shades = option_is("ravenemu_gb_palette", "pocket") ? pocket_shades
+           : option_is("ravenemu_gb_palette", "gray")   ? gray_shades
+                                                        : dmg_shades;
 #elif defined(RAVENEMU_LIBRETRO_GBC)
     lcd_correction = option_is("ravenemu_gbc_color_correction", "enabled");
 #else
@@ -345,6 +352,14 @@ void apply_solar_option(ravenemu::Core& machine) {
     machine.set_solar_light(percent * 255 / 100);
 }
 #endif
+#if defined(RAVENEMU_LIBRETRO_GBC)
+// Couleurs des jeux Game Boy : sans effet sur un jeu GBC, appliquées tout de suite.
+void apply_dmg_colors(ravenemu::Core& machine) {
+    machine.set_gbc_compatibility_colors(option_is("ravenemu_gbc_dmg_colors", "grayscale")
+                                             ? ravenemu::GbcCompatibilityColors::grayscale
+                                             : ravenemu::GbcCompatibilityColors::automatic);
+}
+#endif
 void apply_options(ravenemu::Core& machine) {
     read_live_options();
 #if defined(RAVENEMU_LIBRETRO_GBA)
@@ -364,6 +379,8 @@ void apply_options(ravenemu::Core& machine) {
     else if (option_is("ravenemu_gba_rtc", "disabled")) rtc = false;
     machine.set_gba_forced_rtc(rtc);
     apply_solar_option(machine);
+#elif defined(RAVENEMU_LIBRETRO_GBC)
+    apply_dmg_colors(machine);
 #else
     static_cast<void>(machine);
 #endif
@@ -375,6 +392,8 @@ void update_options() {
     read_live_options();
 #if defined(RAVENEMU_LIBRETRO_GBA)
     apply_solar_option(*core);
+#elif defined(RAVENEMU_LIBRETRO_GBC)
+    apply_dmg_colors(*core);
 #endif
 }
 

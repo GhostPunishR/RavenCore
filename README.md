@@ -69,7 +69,8 @@ Les options s'affichent en français, rangées en quatre catégories : **Image**
 
 | Option | Clé | Cœurs | Valeurs |
 | --- | --- | --- | --- |
-| Palette | `ravenemu_gb_palette` | RavenGB | Vert (Game Boy) par défaut, ou gris (Game Boy Pocket) |
+| Palette | `ravenemu_gb_palette` | RavenGB | Vert (Game Boy) par défaut, gris (Game Boy Pocket) ou gris neutre |
+| Couleurs des jeux Game Boy | `ravenemu_gbc_dmg_colors` | RavenGBC | Sans boot ROM. « Comme sur la GBC » par défaut : les couleurs que sa boot ROM donne à un jeu qu'elle ne reconnaît pas. Ou quatre gris |
 | Correction des couleurs LCD | `ravenemu_gbc_color_correction`, `ravenemu_gba_color_correction` | RavenGBC, RavenGBA | Désactivée par défaut. Activée, elle adoucit les couleurs vives comme l'écran de la console, avec le réglage de RavenEmu Android |
 | Mélange d'images | `ravenemu_gb_frame_blending`, `ravenemu_gbc_frame_blending`, `ravenemu_gba_frame_blending` | Tous | Désactivé par défaut. **Mélange** : la moyenne des deux dernières images, pour les jeux qui font clignoter un objet une image sur deux. **Rémanence** : l'image s'efface lentement, comme sur l'écran LCD |
 | Directions opposées | `ravenemu_gb_opposing_directions`, `ravenemu_gbc_opposing_directions`, `ravenemu_gba_opposing_directions` | Tous | Bloquées par défaut : haut et bas, ou gauche et droite, tenus ensemble ne sont pas transmis, comme sur la croix de la console. Autorisées, sinon |
@@ -121,6 +122,7 @@ L'API C couvre :
 - le câble link vers une console d'un autre appareil, l'application transportant les messages (voir [docs/remote_link.md](docs/remote_link.md)) ;
 - la lecture de la mémoire surveillée par RetroAchievements ;
 - les codes de triche, vérifiés un par un pour le joueur puis activés en bloc ;
+- les couleurs des jeux Game Boy sur une Game Boy Color ;
 - la Game Boy Color d'une Game Boy Advance, pour les bonus des jeux qui la reconnaissent.
 
 Détails dans le [README du SDK](sdk/README.md). En C++, `parse_cheat` décode un code de triche, `Core::set_cheats` active la liste, et `gb::HardwareModel::agb` crée la GBC d'une Game Boy Advance.

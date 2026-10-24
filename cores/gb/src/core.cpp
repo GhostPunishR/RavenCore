@@ -172,6 +172,10 @@ public:
         sensors.tilt = tilt_sensor_;
         return sensors;
     }
+    void set_gbc_compatibility_colors(GbcCompatibilityColors colors) noexcept override {
+        compatibility_colors_ = colors;
+        if (machine_) apply_compatibility_colors(*machine_);
+    }
     void set_cheats(std::span<const Cheat> cheats) override {
         std::vector<MemoryBus::RomPatch> patches;
         std::vector<CheatOperation> writes;
@@ -311,6 +315,14 @@ private:
             }
         }
     }
+    // Couleurs d'un jeu Game Boy sur GBC : la palette n'est lisible que par le
+    // PPU, le jeu ne la voit pas. Une boot ROM fournie a choisi la sienne.
+    void apply_compatibility_colors(Machine& machine) const noexcept {
+        if (machine.hardware_mode != gb::HardwareMode::cgb_compatibility || machine.boot_rom.supplied()) return;
+        machine.ppu.set_compatibility_palettes(compatibility_colors_ == GbcCompatibilityColors::grayscale
+                                                   ? Ppu::grayscale_palettes
+                                                   : Ppu::boot_default_palettes);
+    }
     void install_machine(std::unique_ptr<Machine> replacement) {
         if (machine_) {
             machine_->serial.disconnect();
@@ -326,6 +338,7 @@ private:
             throw std::logic_error("InfraredEndpoint refuse une nouvelle extrémité");
         }
         replacement->bus.rom_patches = rom_patches_;
+        apply_compatibility_colors(*replacement);
         machine_ = std::move(replacement);
         carried_cycles_ = 0;  // la nouvelle machine commence son image
     }
@@ -361,6 +374,7 @@ private:
     int host_acceleration_y_{};
     std::vector<MemoryBus::RomPatch> rom_patches_;
     std::vector<CheatOperation> cheat_writes_;
+    GbcCompatibilityColors compatibility_colors_{GbcCompatibilityColors::automatic};
 };
 
 /**

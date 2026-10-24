@@ -573,6 +573,42 @@ void boot_rom_state_test() {
     with_boot->load_state(without->save_state());
 }
 
+/**
+ * Jeu Game Boy sur GBC sans boot ROM : les couleurs que la boot ROM donne à un
+ * jeu inconnu, ou des gris ; le réglage s'applique tout de suite, et survit aux
+ * états et au reset.
+ */
+void gbc_compatibility_colors_test() {
+    // XOR A ; LDH ($40),A ; LD HL,$8000 ; LD B,8 ; boucle : LD A,$FF ; LD (HL+),A ; XOR A ;
+    // LD (HL+),A ; DEC B ; JR NZ ; LD A,$E4 ; LDH ($47),A ; LD A,$91 ; LDH ($40),A ; JR $
+    const auto rom = rom_running(minimal_game_boy_rom(),
+                                 {0xaf, 0xe0, 0x40, 0x21, 0x00, 0x80, 0x06, 0x08, 0x3e, 0xff, 0x22, 0xaf, 0x22,
+                                  0x05, 0x20, 0xf8, 0x3e, 0xe4, 0xe0, 0x47, 0x3e, 0x91, 0xe0, 0x40, 0x18, 0xfe});
+    auto core = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::cgb);
+    core->load_rom(rom, {});
+    std::vector<std::int32_t> frame(160 * 144);
+    // Couleur 1 de la palette de fond, sous le premier pixel.
+    const auto color = [&] {
+        core->run_frame(frame, true);
+        core->run_frame(frame, true);
+        const auto argb = static_cast<std::uint32_t>(frame[0]);
+        return std::array<std::uint32_t, 3>{(argb >> 16) & 0xffU, (argb >> 8) & 0xffU, argb & 0xffU};
+    };
+    const auto boot = color();
+    // Couleur $1BEF de la boot ROM : rouge 15, vert 31, bleu 6.
+    check(boot[1] > boot[0] && boot[0] > boot[2], "couleur de la boot ROM GBC absente");
+    core->set_gbc_compatibility_colors(ravenemu::GbcCompatibilityColors::grayscale);
+    const auto gray = color();
+    check(gray[0] == gray[1] && gray[1] == gray[2] && gray[0] != 0 && gray[0] != 0xff, "gris attendu");
+    const auto state = core->save_state();
+    core->set_gbc_compatibility_colors(ravenemu::GbcCompatibilityColors::automatic);
+    core->load_state(state);
+    check(color() == boot, "les couleurs d'un état ne suivent pas le réglage");
+    core->set_gbc_compatibility_colors(ravenemu::GbcCompatibilityColors::grayscale);
+    core->reset();
+    check(color() == gray, "réglage des couleurs perdu au reset");
+}
+
 void link_cable_test() {
     auto master = ravenemu::make_game_boy_core();
     auto slave = ravenemu::make_game_boy_core();
@@ -598,6 +634,7 @@ int main() {
     game_boy_smoke_test();
     link_cable_test();
     agb_hardware_test();
+    gbc_compatibility_colors_test();
     boot_rom_state_test();
     cheats_test();
     game_boy_color_and_battery_test();

@@ -145,6 +145,17 @@ int ravenemu_set_rotation(ravenemu_bridge* handle, int speed);
  * the console goes down, y > 0 when its top edge moves away from the player. */
 int ravenemu_set_tilt(ravenemu_bridge* handle, int x, int y);
 
+/* Colors of Game Boy games on a GBC handle (RAVENEMU_GBC, RAVENEMU_GBC_ON_GBA)
+ * started without boot ROM. AUTO gives the colors the GBC boot ROM gives a
+ * game it does not recognize; GRAY, four greys. Applied at once, and kept
+ * across ravenemu_load, ravenemu_reset and state loads. Returns 1, or 0 for
+ * another handle or an unknown value. */
+enum ravenemu_gbc_colors {
+    RAVENEMU_GBC_COLORS_AUTO = 0,
+    RAVENEMU_GBC_COLORS_GRAY = 1
+};
+int ravenemu_set_gbc_colors(ravenemu_bridge* handle, int colors);
+
 /* Cheat codes. An entry is one cheat of a cheat menu: one or more lines
  * separated by spaces, line breaks or '+'.
  * - GB/GBC: Game Genie (ABC-DEF-GHI or ABC-DEF) and GameShark (8 digits,

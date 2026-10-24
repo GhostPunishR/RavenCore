@@ -4,7 +4,7 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 ## 0.14.0 - 2026-10-24
 
-Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Game Boy Advance : RavenEmu Android et RavenEmu PC peuvent désormais les proposer. Les moteurs et le format des états ne changent pas.
+Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Game Boy Advance : RavenEmu Android et RavenEmu PC peuvent désormais les proposer. Les jeux Game Boy sur une GBC sans boot ROM prennent les couleurs de sa boot ROM au lieu de gris. Le format des états ne change pas.
 
 ### Ajouté
 
@@ -13,11 +13,26 @@ Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Ga
   - `ravenemu_set_cheats()` active une liste de codes à partir de l'image suivante. Si une entrée est refusée, la liste précédente reste active et l'erreur nomme l'entrée, par exemple « code de triche 2 : … ».
   - Formats, survie aux chargements, réinitialisations et états : comme dans RetroArch depuis la 0.12.0.
 - **`RAVENEMU_GBC_ON_GBA`** pour `ravenemu_create()`, et `sdk::System::game_boy_color_on_gba` dans le SDK C++ : la GBC d'une Game Boy Advance, `gb::HardwareModel::agb` depuis la 0.13.0.
+- **Couleurs des jeux Game Boy sur une GBC.**
+  - `Core::set_gbc_compatibility_colors()` et `ravenemu_set_gbc_colors()` choisissent entre les couleurs de la boot ROM et quatre gris.
+  - Dans RavenGBC, l'option **Couleurs des jeux Game Boy** fait de même.
+  - Le réglage s'applique tout de suite, et survit au chargement, au reset et aux états.
+  - Une boot ROM fournie choisit elle-même ses couleurs.
+- **Gris neutre** pour la palette de RavenGB.
+
+### Modifié
+
+- **Jeu Game Boy sur une GBC sans boot ROM : en couleurs.**
+  - Il prend les palettes que la boot ROM de la GBC donne à un jeu qu'elle ne reconnaît pas (Pan Docs, « Compatibility palettes »), au lieu de quatre gris. Ce sont celles des captures de référence des suites publiques : la vraie console les donne aux jeux d'autres éditeurs que Nintendo.
+  - Les jeux Nintendo, qu'elle colore jeu par jeu, les prennent aussi pour l'instant : la table par jeu viendra plus tard.
+  - L'option **Gris** rend l'ancien rendu.
+  - `gb_conformance_runner --compatibility-palette boot-default` reste accepté, mais n'est plus nécessaire.
 
 ### Compatibilité des états instantanés
 
 - **GBA : format 16** et **GB/GBC : format 11**, inchangés.
-- **API C : version 0**, avec des ajouts seulement : une valeur de `ravenemu_system` et deux fonctions. Le paquet CMake se demande désormais avec `find_package(RavenCore 0.14)`.
+- **API C : version 0**, avec des ajouts seulement : une valeur de `ravenemu_system`, l'énumération `ravenemu_gbc_colors` et trois fonctions. Le paquet CMake se demande désormais avec `find_package(RavenCore 0.14)`.
+- **API C++** : `Core` gagne `set_gbc_compatibility_colors()`, avec une implémentation par défaut, et `GbcCompatibilityColors`.
 
 ### Tests
 
@@ -25,7 +40,10 @@ Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Ga
   - codes vérifiés sans handle : acceptés, ou refusés avec leur raison, pour une autre console, un système inconnu ou un code absent ;
   - deux codes GameShark appliqués dès l'image suivante ;
   - une liste dont la deuxième entrée est refusée : l'erreur la nomme, et l'ancienne liste reste active ;
-  - avec `RAVENEMU_GBC_ON_GBA`, B vaut 1 au démarrage d'un jeu GBC ; avec `RAVENEMU_GBC`, il vaut 0.
+  - avec `RAVENEMU_GBC_ON_GBA`, B vaut 1 au démarrage d'un jeu GBC ; avec `RAVENEMU_GBC`, il vaut 0 ;
+  - les couleurs d'un jeu Game Boy, puis des gris ; le réglage est refusé sur un handle GB ou GBA.
+- `gb_raven_core` : un jeu Game Boy sur GBC dessine la couleur `$1BEF` de la boot ROM. En gris, ses trois composantes sont égales. Après un état ou un reset, il suit le réglage du moment.
+- Les 200 tests publics GB/GBC passent toujours, captures de référence en mode de compatibilité comprises.
 
 ## 0.13.0 - 2026-10-23
 

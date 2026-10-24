@@ -22,6 +22,7 @@
 
 struct ravenemu_bridge {
     std::unique_ptr<ravenemu::Core> core;
+    int system = -1;  // valeur de ravenemu_system donnée à ravenemu_create
     std::vector<std::int32_t> framebuffer;
     bool loaded = false;
     // État sérialisé par ravenemu_state_size : un frontend appelle presque
@@ -135,6 +136,7 @@ ravenemu_bridge* ravenemu_create(int system) {
             throw std::invalid_argument("Invalid system");
         }
         handle->framebuffer.resize(handle->core->video_spec().pixel_count());
+        handle->system = system;
         result = handle.release();
     });
     return result;
@@ -456,6 +458,15 @@ int ravenemu_remote_link_service(ravenemu_remote_link* link) {
         machine_may_change(link->handle);
         link->handle->core->service_remote_link();
     });
+}
+int ravenemu_set_gbc_colors(ravenemu_bridge* handle, int colors) {
+    if (!handle || !handle->core || (handle->system != RAVENEMU_GBC && handle->system != RAVENEMU_GBC_ON_GBA)) return 0;
+    if (colors != RAVENEMU_GBC_COLORS_AUTO && colors != RAVENEMU_GBC_COLORS_GRAY) return 0;
+    machine_may_change(handle);
+    handle->core->set_gbc_compatibility_colors(colors == RAVENEMU_GBC_COLORS_GRAY
+                                                   ? ravenemu::GbcCompatibilityColors::grayscale
+                                                   : ravenemu::GbcCompatibilityColors::automatic);
+    return 1;
 }
 int ravenemu_check_cheat(int system, const char* code) {
     return attempt([&] {

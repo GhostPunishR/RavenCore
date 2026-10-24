@@ -276,6 +276,33 @@ int gbc_on_gba_test() {
     return 0;
 }
 
+// Couleurs d'un jeu Game Boy sur une GBC : celles de la boot ROM, ou des gris.
+int gbc_colors_test() {
+    auto rom = ravenemu::testing::minimal_game_boy_rom();
+    rom[0x101] = 0x50;  // JP $0150 : LCD éteint, tuile 0 en couleur 1, BGP = E4, LCD allumé, JR $
+    const std::uint8_t program[] = {0xaf, 0xe0, 0x40, 0x21, 0x00, 0x80, 0x06, 0x08, 0x3e, 0xff, 0x22, 0xaf, 0x22,
+                                    0x05, 0x20, 0xf8, 0x3e, 0xe4, 0xe0, 0x47, 0x3e, 0x91, 0xe0, 0x40, 0x18, 0xfe};
+    std::copy(std::begin(program), std::end(program), rom.begin() + 0x150);
+    Handle handle(ravenemu_create(RAVENEMU_GBC), ravenemu_destroy);
+    std::vector<std::uint32_t> frame(160 * 144);
+    const auto pixel = [&] {
+        return ravenemu_run_frame(handle.get(), frame.data(), frame.size()) &&
+               ravenemu_run_frame(handle.get(), frame.data(), frame.size()) ? frame[0] : 0u;
+    };
+    if (!handle || !ravenemu_load(handle.get(), rom.data(), rom.size(), nullptr, 0)) return 100;
+    const auto colored = pixel();
+    if (!ravenemu_set_gbc_colors(handle.get(), RAVENEMU_GBC_COLORS_GRAY)) return 101;
+    const auto gray = pixel();
+    const auto r = (gray >> 16) & 0xffU, g = (gray >> 8) & 0xffU, b = gray & 0xffU;
+    if (colored == gray || r != g || g != b) return 102;
+    Handle game_boy(ravenemu_create(RAVENEMU_GB), ravenemu_destroy);
+    Handle advance(ravenemu_create(RAVENEMU_GBA), ravenemu_destroy);
+    if (ravenemu_set_gbc_colors(game_boy.get(), RAVENEMU_GBC_COLORS_GRAY) ||
+        ravenemu_set_gbc_colors(advance.get(), RAVENEMU_GBC_COLORS_GRAY) ||
+        ravenemu_set_gbc_colors(handle.get(), 7) || ravenemu_set_gbc_colors(nullptr, 0)) return 103;
+    return 0;
+}
+
 int main() {
     if (ravenemu_api_version() != RAVENEMU_API_VERSION ||
         std::string(ravenemu_version()) != RAVENEMU_VERSION) {
@@ -308,6 +335,10 @@ int main() {
     }
     if (const int failure = cheats_test()) {
         std::cerr << "Cheats failed (" << failure << "): " << ravenemu_last_error() << "\n";
+        return failure;
+    }
+    if (const int failure = gbc_colors_test()) {
+        std::cerr << "GBC colors failed (" << failure << "): " << ravenemu_last_error() << "\n";
         return failure;
     }
     if (const int failure = gbc_on_gba_test()) {
