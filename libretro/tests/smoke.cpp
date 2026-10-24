@@ -57,6 +57,10 @@ std::array<bool, 3> device_has_sensor{};   // accéléromètre, gyroscope, lumi�
 std::array<bool, 3> device_sensor_on{};
 std::array<float, 7> device_readings{};
 unsigned sensor_reads = 0;
+// Sous-systèmes déclarés : identifiant, nombre de ROMs, types de mémoire.
+struct DeclaredSubsystem { std::string ident; unsigned id; std::vector<unsigned> memory_types; };
+std::vector<DeclaredSubsystem> subsystems;
+unsigned joypad_ports = 0;  // ports de manette lus, un bit chacun
 
 void log_printf(retro_log_level level, const char* format, ...) {
     char line[512];
@@ -90,6 +94,17 @@ float sensor_input(unsigned port, unsigned id) {
 }
 
 bool environment(unsigned command, void* value) {
+    if (command == RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO) {
+        subsystems.clear();
+        for (auto* info = static_cast<const retro_subsystem_info*>(value); info->ident; ++info) {
+            DeclaredSubsystem declared{info->ident, info->id, {}};
+            for (unsigned rom = 0; rom < info->num_roms; ++rom)
+                for (unsigned memory = 0; memory < info->roms[rom].num_memory; ++memory)
+                    declared.memory_types.push_back(info->roms[rom].memory[memory].type);
+            subsystems.push_back(declared);
+        }
+        return true;
+    }
     if (command == RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE) {
         if (!sensor_interface_offered) return false;
         *static_cast<retro_sensor_interface*>(value) = {set_sensor_state, sensor_input};
@@ -218,8 +233,9 @@ const std::uint8_t* mapped(std::size_t address) {
     return nullptr;
 }
 void input_poll() {}
-std::int16_t input_state(unsigned, unsigned device, unsigned, unsigned id) {
+std::int16_t input_state(unsigned port, unsigned device, unsigned, unsigned id) {
     if (device == RETRO_DEVICE_ANALOG) ++analog_queries;
+    if (device == RETRO_DEVICE_JOYPAD && port < 8) joypad_ports |= 1U << port;
     if (device == RETRO_DEVICE_JOYPAD && id < held_buttons.size() && held_buttons[id]) return 1;
     return 0;
 }
@@ -991,6 +1007,100 @@ int main() {
 #endif
     retro_unload_game();
     option_values.clear();
+
+    // Deux joueurs reliés par câble (sous-système « link ») : images côte à
+    // côte, une manette et une sauvegarde chacun. Le joueur 1 envoie un mot
+    // par le port série et reçoit celui du joueur 2, qui a une sauvegarde.
+    {
+#if defined(RAVENEMU_LIBRETRO_GBA)
+        // Mode multijoueur : RCNT = 0, SIOCNT = 2003h, SIOMLT_SEND, puis le
+        // parent lance le transfert, l'attend et range SIOMULTI1 en 03000000.
+        const auto program = [](std::initializer_list<std::uint32_t> words) {
+            auto image = ravenemu::testing::minimal_gba_rom();
+            std::size_t offset = 0;
+            for (const auto word : words)
+                for (unsigned byte = 0; byte < 4; ++byte)
+                    image[offset++] = static_cast<std::uint8_t>(word >> (byte * 8U));
+            return image;
+        };
+        auto first_rom = program({0xe3a00301U, 0xe2800c01U, 0xe3a01000U, 0xe1c013b4U, 0xe3a01a02U, 0xe3811003U,
+                                  0xe1c012b8U, 0xe3a02c12U, 0xe3822034U, 0xe1c022baU,   // envoie 1234h
+                                  0xe3811080U, 0xe1c012b8U, 0xe1d012b8U, 0xe3110080U, 0x1afffffcU,
+                                  0xe1d012b2U, 0xe3a02403U, 0xe1c210b0U, 0xeafffffeU});
+        auto second_rom = program({0xe3a00301U, 0xe2800c01U, 0xe3a01000U, 0xe1c013b4U, 0xe3a01a02U, 0xe3811003U,
+                                   0xe1c012b8U, 0xe3a02c56U, 0xe3822078U, 0xe1c022baU,  // envoie 5678h
+                                   0xeafffffeU});
+        std::copy_n("SRAM_V", 6, second_rom.begin() + 0x100);
+        constexpr std::size_t received_address = 0x0300'0000;
+        constexpr int expected_word = 0x5678;
+        constexpr std::size_t second_save = 32768;
+#else
+        // Le joueur 2 prépare 99h, horloge externe ; le joueur 1 lui en laisse
+        // le temps, puis envoie 42h, horloge interne. SB du joueur 1 vaut
+        // ensuite 99h.
+        auto first_rom = ravenemu::testing::minimal_game_boy_rom();
+        auto second_rom = ravenemu::testing::minimal_game_boy_rom();
+        const std::uint8_t send[]{0x06, 0x00, 0x05, 0x20, 0xfd,  // LD B,0 ; DEC B ; JR NZ
+                                  0x3e, 0x42, 0xe0, 0x01, 0x3e, 0x81, 0xe0, 0x02, 0x18, 0xfe};
+        const std::uint8_t answer[]{0x3e, 0x99, 0xe0, 0x01, 0x3e, 0x80, 0xe0, 0x02, 0x18, 0xfe};
+        std::copy(std::begin(send), std::end(send), first_rom.begin() + 0x100);
+        std::copy(std::begin(answer), std::end(answer), second_rom.begin() + 0x100);
+#if defined(RAVENEMU_LIBRETRO_GBC)
+        first_rom[0x143] = second_rom[0x143] = 0x80;
+#endif
+        second_rom[0x147] = 0x1b;  // MBC5+RAM+BATTERY, 8 Kio
+        second_rom[0x149] = 0x02;
+        constexpr std::size_t received_address = 0xff01;
+        constexpr int expected_word = 0x99;
+        constexpr std::size_t second_save = 8192;
+#endif
+        const bool declared = subsystems.size() == 1 && subsystems[0].ident == "link" &&
+                              subsystems[0].memory_types == std::vector<unsigned>{0x101, 0x102};
+        const unsigned link_id = declared ? subsystems[0].id : 0;
+        retro_game_info pair[2]{};
+        pair[0].data = first_rom.data(); pair[0].size = first_rom.size();
+        pair[1].data = second_rom.data(); pair[1].size = second_rom.size();
+        if (!declared || !retro_load_game_special(link_id, pair, 2)) {
+            std::cerr << "Link subsystem not declared or not loaded\n";
+            return 1;
+        }
+        retro_system_av_info pair_av{};
+        retro_get_system_av_info(&pair_av);
+        // Sauvegarde du joueur 2 écrite par le frontend : sa console repart
+        // avec, sans quitter le câble.
+        if (auto* second_save_ram = static_cast<std::uint8_t*>(retro_get_memory_data(0x102)))
+            second_save_ram[0] ^= 0xff;
+        joypad_ports = 0;
+        retro_run();
+        retro_run();
+        const auto* received = mapped(received_address);
+        const int word = received ? (received[0] | (expected_word > 0xff ? received[1] << 8 : 0)) : -1;
+        const bool side_by_side = pair_av.geometry.base_width == 2 * expected_width &&
+                                  last_width == 2 * expected_width && last_height == expected_height;
+        const bool saves = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM) == 0 &&
+                           retro_get_memory_size(0x102) == second_save && retro_get_memory_data(0x102) &&
+                           retro_get_memory_size(0x103) == 0;
+        // État des deux consoles : repris tel quel, refusé s'il vient d'un jeu seul.
+        std::vector<std::uint8_t> pair_state(retro_serialize_size()), again(pair_state.size());
+        const bool saved = retro_serialize(pair_state.data(), pair_state.size()) && pair_state[3] == '2';
+        retro_run();
+        const bool restored = retro_unserialize(pair_state.data(), pair_state.size()) &&
+                              retro_serialize(again.data(), again.size()) && again == pair_state;
+        auto single_state = pair_state;
+        single_state[3] = '1';
+        const bool single_refused = !retro_unserialize(single_state.data(), single_state.size());
+        retro_reset();
+        retro_run();
+        retro_unload_game();
+        const bool refused =
+            !retro_load_game_special(link_id + 1, pair, 2) && !retro_load_game_special(link_id, pair, 1);
+        if (word != expected_word || !side_by_side || joypad_ports != 3 || !saves || !saved || !restored ||
+            !single_refused || !refused) {
+            std::cerr << "Linked players not handled: word " << word << ", width " << last_width << "\n";
+            return 1;
+        }
+    }
+    retro_unload_game();
 
     // Options v2 : libellés français, catégories et valeur par défaut.
     options_version = 2;

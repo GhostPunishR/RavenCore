@@ -41,18 +41,33 @@ retro_log_printf_t log_cb = nullptr;
 bool can_dupe = false;
 bool run_error_logged = false;
 
-std::unique_ptr<ravenemu::Core> core;
-std::vector<std::uint8_t> rom;
-std::vector<std::uint8_t> save_ram, initial_save_ram;
-std::vector<std::int32_t> native_frame;
-std::vector<std::uint32_t> output_frame;
+// One console: its ROM, the battery copy the frontend persists, its image.
+// A game loaded alone has one; the "link" subsystem two, joined by a link
+// cable. Player 1 comes first: on the left, heard, and the one RetroAchievements
+// and the cheats see. Player i reads the controller on port i.
+struct Player {
+    std::unique_ptr<ravenemu::Core> core;
+    std::vector<std::uint8_t> rom;
+    std::vector<std::uint8_t> save_ram, initial_save_ram;
+    std::vector<std::int32_t> native_frame;
+    bool pending_save_import = false;
+    bool rumble_on = false;
+    // Sensors of the cartridge, driven by the player's left analog stick, and
+    // for player 1 by the device's own sensors.
+    ravenemu::CartridgeSensors sensors{};
+};
+std::vector<Player> players;
+// Built after the consoles and destroyed before them.
+std::unique_ptr<ravenemu::LinkCable> cable;
+ravenemu::Core* core = nullptr;  // player 1's, while a game is loaded
+std::vector<std::uint32_t> output_frame;  // the players side by side
 std::size_t state_capacity = 0;
-bool pending_save_import = false;
 retro_set_rumble_state_t rumble_cb = nullptr;
-bool rumble_on = false;
-// Sensors of the loaded cartridge, driven by the left analog stick and the
-// device's own sensors.
-ravenemu::CartridgeSensors sensors{};
+
+// The "link" subsystem: two games joined by a link cable, each with its own
+// save, which RetroArch names after that game's ROM.
+constexpr unsigned link_subsystem = 1;
+constexpr unsigned link_save_ram = 0x101;  // memory type of player 1's save, then player 2's
 
 // RetroAchievements reads emulated memory through pointers that must stay valid
 // for the whole session, but a reset or a state load replaces RavenCore's
@@ -442,6 +457,7 @@ void switch_device_sensors(DeviceSensors wanted) {
         RETRO_SENSOR_ILLUMINANCE_DISABLE);
 }
 void update_device_sensors() {
+    const auto sensors = core ? players.front().sensors : ravenemu::CartridgeSensors{};
     const bool motion = core && !option_is(RAVENEMU_OPTION("device_sensors"), "disabled");
     DeviceSensors wanted{motion && sensors.tilt, motion && sensors.rotation, false};
 #if defined(RAVENEMU_LIBRETRO_GBA)
@@ -499,11 +515,15 @@ void update_options() {
     if (!core || !env_cb || !env_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) || !updated) return;
     read_live_options();
     update_device_sensors();
+    for (auto& player : players) {
 #if defined(RAVENEMU_LIBRETRO_GBA)
-    apply_solar_option(*core);
+        apply_solar_option(*player.core);
 #elif defined(RAVENEMU_LIBRETRO_GBC)
-    apply_dmg_colors(*core);
+        apply_dmg_colors(*player.core);
+#else
+        static_cast<void>(player);
 #endif
+    }
 }
 
 // Premier des fichiers du dossier système qui existe et a l'une des tailles
@@ -587,72 +607,80 @@ constexpr std::array<Key, 10> keys{{
 // generation. The MBC3 clock footer is refreshed with each copy; between two
 // copies its registers and timestamp stay consistent, which is all a reload needs.
 void update_save_ram() {
-    if (!core || save_ram.empty() || !core->battery_ram_dirty()) return;
-    auto state = core->snapshot_battery_ram();
-    if (!state || state->data.size() != save_ram.size()) return;
-    std::copy(state->data.begin(), state->data.end(), save_ram.begin());
-    core->acknowledge_battery_ram_saved(state->generation);
+    for (auto& player : players) {
+        if (player.save_ram.empty() || !player.core->battery_ram_dirty()) continue;
+        auto state = player.core->snapshot_battery_ram();
+        if (!state || state->data.size() != player.save_ram.size()) continue;
+        std::copy(state->data.begin(), state->data.end(), player.save_ram.begin());
+        player.core->acknowledge_battery_ram_saved(state->generation);
+    }
 }
 /* Libretro frontends restore battery files into SAVE_RAM after load_game.
  * Apply this initial write before the first emulated frame or serialization. */
 void import_save_ram_once() {
-    if (!core || !pending_save_import) return;
-    pending_save_import = false;
-    if (!save_ram.empty() && save_ram != initial_save_ram)
-        core->load_rom(rom, save_ram);
-    initial_save_ram.clear();
+    for (auto& player : players) {
+        if (!player.pending_save_import) continue;
+        player.pending_save_import = false;
+        if (!player.save_ram.empty() && player.save_ram != player.initial_save_ram)
+            player.core->load_rom(player.rom, player.save_ram);
+        player.initial_save_ram.clear();
+    }
 }
 void update_rumble() {
-    if (!core || !rumble_cb) return;
-    const bool active = core->rumble_active();
-    if (active == rumble_on) return;
-    rumble_on = active;
-    rumble_cb(0, RETRO_RUMBLE_STRONG, active ? 0xffff : 0);
+    if (!rumble_cb) return;
+    for (std::size_t port = 0; port < players.size(); ++port) {
+        auto& player = players[port];
+        const bool active = player.core->rumble_active();
+        if (active == player.rumble_on) continue;
+        player.rumble_on = active;
+        rumble_cb(static_cast<unsigned>(port), RETRO_RUMBLE_STRONG, active ? 0xffff : 0);
+    }
 }
 void set_input_descriptors() {
-    std::vector<retro_input_descriptor> descriptors{
-        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "D-Pad Left"},
-        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "D-Pad Up"},
-        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN, "D-Pad Down"},
-        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right"},
-        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "B"},
-        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "A"},
-        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select"},
-        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start"},
-    };
+    std::vector<retro_input_descriptor> descriptors;
+    for (unsigned port = 0; port < players.size(); ++port) {
+        const auto& sensors = players[port].sensors;
+        const std::initializer_list<retro_input_descriptor> pad{
+            {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "D-Pad Left"},
+            {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "D-Pad Up"},
+            {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN, "D-Pad Down"},
+            {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right"},
+            {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "B"},
+            {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "A"},
+            {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select"},
+            {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start"},
+        };
+        descriptors.insert(descriptors.end(), pad);
 #if defined(RAVENEMU_LIBRETRO_GBA)
-    descriptors.push_back({0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L"});
-    descriptors.push_back({0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R"});
+        descriptors.push_back({port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L"});
+        descriptors.push_back({port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R"});
 #endif
-    if (sensors.tilt) {
-        descriptors.push_back({0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
-                               RETRO_DEVICE_ID_ANALOG_X, "Tilt Left/Right"});
-        descriptors.push_back({0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
-                               RETRO_DEVICE_ID_ANALOG_Y, "Tilt Forward/Back"});
-    }
-    if (sensors.rotation) {
-        descriptors.push_back({0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
-                               RETRO_DEVICE_ID_ANALOG_X, "Rotate (gyro sensor)"});
+        if (sensors.tilt) {
+            descriptors.push_back({port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
+                                   RETRO_DEVICE_ID_ANALOG_X, "Tilt Left/Right"});
+            descriptors.push_back({port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
+                                   RETRO_DEVICE_ID_ANALOG_Y, "Tilt Forward/Back"});
+        }
+        if (sensors.rotation) {
+            descriptors.push_back({port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,
+                                   RETRO_DEVICE_ID_ANALOG_X, "Rotate (gyro sensor)"});
+        }
     }
     descriptors.push_back({0, 0, 0, 0, nullptr});
     env_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, descriptors.data());
 }
 void clear_game() {
     // Never leave a gamepad motor running after the game that started it.
-    if (rumble_cb && rumble_on) rumble_cb(0, RETRO_RUMBLE_STRONG, 0);
+    for (std::size_t port = 0; port < players.size(); ++port)
+        if (rumble_cb && players[port].rumble_on) rumble_cb(static_cast<unsigned>(port), RETRO_RUMBLE_STRONG, 0);
     rumble_cb = nullptr;
-    rumble_on = false;
     switch_device_sensors({});
-    sensors = {};
     acceleration_norm = 0.0f;
-    core.reset();
-    rom.clear();
-    save_ram.clear();
-    initial_save_ram.clear();
-    native_frame.clear();
+    cable.reset();
+    core = nullptr;
+    players.clear();
     output_frame.clear();
     state_capacity = 0;
-    pending_save_import = false;
     achievement_ram.clear();
     achievement_sizes = {};
     blend_history.clear();
@@ -674,19 +702,31 @@ void blend_output() {
         blend_history[i] = blending == Blending::mix ? current : blended;
     }
 }
+// Width of the image sent to the frontend: the players side by side.
+unsigned output_width() {
+    return core ? static_cast<unsigned>(core->video_spec().width) * static_cast<unsigned>(players.size()) : width;
+}
 void refresh_video() {
     if (!core || !video_cb) return;
     const auto spec = core->video_spec();
-    const bool indexed = core->framebuffer_format() == ravenemu::FramebufferFormat::indexed_4;
-    for (std::size_t i = 0; i < native_frame.size(); ++i) {
-        const auto pixel = static_cast<std::uint32_t>(native_frame[i]);
-        output_frame[i] = indexed ? shades[pixel & 3U]
-                        : lcd_correction ? lcd_corrected(pixel) : (pixel & 0x00ffffffU);
+    const auto columns = static_cast<std::size_t>(spec.width);
+    const auto stride = static_cast<std::size_t>(output_width());
+    for (std::size_t index = 0; index < players.size(); ++index) {
+        const auto& player = players[index];
+        const bool indexed = player.core->framebuffer_format() == ravenemu::FramebufferFormat::indexed_4;
+        const auto* source = player.native_frame.data();
+        for (std::size_t row = 0; row < player.native_frame.size() / columns; ++row) {
+            auto* line = output_frame.data() + row * stride + index * columns;
+            for (std::size_t column = 0; column < columns; ++column) {
+                const auto pixel = static_cast<std::uint32_t>(*source++);
+                line[column] =
+                    indexed ? shades[pixel & 3U] : lcd_correction ? lcd_corrected(pixel) : (pixel & 0x00ffffffU);
+            }
+        }
     }
     blend_output();
-    video_cb(output_frame.data(), static_cast<unsigned>(spec.width),
-             static_cast<unsigned>(spec.height),
-             static_cast<std::size_t>(spec.width) * sizeof(std::uint32_t));
+    video_cb(output_frame.data(), static_cast<unsigned>(stride), static_cast<unsigned>(spec.height),
+             stride * sizeof(std::uint32_t));
 }
 void refresh_achievement_memory(bool everything) {
     if (!core || achievement_ram.empty()) return;
@@ -728,19 +768,22 @@ void declare_achievement_memory() {
     retro_memory_map map{descriptors.data(), static_cast<unsigned>(descriptors.size())};
     env_cb(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &map);
 }
-// A frontend that does not want the sound of this frame still gets the
-// samples drained, or they would pile up for the next one.
+// Only player 1 is heard. The other consoles' samples, and those of a frame
+// whose sound the frontend does not want, are drained all the same, or they
+// would pile up for the next one.
 void refresh_audio(bool deliver) {
-    if (!core) return;
     std::array<std::int16_t, 4096> pcm{};
-    for (unsigned attempt = 0; attempt < 32; ++attempt) {
-        const auto count = core->read_audio(pcm);
-        if (count < 2) break;
-        const auto frames = count / 2;
-        if (deliver && batch_cb) batch_cb(pcm.data(), frames);
-        else if (deliver && sample_cb) for (std::size_t i = 0; i < frames; ++i)
-            sample_cb(pcm[2 * i], pcm[2 * i + 1]);
-        if (count < pcm.size()) break;
+    for (std::size_t index = 0; index < players.size(); ++index) {
+        const bool heard = deliver && index == 0;
+        for (unsigned attempt = 0; attempt < 32; ++attempt) {
+            const auto count = players[index].core->read_audio(pcm);
+            if (count < 2) break;
+            const auto frames = count / 2;
+            if (heard && batch_cb) batch_cb(pcm.data(), frames);
+            else if (heard && sample_cb) for (std::size_t i = 0; i < frames; ++i)
+                sample_cb(pcm[2 * i], pcm[2 * i + 1]);
+            if (count < pcm.size()) break;
+        }
     }
 }
 // What the frontend will use of this frame: it skips the image or the sound
@@ -749,6 +792,51 @@ int wanted_av() {
     int flags = 0;
     if (env_cb && env_cb(RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE, &flags)) return flags;
     return RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;
+}
+// The buttons and left stick of the controller on `port`, and for player 1
+// the device's sensors, handed to the player's console.
+void read_controller(Player& player, unsigned port) {
+    auto& console = *player.core;
+    if (input_cb) {
+        std::array<bool, keys.size()> held{};
+        for (std::size_t index = 0; index < keys.size(); ++index)
+            held[index] = input_cb(port, RETRO_DEVICE_JOYPAD, 0, keys[index].id) != 0;
+        // keys commence par haut, bas, gauche, droite.
+        if (!opposing_allowed) {
+            if (held[0] && held[1]) held[0] = held[1] = false;
+            if (held[2] && held[3]) held[2] = held[3] = false;
+        }
+        for (std::size_t index = 0; index < keys.size(); ++index) console.set_button(keys[index].button, held[index]);
+    }
+    const auto& sensors = player.sensors;
+    const bool device = port == 0;
+    if (sensors.tilt || sensors.rotation) {
+        int stick_x = 0, stick_y = 0;
+        if (input_cb) {
+            stick_x = input_cb(port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X);
+            stick_y = input_cb(port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y);
+        }
+        // Stick right: clockwise rotation, or the right side down.
+        auto tilt = tilt_from_stick(stick_x, stick_y);
+        int rotation = stick_x;
+        if (device && device_sensors.accelerometer) {
+            const auto measured = device_tilt();
+            tilt = {clamp_axis(tilt.x + measured.x), clamp_axis(tilt.y + measured.y)};
+        }
+        if (device && device_sensors.gyroscope)
+            rotation = clamp_axis(rotation + rotation_from_gyroscope(
+                                                 sensor_interface.get_sensor_input(0, RETRO_SENSOR_GYROSCOPE_Z)));
+#if defined(RAVENEMU_LIBRETRO_GBA)
+        if (sensors.rotation) console.set_rotation_speed(rotation);
+        if (sensors.tilt) console.set_gba_tilt(tilt.x, tilt.y);
+#else
+        console.set_game_boy_acceleration(mbc7_axis(tilt.x), mbc7_axis(tilt.y));
+#endif
+    }
+#if defined(RAVENEMU_LIBRETRO_GBA)
+    if (device && device_sensors.illuminance)
+        console.set_solar_light(light_from_lux(sensor_interface.get_sensor_input(0, RETRO_SENSOR_ILLUMINANCE)));
+#endif
 }
 } // namespace
 
@@ -764,6 +852,18 @@ void retro_set_environment(retro_environment_t callback) {
     log_cb = env_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging) ? logging.log : nullptr;
     env_cb(RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS, &achievements);
     declare_options();
+    // Two games joined by a link cable, offered by RetroArch's Load Content
+    // menu once the core is loaded.
+    static const std::array<retro_subsystem_memory_info, 2> saves{{{"srm", link_save_ram}, {"srm", link_save_ram + 1}}};
+    static const std::array<retro_subsystem_rom_info, 2> roms{{
+        {"Jeu du joueur 1", extensions, false, false, true, &saves[0], 1},
+        {"Jeu du joueur 2", extensions, false, false, true, &saves[1], 1},
+    }};
+    static const std::array<retro_subsystem_info, 2> subsystems{{
+        {"Deux joueurs (câble link)", "link", roms.data(), static_cast<unsigned>(roms.size()), link_subsystem},
+        {},
+    }};
+    env_cb(RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO, const_cast<retro_subsystem_info*>(subsystems.data()));
 }
 void retro_set_video_refresh(retro_video_refresh_t callback) { video_cb = callback; }
 void retro_set_audio_sample(retro_audio_sample_t callback) { sample_cb = callback; }
@@ -787,50 +887,68 @@ void retro_get_system_av_info(struct retro_system_av_info* info) {
     if (!info) return;
     const auto video = core ? core->video_spec()
                             : ravenemu::VideoSpec{static_cast<int>(width), static_cast<int>(height), fps};
-    info->geometry.base_width = static_cast<unsigned>(video.width);
+    const auto shown = output_width();
+    info->geometry.base_width = shown;
     info->geometry.base_height = static_cast<unsigned>(video.height);
-    info->geometry.max_width = static_cast<unsigned>(video.width);
+    info->geometry.max_width = shown;
     info->geometry.max_height = static_cast<unsigned>(video.height);
-    info->geometry.aspect_ratio = static_cast<float>(video.width) / static_cast<float>(video.height);
+    info->geometry.aspect_ratio = static_cast<float>(shown) / static_cast<float>(video.height);
     info->timing.fps = video.refresh_rate_hz;
     info->timing.sample_rate = core ? core->audio_spec().sample_rate_hz : 32768.0;
 }
-bool retro_load_game(const struct retro_game_info* game) {
+} // extern "C"
+
+namespace {
+// One game per player; two are joined by a link cable.
+bool load_players(std::span<const retro_game_info> games) {
     clear_game();
     if (!env_cb) return false;
-    if (!game || !game->data || !game->size) {
-        report_load_failure("aucune donnée de jeu reçue");
-        return false;
+    for (const auto& game : games) {
+        if (!game.data || !game.size) {
+            report_load_failure("aucune donnée de jeu reçue");
+            return false;
+        }
     }
     enum retro_pixel_format format = RETRO_PIXEL_FORMAT_XRGB8888;
     if (!env_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &format)) {
         report_load_failure("le frontend refuse les pixels XRGB8888");
         return false;
     }
+    std::size_t index = 0;
     try {
-        const auto* bytes = static_cast<const std::uint8_t*>(game->data);
-        rom.assign(bytes, bytes + game->size);
-        auto machine = new_core();
-        apply_options(*machine);
-        machine->load_rom(rom, {});
-        const auto size = machine->video_spec().pixel_count();
-        native_frame.resize(size);
-        output_frame.resize(size);
-        if (machine->has_battery_ram()) {
-            const auto battery = machine->snapshot_battery_ram();
-            if (battery) {
-                save_ram = battery->data;
-                initial_save_ram = save_ram;
-                pending_save_import = true;
+        // A state: "RVL", the number of players, then each one's length and state.
+        state_capacity = 4;
+        players.resize(games.size());
+        for (index = 0; index < games.size(); ++index) {
+            auto& player = players[index];
+            const auto* bytes = static_cast<const std::uint8_t*>(games[index].data);
+            player.rom.assign(bytes, bytes + games[index].size);
+            player.core = new_core();
+            apply_options(*player.core);
+            player.core->load_rom(player.rom, {});
+            player.native_frame.resize(player.core->video_spec().pixel_count());
+            if (player.core->has_battery_ram()) {
+                const auto battery = player.core->snapshot_battery_ram();
+                if (battery) {
+                    player.save_ram = battery->data;
+                    player.initial_save_ram = player.save_ram;
+                    player.pending_save_import = true;
+                }
             }
+            const auto state_bytes = player.core->save_state().size();
+            if (state_bytes > std::numeric_limits<std::uint32_t>::max() / 4 - 65540ULL)
+                throw std::runtime_error("Save state exceeds limits");
+            state_capacity += 4 + state_bytes + 65536U;
+            player.sensors = player.core->cartridge_sensors();
+            output_frame.resize(output_frame.size() + player.native_frame.size());
         }
-        const auto state_bytes = machine->save_state().size();
-        if (state_bytes > std::numeric_limits<std::uint32_t>::max() - 65544ULL)
-            throw std::runtime_error("Save state exceeds limits");
-        state_capacity = state_bytes + 65544U;
-        core = std::move(machine);
+        if (players.size() > 1) {
+            std::vector<ravenemu::Core*> consoles;
+            for (auto& player : players) consoles.push_back(player.core.get());
+            cable = ravenemu::connect_link_cable(consoles);
+        }
+        core = players.front().core.get();
         apply_cheats();
-        sensors = core->cartridge_sensors();
         switch_device_sensors({});
         sensor_interface = {};
         env_cb(RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE, &sensor_interface);
@@ -844,76 +962,69 @@ bool retro_load_game(const struct retro_game_info* game) {
         return true;
     } catch (const std::exception& error) {
         clear_game();
-        report_load_failure(error.what());
+        report_load_failure(games.size() > 1 && index < games.size()
+                                ? "joueur " + std::to_string(index + 1) + " : " + error.what()
+                                : std::string(error.what()));
         return false;
     }
 }
-bool retro_load_game_special(unsigned, const struct retro_game_info*, std::size_t) { return false; }
+} // namespace
+
+extern "C" {
+bool retro_load_game(const struct retro_game_info* game) {
+    if (!game) {
+        clear_game();
+        report_load_failure("aucune donnée de jeu reçue");
+        return false;
+    }
+    return load_players({game, 1});
+}
+bool retro_load_game_special(unsigned type, const struct retro_game_info* games, std::size_t count) {
+    if (type != link_subsystem || count != 2 || !games) {
+        clear_game();
+        report_load_failure("sous-système inconnu");
+        return false;
+    }
+    return load_players({games, count});
+}
 void retro_unload_game(void) {
     clear_game();
     cheats.clear();
 }
 void retro_reset(void) {
     if (!core) return;
-    try { import_save_ram_once(); core->reset(); update_save_ram(); update_rumble(); refresh_achievement_memory(true); }
-    catch (const std::exception&) {}
+    try {
+        import_save_ram_once();
+        for (auto& player : players) player.core->reset();
+        update_save_ram();
+        update_rumble();
+        refresh_achievement_memory(true);
+    } catch (const std::exception&) {}
 }
 void retro_run(void) {
     if (!core) return;
     try {
         import_save_ram_once();
         if (poll_cb) poll_cb();
-        if (input_cb) {
-            std::array<bool, keys.size()> held{};
-            for (std::size_t index = 0; index < keys.size(); ++index)
-                held[index] = input_cb(0, RETRO_DEVICE_JOYPAD, 0, keys[index].id) != 0;
-            // keys commence par haut, bas, gauche, droite.
-            if (!opposing_allowed) {
-                if (held[0] && held[1]) held[0] = held[1] = false;
-                if (held[2] && held[3]) held[2] = held[3] = false;
-            }
-            for (std::size_t index = 0; index < keys.size(); ++index) core->set_button(keys[index].button, held[index]);
-        }
-        if (sensors.tilt || sensors.rotation) {
-            int stick_x = 0, stick_y = 0;
-            if (input_cb) {
-                stick_x = input_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X);
-                stick_y = input_cb(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y);
-            }
-            // Stick right: clockwise rotation, or the right side down.
-            auto tilt = tilt_from_stick(stick_x, stick_y);
-            int rotation = stick_x;
-            if (device_sensors.accelerometer) {
-                const auto measured = device_tilt();
-                tilt = {clamp_axis(tilt.x + measured.x), clamp_axis(tilt.y + measured.y)};
-            }
-            if (device_sensors.gyroscope)
-                rotation = clamp_axis(rotation + rotation_from_gyroscope(
-                                                     sensor_interface.get_sensor_input(0, RETRO_SENSOR_GYROSCOPE_Z)));
-#if defined(RAVENEMU_LIBRETRO_GBA)
-            if (sensors.rotation) core->set_rotation_speed(rotation);
-            if (sensors.tilt) core->set_gba_tilt(tilt.x, tilt.y);
-#else
-            core->set_game_boy_acceleration(mbc7_axis(tilt.x), mbc7_axis(tilt.y));
-#endif
-        }
-#if defined(RAVENEMU_LIBRETRO_GBA)
-        if (device_sensors.illuminance)
-            core->set_solar_light(light_from_lux(sensor_interface.get_sensor_input(0, RETRO_SENSOR_ILLUMINANCE)));
-#endif
+        for (unsigned port = 0; port < players.size(); ++port) read_controller(players[port], port);
         update_options();
         const int av = wanted_av();
         // An image is skipped only when the frontend can show the previous one.
         const bool video = (av & RETRO_AV_ENABLE_VIDEO) != 0 || !can_dupe;
-        core->run_frame(native_frame, video);
+        if (cable) {
+            std::array<std::span<std::int32_t>, 2> frames{};
+            for (std::size_t index = 0; index < players.size(); ++index) frames.at(index) = players[index].native_frame;
+            cable->run_frame(std::span(frames).first(players.size()), video);
+        } else {
+            core->run_frame(players.front().native_frame, video);
+        }
         update_save_ram();
         update_rumble();
         refresh_achievement_memory(false);
         if (video) {
             refresh_video();
         } else if (video_cb) {
-            const auto spec = core->video_spec();
-            video_cb(nullptr, static_cast<unsigned>(spec.width), static_cast<unsigned>(spec.height), 0);
+            video_cb(nullptr, output_width(), static_cast<unsigned>(core->video_spec().height), 0);
         }
         refresh_audio((av & RETRO_AV_ENABLE_AUDIO) != 0);
     } catch (const std::exception& error) {
@@ -923,35 +1034,58 @@ void retro_run(void) {
     }
 }
 std::size_t retro_serialize_size(void) { return core ? state_capacity : 0; }
+// "RVL", then '1' for a game alone or '2' for two linked, then each console's
+// state behind its length (32 bits, little-endian).
 bool retro_serialize(void* data, std::size_t size) {
-    if (!core || !data || size < state_capacity || state_capacity < 8) return false;
+    if (!core || !data || size < state_capacity) return false;
     try {
         import_save_ram_once();
-        const auto state = core->save_state();
-        if (state.size() > state_capacity - 8 ||
-            state.size() > std::numeric_limits<std::uint32_t>::max()) return false;
         auto* bytes = static_cast<std::uint8_t*>(data);
         std::memset(bytes, 0, state_capacity);
-        bytes[0] = 'R'; bytes[1] = 'V'; bytes[2] = 'L'; bytes[3] = '1';
-        const auto length = static_cast<std::uint32_t>(state.size());
-        for (unsigned i = 0; i < 4; ++i)
-            bytes[4 + i] = static_cast<std::uint8_t>(length >> (8U * i));
-        std::memcpy(bytes + 8, state.data(), state.size());
+        bytes[0] = 'R'; bytes[1] = 'V'; bytes[2] = 'L'; bytes[3] = static_cast<std::uint8_t>('0' + players.size());
+        std::size_t offset = 4;
+        for (auto& player : players) {
+            const auto state = player.core->save_state();
+            if (state.size() > state_capacity - offset - 4 ||
+                state.size() > std::numeric_limits<std::uint32_t>::max()) return false;
+            const auto length = static_cast<std::uint32_t>(state.size());
+            for (unsigned i = 0; i < 4; ++i)
+                bytes[offset + i] = static_cast<std::uint8_t>(length >> (8U * i));
+            std::memcpy(bytes + offset + 4, state.data(), state.size());
+            offset += 4 + state.size();
+        }
         return true;
     } catch (const std::exception&) { return false; }
 }
 bool retro_unserialize(const void* data, std::size_t size) {
-    if (!core || !data || size < 8) return false;
+    if (!core || !data || size < 4) return false;
     const auto* bytes = static_cast<const std::uint8_t*>(data);
-    if (bytes[0] != 'R' || bytes[1] != 'V' || bytes[2] != 'L' || bytes[3] != '1')
-        return false;
-    std::uint32_t length = 0;
-    for (unsigned i = 0; i < 4; ++i)
-        length |= static_cast<std::uint32_t>(bytes[i + 4]) << (8U * i);
-    if (length > size - 8) return false;
+    const auto count = static_cast<std::uint8_t>('0' + players.size());
+    if (bytes[0] != 'R' || bytes[1] != 'V' || bytes[2] != 'L' || bytes[3] != count) return false;
+    std::vector<std::span<const std::uint8_t>> states;
+    for (std::size_t offset = 4; states.size() < players.size();) {
+        if (size - offset < 4) return false;
+        std::uint32_t length = 0;
+        for (unsigned i = 0; i < 4; ++i)
+            length |= static_cast<std::uint32_t>(bytes[offset + i]) << (8U * i);
+        if (length > size - offset - 4) return false;
+        states.emplace_back(bytes + offset + 4, length);
+        offset += 4 + length;
+    }
     try {
         import_save_ram_once();
-        core->load_state({bytes + 8, static_cast<std::size_t>(length)});
+        // Each console replaces its machine only once its state is read
+        // whole; if player 2 refuses its state, player 1 goes back to its own.
+        std::vector<std::uint8_t> before;
+        if (players.size() > 1) before = core->save_state();
+        for (std::size_t index = 0; index < players.size(); ++index) {
+            try {
+                players[index].core->load_state(states[index]);
+            } catch (const std::exception&) {
+                if (index > 0) core->load_state(before);
+                throw;
+            }
+        }
         update_save_ram();
         update_rumble();
         refresh_achievement_memory(true);
@@ -996,13 +1130,28 @@ void retro_cheat_set(unsigned index, bool enabled, const char* code) {
     }
 }
 unsigned retro_get_region(void) { return RETRO_REGION_NTSC; }
-// Battery SRAM is the only exposed mutable memory. System memory reaches the
-// frontend only through the memory map, a copy that writes cannot change: no
-// misleading writable system RAM view.
+} // extern "C"
+
+namespace {
+std::vector<std::uint8_t>* save_ram_of(unsigned id) {
+    if (players.size() == 1 && id == RETRO_MEMORY_SAVE_RAM) return &players.front().save_ram;
+    if (players.size() > 1 && id >= link_save_ram && id - link_save_ram < players.size())
+        return &players[id - link_save_ram].save_ram;
+    return nullptr;
+}
+} // namespace
+
+extern "C" {
+// Battery SRAM is the only exposed mutable memory: SAVE_RAM for a game alone,
+// one memory type per player when linked (see the subsystem). System memory
+// reaches the frontend only through the memory map, a copy that writes cannot
+// change: no misleading writable system RAM view.
 void* retro_get_memory_data(unsigned id) {
-    return id == RETRO_MEMORY_SAVE_RAM && !save_ram.empty() ? save_ram.data() : nullptr;
+    auto* save = save_ram_of(id);
+    return save && !save->empty() ? save->data() : nullptr;
 }
 std::size_t retro_get_memory_size(unsigned id) {
-    return id == RETRO_MEMORY_SAVE_RAM ? save_ram.size() : 0;
+    const auto* save = save_ram_of(id);
+    return save ? save->size() : 0;
 }
 } // extern "C"

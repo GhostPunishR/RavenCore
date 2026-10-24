@@ -106,6 +106,15 @@ Un code refusé affiche sa raison. Les patchs de ROM GBA, le changement de chiff
 
 Les cœurs déclarent à RetroArch la mémoire que surveille RetroAchievements : les succès s'activent comme avec les autres cœurs, et RetroArch applique lui-même les règles du mode Hardcore. RetroAchievements n'a pas encore testé RavenCore.
 
+**Deux joueurs reliés par câble link.** Chaque cœur déclare le sous-système « Deux joueurs (câble link) ». Dans RetroArch, charger le cœur, puis choisir « Deux joueurs (câble link) » dans **Charger du contenu** : le jeu du joueur 1, puis celui du joueur 2, deux jeux de la même console. Ils démarrent reliés, comme deux consoles et un câble :
+- les deux écrans s'affichent côte à côte, le joueur 1 à gauche ;
+- le joueur 1 joue sur la manette du port 1, le joueur 2 sur celle du port 2 ;
+- chacun garde sa sauvegarde, au nom de son jeu (`Pokémon Rubis.srm`…) : celle d'une partie en solo sert telle quelle ;
+- on entend le joueur 1 ;
+- les états instantanés, le reset et le mélange d'images couvrent les deux consoles.
+
+RetroAchievements, les codes de triche et les capteurs de l'appareil ne concernent que le joueur 1. Sur GBA, le joueur 1 est la console parente des jeux multijoueurs.
+
 > Les cœurs ne sont pas encore proposés par le téléchargeur intégré de RetroArch.
 
 ## Intégrer dans un projet

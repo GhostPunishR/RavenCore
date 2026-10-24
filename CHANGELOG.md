@@ -4,7 +4,7 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 ## 0.14.0 - 2026-10-24
 
-Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Game Boy Advance : RavenEmu Android et RavenEmu PC peuvent désormais les proposer. Les jeux Game Boy sur une GBC sans boot ROM prennent les couleurs de sa boot ROM au lieu de gris. Le BIOS d'une GBA peut remplacer celui de RavenCore. Dans RetroArch, les cartouches à capteur suivent les capteurs du téléphone. Le format des états GBA passe à 17.
+Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Game Boy Advance : RavenEmu Android et RavenEmu PC peuvent désormais les proposer. Les jeux Game Boy sur une GBC sans boot ROM prennent les couleurs de sa boot ROM au lieu de gris. Le BIOS d'une GBA peut remplacer celui de RavenCore. Dans RetroArch, les cartouches à capteur suivent les capteurs du téléphone, et deux joueurs peuvent se relier par câble link. Le format des états GBA passe à 17.
 
 ### Ajouté
 
@@ -31,6 +31,14 @@ Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Ga
   - le capteur de lumière éclaire Boktai si l'option **Lumière du capteur solaire** vaut « Capteur de lumière de l'appareil ». Rien sous 1000 lux, le plein soleil vers 100 000 lux. Sans capteur, un message le dit et le soleil reste à 50 %.
   - Le stick gauche s'ajoute aux capteurs. Un capteur ne s'allume que pour un jeu qui en a besoin, et s'éteint avec lui. L'option **Capteurs de l'appareil** (catégorie Commandes) les ignore.
   - L'accélération en m/s² de certains frontends anciens est reconnue à sa norme, et ramenée en g.
+- **Deux joueurs reliés par câble link dans RetroArch.** Les trois cœurs déclarent le sous-système « Deux joueurs (câble link) » (`link`). Il charge deux jeux de la même console et les relie par le câble local de RavenCore :
+  - les deux écrans côte à côte, le joueur 1 à gauche ;
+  - une manette par joueur, ports 1 et 2 ;
+  - une sauvegarde par joueur, que RetroArch nomme d'après la ROM de chacun : celle d'une partie en solo sert telle quelle ;
+  - le son du joueur 1 ;
+  - les états, le reset et le mélange d'images pour les deux consoles. L'état d'une paire ne se recharge pas dans un jeu seul, ni l'inverse. Si la console du joueur 2 refuse le sien, le joueur 1 reprend le sien.
+  - RetroAchievements, les codes de triche et les capteurs de l'appareil restent au joueur 1. Sur GBA, il est la console parente.
+  - Un jeu refusé nomme son joueur : « joueur 2 : … ».
 
 ### Modifié
 
@@ -67,6 +75,13 @@ Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Ga
   - sur GBA, Yoshi Topsy-Turvy lit 392h + 70h et 3A0h - 38h dans son capteur. WarioWare: Twisted! lit 6C0h + 191h pour un quart de tour par seconde dans le sens horaire ;
   - le capteur de lumière ne s'allume pour Boktai que si l'option le demande, et son absence est signalée ;
   - chaque capteur s'éteint avec le jeu.
+- `libretro_smoke_*`, deux joueurs reliés :
+  - le sous-système est déclaré, avec une sauvegarde par joueur ;
+  - l'image fait deux largeurs et les deux manettes sont lues ;
+  - le joueur 1 reçoit par le port série le mot du joueur 2 : 99h sur Game Boy (horloge interne contre externe), 5678h sur GBA en mode multijoueur. Sans câble, il lirait FFh ;
+  - la sauvegarde du joueur 2 est exposée, et un état de la paire se recharge à l'identique ;
+  - un état de jeu seul est refusé, comme un sous-système inconnu ou un seul jeu.
+- En local, Pokémon Émeraude et Rubis chargés ensemble par le sous-système, chacun avec sa sauvegarde, s'affichent côte à côte. Rubis reprend sa partie jusqu'au Club Link.
 - En local, avec un BIOS libre (Cult-of-GBA, licence MIT, ni fourni ni téléchargé par le projet) : les ROMs de test jsmolka (ARM, Thumb, mémoire, sauvegardes, NES, unsafe) et FuzzARM passent, avec et sans animation. Seule jsmolka bios échoue : elle vérifie des mots du BIOS officiel, absents de ce BIOS libre. Pokémon Émeraude et Zelda tournent comme avec le BIOS de RavenCore, à la même vitesse.
 - `gb_raven_core` : un jeu Game Boy sur GBC dessine la couleur `$1BEF` de la boot ROM. En gris, ses trois composantes sont égales. Après un état ou un reset, il suit le réglage du moment.
 - Les 200 tests publics GB/GBC passent toujours, captures de référence en mode de compatibilité comprises.
