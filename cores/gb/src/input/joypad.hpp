@@ -24,20 +24,23 @@ public:
         }
         auto& state = action ? action_state_ : direction_state_;
         const bool was_pressed = (state & bit) != 0;
+        const int before = lines();
         state = pressed ? state | bit : state & ~bit;
         if (pressed && !was_pressed) stop_wake_pending_ = true;
-        const bool selected = (action && (select_ & 0x20) == 0) || (!action && (select_ & 0x10) == 0);
-        if (pressed && !was_pressed && selected) interrupts_.request(Interrupt::joypad);
+        request_on_fall(before);
     }
 
-    [[nodiscard]] int read() const noexcept {
-        int lines = 0x0f;
-        if ((select_ & 0x10) == 0) lines &= ~direction_state_;
-        if ((select_ & 0x20) == 0) lines &= ~action_state_;
-        return 0xc0 | select_ | (lines & 0x0f);
+    [[nodiscard]] int read() const noexcept { return 0xc0 | select_ | lines(); }
+    // Sélectionner une rangée où une touche est tenue abaisse sa ligne : comme
+    // un appui, la chute demande l'interruption.
+    void write(int value) noexcept {
+        const int before = lines();
+        select_ = value & 0x30;
+        request_on_fall(before);
     }
-    void write(int value) noexcept { select_ = value & 0x30; }
 
+    // La console entre en STOP : seul un appui à venir l'en sortira.
+    void clear_stop_wake() noexcept { stop_wake_pending_ = false; }
     [[nodiscard]] bool take_stop_wake() noexcept {
         const bool pending = stop_wake_pending_;
         stop_wake_pending_ = false;
@@ -73,6 +76,18 @@ public:
     }
 
 private:
+    // Lignes P10-P13 : à 0 pour une touche appuyée d'une rangée sélectionnée.
+    [[nodiscard]] int lines() const noexcept {
+        int value = 0x0f;
+        if ((select_ & 0x10) == 0) value &= ~direction_state_;
+        if ((select_ & 0x20) == 0) value &= ~action_state_;
+        return value & 0x0f;
+    }
+    // L'interruption joypad part quand une ligne passe de 1 à 0 (Pan Docs).
+    void request_on_fall(int before) noexcept {
+        if ((before & ~lines()) != 0) interrupts_.request(Interrupt::joypad);
+    }
+
     InterruptController& interrupts_;
     int select_{0x30};
     int action_state_{};

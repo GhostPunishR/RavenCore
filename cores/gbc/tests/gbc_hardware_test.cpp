@@ -449,6 +449,41 @@ void joypad_save_state_test() {
           "etat des boutons d'action perdu apres restauration");
 }
 
+// P1 : une ligne qui passe à 0 demande l'interruption joypad, qu'une touche
+// soit appuyée dans une rangée sélectionnée ou qu'une rangée où une touche est
+// tenue soit sélectionnée (Pan Docs, Joypad Input).
+void joypad_selection_interrupt_test() {
+    InterruptController interrupts;
+    Joypad joypad(interrupts);
+    interrupts.flags = 0;
+    joypad.write(0x30);  // aucune rangée
+    joypad.set_button(Button::a, true);
+    check((interrupts.flags & interrupt_mask(Interrupt::joypad)) == 0, "joypad : IRQ sans rangée sélectionnée");
+    joypad.write(0x20);  // directions : aucune tenue
+    check((interrupts.flags & interrupt_mask(Interrupt::joypad)) == 0, "joypad : IRQ sans ligne à 0");
+    joypad.write(0x10);  // boutons d'action : A est tenu
+    check((interrupts.flags & interrupt_mask(Interrupt::joypad)) != 0,
+          "joypad : IRQ absente à la sélection d'une rangée où A est tenu");
+    interrupts.flags = 0;
+    joypad.write(0x00);  // les deux rangées : la ligne de A reste à 0
+    check((interrupts.flags & interrupt_mask(Interrupt::joypad)) == 0, "joypad : IRQ sans nouveau front");
+    joypad.write(0x30);
+    joypad.write(0x10);
+    check((interrupts.flags & interrupt_mask(Interrupt::joypad)) != 0, "joypad : IRQ absente au nouveau front");
+}
+
+// STOP : seul un appui pendant l'arrêt le termine, pas un appui plus ancien.
+void stop_wake_ignores_earlier_press_test() {
+    Fixture fixture(gb::HardwareMode::dmg);
+    fixture.joypad.write(0x00);
+    fixture.joypad.set_button(Button::start, true);
+    fixture.joypad.set_button(Button::start, false);
+    check(!fixture.bus.on_stop(), "STOP pris pour un changement de vitesse");
+    check(!fixture.bus.stop_wake_requested(), "STOP réveillé par un appui antérieur");
+    fixture.joypad.set_button(Button::start, true);
+    check(fixture.bus.stop_wake_requested(), "STOP non réveillé par un appui pendant l'arrêt");
+}
+
 void local_link_endpoint_test() {
     LocalLinkEndpoint link;
     InterruptController interrupts_a;
@@ -627,6 +662,30 @@ void remote_link_protocol_test() {
           "transfert mal lu");
     // Une attente sur un branchement passé finit tout de suite.
     check(!link.wait(link.generation() - 1), "attente sur un ancien branchement");
+}
+
+// Un partenaire qui envoie plus que l'émulation ne lit (pendant une pause,
+// par exemple) ne remplit pas la mémoire : passé la limite, le câble cesse
+// de le servir jusqu'au prochain branchement.
+void remote_link_flood_test() {
+    RemoteLink link(RemoteLink::Family::game_boy, [](std::span<const std::uint8_t>) {});
+    link.set_connected(true);
+    const std::vector<std::uint8_t> hello{1, RemoteLink::protocol_version, 1};
+    check(link.receive(hello) && link.plugged(), "câble distant compatible refusé");
+    const std::vector<std::uint8_t> transfer{2, 1, 0, 0, 0, 0, 0x42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    bool accepted = true;
+    for (std::size_t index = 0; index < RemoteLink::max_queued_messages; ++index) accepted &= link.receive(transfer);
+    check(accepted && link.plugged(), "câble distant : file pleine trop tôt");
+    check(!link.receive(transfer), "câble distant : message au-delà de la limite accepté");
+    check(!link.plugged() && !link.pending() && link.state() == RemoteLink::State::incompatible,
+          "câble distant : partenaire servi au-delà de la limite");
+    check(!link.receive(transfer) && !link.pending(), "câble distant : messages retenus après la limite");
+    check(!link.wait(link.generation()), "câble distant : attente non levée après la limite");
+    // Rebranché, le câble repart à zéro.
+    link.set_connected(false);
+    link.set_connected(true);
+    check(link.receive(hello) && link.plugged() && link.receive(transfer) && link.pending(),
+          "câble distant : rebranchement refusé après la limite");
 }
 
 void ppu_dot_timing_test() {
@@ -1276,6 +1335,9 @@ int main() {
     local_link_endpoint_test();
     remote_link_endpoint_test();
     remote_link_protocol_test();
+    remote_link_flood_test();
+    joypad_selection_interrupt_test();
+    stop_wake_ignores_earlier_press_test();
     ppu_dot_timing_test();
     video_bus_mcycle_boundary_test();
     opri_and_hardware_mode_test();

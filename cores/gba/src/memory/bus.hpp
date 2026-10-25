@@ -136,6 +136,7 @@ private:
     // La puce de sauvegarde naît avec la cartouche et ne change plus : le bus
     // la classe une fois, au lieu d'un dynamic_cast à chaque accès mémoire.
     Eeprom* eeprom_{};
+    bool eeprom_last_bytes_only_{};
     SaveMemory* byte_save_{};  // SRAM ou Flash : la puce du bus 8 bits
     static constexpr int io_mask = 0x3ff;
     // Les registres d'E/S n'occupent que 0x04000000..0x040003FF : ils ne se

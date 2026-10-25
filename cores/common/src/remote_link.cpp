@@ -37,6 +37,7 @@ bool RemoteLink::receive(std::span<const std::uint8_t> message) {
     case hello: {
         if (message.size() != 3) return false;
         std::lock_guard lock(mutex_);
+        if (flooded_) return false;
         // Une autre version du protocole ou une autre famille de consoles :
         // le câble reste sans effet, comme branché à un appareil étranger.
         const auto compatible = message[1] == protocol_version && message[2] == static_cast<std::uint8_t>(family_);
@@ -69,8 +70,22 @@ bool RemoteLink::receive(std::span<const std::uint8_t> message) {
         return false;
     }
     std::lock_guard lock(mutex_);
+    if (flooded_) return false;
     // Hors branchement, ou avant l'annonce du partenaire, le câble ne porte rien.
     if (!connected_ || !partner_ok_) return true;
+    if (queue_.size() >= max_queued_messages) {
+        // Le partenaire envoie plus que la console ne lit : il n'est plus
+        // servi jusqu'au prochain branchement, et un transfert en attente
+        // finit comme sans câble.
+        flooded_ = true;
+        partner_ok_ = false;
+        incompatible_ = true;
+        plugged_.store(false, std::memory_order_release);
+        queue_.clear();
+        pending_.store(false, std::memory_order_release);
+        arrived_.notify_all();
+        return false;
+    }
     queue_.push_back(*parsed);
     pending_.store(true, std::memory_order_release);
     arrived_.notify_all();
@@ -92,6 +107,7 @@ void RemoteLink::set_connected(bool connected) {
         connected_ = connected;
         partner_ok_ = false;
         incompatible_ = false;
+        flooded_ = false;
         plugged_.store(false, std::memory_order_release);
         queue_.clear();
         pending_.store(false, std::memory_order_release);

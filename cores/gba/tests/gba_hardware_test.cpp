@@ -80,6 +80,81 @@ void bios_checksum_and_midi_key() {
     check(fixture.reg(0) == 0x0080'0000U, "MidiKey2Freq : une octave sous 180 divise par deux");
 }
 
+// MidiKey2Freq hors de la plage des touches : le résultat sature au lieu de
+// convertir une valeur infinie ou NaN en entier (comportement indéfini).
+void midi_key_out_of_range() {
+    Fixture fixture;
+    const auto call = [&fixture](std::uint32_t frequency, std::int32_t key) {
+        fixture.store32(0x0300'0004U, frequency);
+        fixture.arm({0xef1f'0000U, 0xeaff'fffeU});  // swi MidiKey2Freq ; b .
+        auto& regs = fixture.machine().cpu.state.regs;
+        regs[0] = 0x0300'0000;
+        regs[1] = key;
+        regs[2] = 0;
+        fixture.run_code();
+        return fixture.reg(0);
+    };
+    check(call(0x0100'0000U, 0x7fff'ffff) == 0xffff'ffffU, "MidiKey2Freq : fréquence infinie non saturée");
+    check(call(0x0100'0000U, 300) == 0xffff'ffffU, "MidiKey2Freq : fréquence au-delà de 32 bits non saturée");
+    check(call(0, 0x7fff'ffff) == 0, "MidiKey2Freq : fréquence nulle sur une touche extrême");
+    check(call(0x0100'0000U, -0x7fff'ffff) == 0, "MidiKey2Freq : touche très basse");
+    check(call(0x0100'0000U, 168) == 0x0080'0000U, "MidiKey2Freq : une octave sous 180");
+}
+
+// CpuFastSet copie par blocs de huit mots : le compte est arrondi au multiple
+// de 8 supérieur (GBATEK), en copie comme en remplissage.
+void cpu_fast_set_copies_whole_blocks() {
+    Fixture fixture;
+    for (std::uint32_t index = 0; index < 32; ++index) fixture.store32(0x0300'0400U + 4 * index, 0x1111'0000U + index);
+    const auto call = [&fixture](std::uint32_t control) {
+        for (std::uint32_t index = 0; index < 32; ++index) fixture.store32(0x0300'0600U + 4 * index, 0);
+        fixture.arm({0xef0c'0000U, 0xeaff'fffeU});  // swi CpuFastSet ; b .
+        auto& regs = fixture.machine().cpu.state.regs;
+        regs[0] = 0x0300'0400;
+        regs[1] = 0x0300'0600;
+        regs[2] = static_cast<std::int32_t>(control);
+        fixture.run_code();
+    };
+    const auto word = [&fixture](std::uint32_t index) {
+        return static_cast<std::uint32_t>(fixture.bus().read32(i32(0x0300'0600U + 4 * index)));
+    };
+    call(1);
+    bool copied = true;
+    for (std::uint32_t index = 0; index < 8; ++index) copied &= word(index) == 0x1111'0000U + index;
+    check(copied && word(8) == 0, "CpuFastSet : un compte de 1 copie un bloc de huit mots");
+    call(9);
+    copied = true;
+    for (std::uint32_t index = 0; index < 16; ++index) copied &= word(index) == 0x1111'0000U + index;
+    check(copied && word(16) == 0, "CpuFastSet : un compte de 9 copie deux blocs");
+    call((1U << 24U) | 3U);  // remplissage
+    bool filled = true;
+    for (std::uint32_t index = 0; index < 8; ++index) filled &= word(index) == 0x1111'0000U;
+    check(filled && word(8) == 0, "CpuFastSet : un remplissage de 3 mots remplit un bloc");
+    call(0);
+    check(word(0) == 0, "CpuFastSet : un compte nul copie quelque chose");
+}
+
+// EEPROM et ROM de plus de 16 Mio : seuls les 256 derniers octets de
+// 0x0D000000-0x0DFFFFFF vont à l'EEPROM, le reste lit la ROM (GBATEK). Jusqu'à
+// 16 Mio, toute la région est à l'EEPROM.
+void eeprom_window_follows_rom_size() {
+    const auto machine = [](std::size_t size) {
+        auto rom = std::make_shared<std::vector<std::uint8_t>>(size);
+        (*rom)[0xb2] = 0x96;
+        if (size > 0x0100'0000U) { (*rom)[0x0100'0000U] = 0x34; (*rom)[0x0100'0001U] = 0x12; }
+        return std::make_unique<Machine>(std::move(rom), GbaSaveType::eeprom_8k, std::nullopt,
+                                         [] { return std::int64_t{0}; });
+    };
+    auto large = machine(0x0200'0000U);
+    check(large->bus.read16(i32(0x0d00'0000U)) == 0x1234, "EEPROM et ROM de 32 Mio : ROM masquée par l'EEPROM");
+    check(large->bus.read16(i32(0x0dff'fefeU)) == 0, "EEPROM et ROM de 32 Mio : fenêtre EEPROM plus large que 256 octets");
+    check(large->bus.read16(i32(0x0dff'ff00U)) == 1 && large->bus.read16(i32(0x0dff'fffeU)) == 1,
+          "EEPROM et ROM de 32 Mio : EEPROM absente de ses 256 derniers octets");
+    auto small = machine(0x0100'0000U);
+    check(small->bus.read16(i32(0x0d00'0000U)) == 1 && small->bus.read16(i32(0x0d80'0000U)) == 1,
+          "EEPROM et ROM de 16 Mio : toute la région 0x0D doit être l'EEPROM");
+}
+
 void sound_bias_keeps_resolution() {
     Fixture fixture;
     fixture.bus().write16(i32(0x0400'0088U), 0xc000);
@@ -624,6 +699,9 @@ void serial_registers_read_by_mode() {
 int main() {
     using namespace ravenemu::gba::testing;
     bios_checksum_and_midi_key();
+    midi_key_out_of_range();
+    cpu_fast_set_copies_whole_blocks();
+    eeprom_window_follows_rom_size();
     bios_arc_tan_follows_its_polynomial();
     bios_arc_tan2_places_the_angle_in_its_quadrant();
     bios_divide_by_zero_and_overflow();

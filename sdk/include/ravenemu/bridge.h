@@ -236,7 +236,10 @@ ravenemu_remote_link* ravenemu_remote_link_create(ravenemu_bridge* handle, int p
  * handle runs a frame: unplug first, a waiting handle then returns at once. */
 void ravenemu_remote_link_destroy(ravenemu_remote_link* link);
 /* A message from the other device. Returns 0 when it is malformed: it is
- * then ignored. */
+ * then ignored. Also 0 when the other device sends more than this console
+ * reads (thousands of messages waiting): it is then no longer served, the
+ * state turns RAVENEMU_REMOTE_INCOMPATIBLE until the cable is pulled out and
+ * plugged in again. */
 int ravenemu_remote_link_receive(ravenemu_remote_link* link, const uint8_t* message, size_t size);
 /* Plugs the cable in (1) or pulls it out (0). Plugged in, the console
  * introduces itself to the other one; the cable carries transfers once the
@@ -247,7 +250,7 @@ enum ravenemu_remote_state {
     RAVENEMU_REMOTE_UNPLUGGED = 0,
     RAVENEMU_REMOTE_WAITING = 1,      /* plugged in, the other has not introduced itself yet */
     RAVENEMU_REMOTE_PLUGGED = 2,
-    RAVENEMU_REMOTE_INCOMPATIBLE = 3  /* another protocol version or console family */
+    RAVENEMU_REMOTE_INCOMPATIBLE = 3  /* another protocol version or console family, or a flooding device */
 };
 int ravenemu_remote_link_state(const ravenemu_remote_link* link);
 /* Between two frames: answers the transfers the other console clocked in
