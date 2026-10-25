@@ -2,6 +2,18 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## Non publié
+
+### Corrigé
+
+- **Câble distant** : la file des messages reçus est bornée à 4 096. Un partenaire qui envoie plus que la console ne lit, par exemple pendant une pause de l'émulation, ne remplit plus la mémoire : il n'est plus servi, `ravenemu_remote_link_receive()` renvoie 0 et l'état passe à `RAVENEMU_REMOTE_INCOMPATIBLE` jusqu'au prochain branchement. Un transfert en attente finit comme sans câble.
+- **GBA, MidiKey2Freq** : une touche hors de la plage MIDI ne convertit plus une valeur infinie ou NaN en entier (comportement indéfini, relevé par UBSan). Le résultat est borné à 0-0xFFFFFFFF.
+- **GBA, CpuFastSet** : la copie et le remplissage se font par blocs de huit mots, le compte arrondi au multiple de 8 supérieur, comme le BIOS (GBATEK). Un compte de 1 copiait un seul mot.
+- **GBA, EEPROM et ROM de 32 Mio** : au-delà de 16 Mio de ROM, seuls les 256 derniers octets de 0x0D000000-0x0DFFFFFF vont à l'EEPROM (GBATEK) ; le reste lit la ROM, au lieu de bits d'EEPROM.
+- **Game Boy, interruption joypad** : sélectionner dans P1 une rangée où une touche est déjà tenue abaisse sa ligne et demande l'interruption, comme un appui (Pan Docs). Un appui dont la ligne était déjà basse, par l'autre rangée, n'en demande plus.
+- **Game Boy, STOP** : seul un appui pendant l'arrêt le termine. Un appui antérieur, déjà relâché, réveillait la console aussitôt.
+- **Publication** : lancée à la main avec un tag qui existe déjà, elle compile et publie le commit de ce tag, et non la tête de la branche choisie. Un seul commit est résolu pour toute la publication.
+
 ## 0.14.0 - 2026-10-24
 
 Cette version ouvre à l'API C les codes de triche et la Game Boy Color d'une Game Boy Advance : RavenEmu Android et RavenEmu PC peuvent désormais les proposer. Les jeux Game Boy sur une GBC sans boot ROM prennent les couleurs que sa boot ROM leur choisit, jeu par jeu, au lieu de gris. Le BIOS d'une GBA peut remplacer celui de RavenCore. Dans RetroArch, les cartouches à capteur suivent les capteurs du téléphone, et deux joueurs peuvent se relier par câble link. Le format des états GBA passe à 17.

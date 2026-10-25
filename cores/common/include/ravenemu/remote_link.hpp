@@ -39,6 +39,11 @@ public:
     static constexpr std::uint8_t protocol_version = 2;
     // Plus long message : un transfert.
     static constexpr std::size_t max_message_size = 18;
+    // Messages en attente au plus. Un partenaire normal en laisse quelques-uns
+    // (un transfert attend sa réponse ; une GBA ne devance pas l'autre de plus
+    // de trois images) ; au-delà, il remplirait la mémoire, par exemple
+    // pendant une pause de l'émulation.
+    static constexpr std::size_t max_queued_messages = 4096;
 
     enum class Family : std::uint8_t { game_boy = 1, game_boy_advance = 2 };
     enum class Mode : std::uint8_t { game_boy = 0, normal8 = 1, normal32 = 2, multiplayer = 3, other = 4 };
@@ -73,7 +78,11 @@ public:
     RemoteLink(const RemoteLink&) = delete;
     RemoteLink& operator=(const RemoteLink&) = delete;
 
-    /** Un message du partenaire ; faux s'il est mal formé (il est alors ignoré). */
+    /**
+     * Un message du partenaire ; faux s'il est mal formé (il est alors ignoré)
+     * ou s'il dépasse max_queued_messages en attente : le partenaire n'est
+     * alors plus servi (état incompatible) jusqu'au prochain branchement.
+     */
     [[nodiscard]] bool receive(std::span<const std::uint8_t> message);
     /**
      * Branche ou débranche. Brancher annonce cette console au partenaire ; le
@@ -121,6 +130,7 @@ private:
     bool connected_{};
     bool partner_ok_{};
     bool incompatible_{};
+    bool flooded_{};  // file pleine : partenaire refusé jusqu'au prochain branchement
     std::optional<bool> early_hello_;  // annonce reçue avant le branchement d'ici
     std::atomic<bool> plugged_{};
     std::atomic<bool> pending_{};

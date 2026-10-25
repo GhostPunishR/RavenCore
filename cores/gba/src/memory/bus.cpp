@@ -12,6 +12,9 @@ namespace ravenemu::gba {
 Bus::Bus(Cartridge& value) : cartridge(value) {
     auto* save = cartridge.save();
     eeprom_ = dynamic_cast<Eeprom*>(save);
+    // Au-delà de 16 Mio, la ROM occupe aussi 0x0D000000 : l'EEPROM n'y garde
+    // que les 256 derniers octets, 0x0DFFFF00-0x0DFFFFFF (GBATEK).
+    eeprom_last_bytes_only_ = cartridge.rom().size() > 0x0100'0000U;
     if (dynamic_cast<Sram*>(save) != nullptr || dynamic_cast<Flash*>(save) != nullptr) byte_save_ = save;
     // Sans puce de sauvegarde, le bus de la cartouche se lit 0xFF.
     fallback_sram.fill(0xffU);
@@ -30,7 +33,8 @@ std::uint8_t* Bus::direct_write(std::uint32_t address) noexcept {
 }
 
 bool Bus::eeprom_window(std::int32_t address) const noexcept {
-    return eeprom_ != nullptr && (u32(address) >> 24U) == 0x0dU;
+    if (eeprom_ == nullptr || (u32(address) >> 24U) != 0x0dU) return false;
+    return !eeprom_last_bytes_only_ || (u32(address) & 0x00ff'ffffU) >= 0x00ff'ff00U;
 }
 
 bool Bus::gpio_register(std::int32_t address) const noexcept {

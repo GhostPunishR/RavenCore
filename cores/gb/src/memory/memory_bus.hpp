@@ -65,7 +65,11 @@ public:
 
     bool on_stop() override {
         reset_divider();
-        if (!speed_.begin_switch_from_stop()) return false;
+        if (!speed_.begin_switch_from_stop()) {
+            // Un appui antérieur, déjà relâché, ne termine pas cet arrêt.
+            joypad_.clear_stop_wake();
+            return false;
+        }
         ppu_.begin_speed_switch();
         return true;
     }

@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Tag to publish (vX.Y.Z), created on the selected branch head if missing
+        description: Tag to publish (vX.Y.Z); an existing tag is built from its own commit, a missing one is created on the selected branch head
         required: true
 
 env:
@@ -21,13 +21,33 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    # The one commit every job builds and the release points to.
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Check the version and extract the release notes
+      - name: Resolve the commit to publish
+        id: source
         run: |
           if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Tag $TAG is not vX.Y.Z"; exit 1
           fi
+          # A tag that already exists is published from its own commit, whatever
+          # branch the run was started on; a missing one is created on the
+          # selected commit. Any other failure to ask the remote stops here.
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            git fetch --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
+            sha=$(git rev-parse "refs/tags/$TAG^{commit}")
+            git checkout --detach "$sha"
+          else
+            status=$?
+            if [ "$status" != 2 ]; then exit "$status"; fi
+            sha="$GITHUB_SHA"
+          fi
+          echo "Publishing $TAG from $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Check the version and extract the release notes
+        run: |
           version="${TAG#v}"
           if ! grep -Fq "project(RavenCore VERSION $version " CMakeLists.txt; then
             echo "CMakeLists.txt does not declare version $version"; exit 1
@@ -73,6 +93,8 @@ jobs:
             abi: armeabi-v7a
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.notes.outputs.sha }}
       - name: Configure CMake
         env:
           PLATFORM: ${{ matrix.platform }}
@@ -120,8 +142,9 @@ jobs:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.notes.outputs.sha }}
         run: >
           gh release create "$TAG" artifacts/cores-*/ravenemu-libretro-*
           --repo "$GITHUB_REPOSITORY"
           --title "RavenCore ${TAG#v}" --notes-file artifacts/release-notes/notes.md
-          --target "$GITHUB_SHA"
+          --target "$SHA"

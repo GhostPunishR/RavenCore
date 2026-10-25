@@ -178,10 +178,16 @@ private:
         bus_.write16(i32(0x0400'0088U), (current & 0xfc00) | (raise ? 0x200 : 0));
     }
     // MidiKey2Freq : fréquence de WaveData divisée par 2^((180 - touche - fin/256) / 12).
+    // Une touche hors de la plage MIDI peut donner un résultat infini, hors
+    // des 32 bits, ou NaN (0 / 0) : il est borné avant la conversion, dont le
+    // résultat serait sinon indéfini.
     std::int32_t midi_key_to_frequency(std::int32_t wave, std::int32_t key, std::int32_t fine) {
         const auto base = static_cast<double>(u32(bus_.read32(add32(wave, 4))));
         const auto exponent = (180.0 - static_cast<double>(key) - static_cast<double>(fine & 0xff) / 256.0) / 12.0;
-        return i32(static_cast<std::uint32_t>(base / std::exp2(exponent)));
+        const auto frequency = base / std::exp2(exponent);
+        if (!(frequency >= 0.0)) return 0;
+        if (frequency >= 4294967295.0) return i32(0xffff'ffffU);
+        return i32(static_cast<std::uint32_t>(frequency));
     }
     void register_ram_reset(int flags) {
         if ((flags & 1) != 0) bus_.ewram.fill(0);
@@ -325,8 +331,10 @@ private:
             destination = add32(destination, unit);
         }
     }
+    // Par blocs de huit mots : le compte est arrondi au multiple de 8
+    // supérieur (GBATEK, CpuFastSet).
     void cpu_fast_set(std::int32_t source, std::int32_t destination, std::int32_t control) {
-        const auto count = static_cast<int>(u32(control) & 0x1fffffU);
+        const auto count = static_cast<int>(((u32(control) & 0x1fffffU) + 7U) & ~7U);
         const auto fixed = (u32(control) & (1U << 24U)) != 0;
         for (int index = 0; index < count; ++index) {
             bus_.write32(destination, bus_.read32(source));
