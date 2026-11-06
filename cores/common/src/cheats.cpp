@@ -82,17 +82,35 @@ void require(bool condition) {
     return operation;
 }
 
+[[nodiscard]] bool all_hex(std::string_view digits) noexcept {
+    return std::all_of(digits.begin(), digits.end(), [](char c) { return hex_digit(c) >= 0; });
+}
+
 [[nodiscard]] std::vector<CheatOperation> parse_game_boy(std::string_view text) {
-    std::vector<CheatOperation> operations;
-    std::size_t position = 0;
-    while (position < text.size()) {
+    std::vector<std::string_view> tokens;
+    for (std::size_t position = 0; position < text.size();) {
         if (separator(text[position])) { ++position; continue; }
         const auto end = std::find_if(text.begin() + static_cast<std::ptrdiff_t>(position), text.end(), separator);
-        const auto token = text.substr(position, static_cast<std::size_t>(end - text.begin()) - position);
-        position += token.size();
+        tokens.push_back(text.substr(position, static_cast<std::size_t>(end - text.begin()) - position));
+        position += tokens.back().size();
+    }
+    std::vector<CheatOperation> operations;
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        auto token = tokens[index];
         std::string digits;
         for (const char c : token) if (c != '-') digits += c;
-        const bool hex = std::all_of(digits.begin(), digits.end(), [](char c) { return hex_digit(c) >= 0; });
+        // Un Game Genie écrit par groupes de trois chiffres séparés comme des
+        // lignes (`ABC+DEF+GHI`, ainsi dans des listes de RetroArch) : un
+        // groupe de trois chiffres n'est jamais un code à lui seul.
+        if (digits.size() == 3 && all_hex(digits)) {
+            const auto first = index;
+            while (digits.size() < 9 && index + 1 < tokens.size() && tokens[index + 1].size() == 3 &&
+                   all_hex(tokens[index + 1]))
+                digits += tokens[++index];
+            token = text.substr(static_cast<std::size_t>(tokens[first].data() - text.data()),
+                                static_cast<std::size_t>(tokens[index].data() + tokens[index].size() - tokens[first].data()));
+        }
+        const bool hex = all_hex(digits);
         if (hex && (digits.size() == 6 || digits.size() == 9)) operations.push_back(game_genie(token, digits));
         else if (hex && digits.size() == 8) operations.push_back(game_shark(token, digits));
         else throw CheatError(quoted(token) + " n'est ni un code Game Genie (ABC-DEF-GHI) ni un code GameShark (8 chiffres)");
@@ -133,6 +151,27 @@ void require_access(std::uint32_t address, int size) {
     operation.size = static_cast<std::uint8_t>(size);
     operation.value = value;
     return operation;
+}
+
+// L'adresse que l'appareil atteint vraiment : un miroir de l'EWRAM, de
+// l'IWRAM, de la palette ou de l'OAM répète la mémoire qu'il couvre, et une
+// écriture de 16 ou 32 bits ignore les bits de poids faible de l'adresse
+// (GBATEK, « Memory Map » et accès non alignés).
+[[nodiscard]] std::uint32_t device_address(std::uint32_t address, int size) noexcept {
+    switch (address >> 24U) {
+    case 0x02: address = 0x0200'0000U | (address & 0x0003'ffffU); break;
+    case 0x03: address = 0x0300'0000U | (address & 0x0000'7fffU); break;
+    case 0x05: address = 0x0500'0000U | (address & 0x0000'03ffU); break;
+    case 0x07: address = 0x0700'0000U | (address & 0x0000'03ffU); break;
+    default: break;
+    }
+    return address & ~(static_cast<std::uint32_t>(size) - 1U);
+}
+
+// Une opération telle que l'appareil l'exécute : adresse ramenée comme
+// ci-dessus, valeur tronquée à la taille écrite (STRB n'écrit qu'un octet).
+[[nodiscard]] CheatOperation device_operation(CheatAction action, std::uint32_t address, int size, std::uint32_t value) {
+    return memory_operation(action, device_address(address, size), size, value & value_mask(size));
 }
 
 // `count` écritures à partir de `address`, toutes dans la même mémoire.
@@ -380,7 +419,12 @@ bool replay_special(const std::vector<Line>& lines, std::size_t& index, std::vec
     return codes;
 }
 
-/** Codebreaker non chiffré, lignes `XAAAAAAA YYYY` (GBATEK). */
+/**
+ * Codebreaker non chiffré, lignes `XAAAAAAA YYYY` (GBATEK), exécutées comme
+ * l'appareil : adresse et valeur ramenées par device_operation, lignes
+ * d'identification et d'accroche sans effet quelles que soient leurs valeurs
+ * (le Codebreaker ne les vérifie pas non plus).
+ */
 [[nodiscard]] std::vector<Code> codebreaker_codes(const std::vector<Line>& lines) {
     std::vector<Code> codes;
     for (std::size_t index = 0; index < lines.size(); ++index) {
@@ -391,14 +435,15 @@ bool replay_special(const std::vector<Line>& lines, std::size_t& index, std::vec
             return lines[++index];
         };
         switch (left >> 28U) {
-        case 0x0: require((left & 0x0fff'0000U) == 0 && right <= 0xfU); break;  // identifiant du jeu
-        case 0x1: require(right <= 7U); break;                                    // adresse d'accroche
-        case 0x2: codes.push_back(plain(memory_operation(CheatAction::bit_or, address, 2, right))); break;
-        case 0x3: codes.push_back(plain(memory_operation(CheatAction::write, address, 1, right))); break;
+        case 0x0: break;  // identifiant du jeu
+        case 0x1: break;  // adresse d'accroche
+        case 0x2: codes.push_back(plain(device_operation(CheatAction::bit_or, address, 2, right))); break;
+        case 0x3: codes.push_back(plain(device_operation(CheatAction::write, address, 1, right))); break;
         case 0x4: {
             // Paramètres iiiicccc ssss : pas de la valeur, nombre, pas de l'adresse.
             const auto [parameters, step] = next_line();
-            codes.push_back(plain(slide(address, 2, right, parameters & 0xffffU, step, parameters >> 16U)));
+            codes.push_back(plain(slide(device_address(address, 2), 2, right, parameters & 0xffffU, step,
+                                        parameters >> 16U)));
             break;
         }
         case 0x5: {
@@ -409,30 +454,27 @@ bool replay_special(const std::vector<Line>& lines, std::size_t& index, std::vec
                 const std::array<std::uint32_t, 6> bytes{high >> 24U, (high >> 16U) & 0xffU, (high >> 8U) & 0xffU,
                                                          high & 0xffU, low >> 8U, low & 0xffU};
                 for (const auto byte : bytes) {
-                    if (written == right) {
-                        require(byte == 0);  // remplissage de la dernière ligne
-                        continue;
-                    }
-                    code.operations.push_back(memory_operation(CheatAction::write, address + written++, 1, byte));
+                    if (written == right) continue;  // remplissage de la dernière ligne
+                    code.operations.push_back(device_operation(CheatAction::write, address + written++, 1, byte));
                 }
             }
             codes.push_back(std::move(code));
             break;
         }
-        case 0x6: codes.push_back(plain(memory_operation(CheatAction::bit_and, address, 2, right))); break;
-        case 0x7: codes.push_back(guarded(test(CheatTest::equal, address, 2, right), Flow::next_codes, 1)); break;
-        case 0x8: codes.push_back(plain(memory_operation(CheatAction::write, address, 2, right))); break;
+        case 0x6: codes.push_back(plain(device_operation(CheatAction::bit_and, address, 2, right))); break;
+        case 0x7: codes.push_back(guarded(test(CheatTest::equal, device_address(address, 2), 2, right), Flow::next_codes, 1)); break;
+        case 0x8: codes.push_back(plain(device_operation(CheatAction::write, address, 2, right))); break;
         case 0x9: throw CheatError("les codes Codebreaker chiffrés (type 9) ne sont pas pris en charge");
-        case 0xa: codes.push_back(guarded(test(CheatTest::not_equal, address, 2, right), Flow::next_codes, 1)); break;
-        case 0xb: codes.push_back(guarded(test(CheatTest::greater_signed, address, 2, right), Flow::next_codes, 1)); break;
-        case 0xc: codes.push_back(guarded(test(CheatTest::less_signed, address, 2, right), Flow::next_codes, 1)); break;
+        case 0xa: codes.push_back(guarded(test(CheatTest::not_equal, device_address(address, 2), 2, right), Flow::next_codes, 1)); break;
+        case 0xb: codes.push_back(guarded(test(CheatTest::greater_signed, device_address(address, 2), 2, right), Flow::next_codes, 1)); break;
+        case 0xc: codes.push_back(guarded(test(CheatTest::less_signed, device_address(address, 2), 2, right), Flow::next_codes, 1)); break;
         case 0xd:
             // Touches tenues : leurs bits de KEYINPUT valent 0.
             require(left == 0xd000'0020U);
             codes.push_back(guarded(test(CheatTest::none_set, 0x0400'0130U, 2, right), Flow::next_codes, 1));
             break;
-        case 0xe: codes.push_back(plain(memory_operation(CheatAction::add, address, 2, right))); break;
-        case 0xf: codes.push_back(guarded(test(CheatTest::any_set, address, 2, right), Flow::next_codes, 1)); break;
+        case 0xe: codes.push_back(plain(device_operation(CheatAction::add, address, 2, right))); break;
+        case 0xf: codes.push_back(guarded(test(CheatTest::any_set, device_address(address, 2), 2, right), Flow::next_codes, 1)); break;
         default: break;
         }
     }
@@ -496,9 +538,19 @@ bool replay_special(const std::vector<Line>& lines, std::size_t& index, std::vec
         } catch (const Invalid&) {
         }
     }
+    // Des listes donnent ces codes déjà déchiffrés (« RAW »), comme mGBA les
+    // accepte : essayés ensuite, sans chiffrement, avec les mêmes règles.
+    for (const bool replay : {true, false}) {
+        try {
+            return flatten(replay ? action_replay_codes(values) : gameshark_codes(values));
+        } catch (const Unsupported& error) {
+            if (unsupported.empty()) unsupported = error.what();
+        } catch (const Invalid&) {
+        }
+    }
     if (!unsupported.empty()) throw CheatError(unsupported);
-    throw CheatError("code illisible : ni le chiffrement GameShark v1/v2 ni celui de l'Action Replay v3 "
-                     "n'en tirent des lignes valides");
+    throw CheatError("code illisible : ni chiffré (GameShark v1/v2, Action Replay v3) ni déchiffré, il ne "
+                     "donne de lignes valides");
 }
 
 [[nodiscard]] std::int64_t signed_value(std::uint32_t value, int size) noexcept {

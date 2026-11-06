@@ -2,7 +2,16 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
-## Non publié
+## 0.15.0 - 2026-11-06
+
+Cette version lit les codes de triche comme l'appareil et comme RetroArch : les codes GameShark et Action Replay déjà déchiffrés, les codes Codebreaker tels que la console les exécute et le Game Genie par groupes passent, dans RetroArch comme dans l'API C. Elle corrige aussi le câble distant, plusieurs fonctions du BIOS et l'EEPROM des grandes ROM GBA, ainsi que le joypad Game Boy. Le format des états ne change pas.
+
+### Ajouté
+
+- **Codes de triche, comme dans RetroArch.** Sur la base de triches de RetroArch (`libretro-database`), 229 codes GBA et 115 codes Game Boy et GBC refusés jusqu’ici passent : 6 530 codes GBA sur 7 009 et 24 675 codes Game Boy et GBC sur 26 124. Les codes encore refusés sont des modèles à compléter (`01??E4CB`), des codes Xploder, des codes Codebreaker chiffrés, des patchs de ROM ou des codes faux.
+  - GBA : les codes GameShark v1/v2 et Action Replay v3 **déjà déchiffrés** (« RAW ») sont reconnus. Ils sont essayés après les deux chiffrements, avec les mêmes règles de validité, et aucun code de la base n'y change de sens.
+  - GBA, Codebreaker : un code s'exécute comme sur l'appareil. Un miroir de l'EWRAM, de l'IWRAM, de la palette ou de l'OAM vise la mémoire qu'il répète. Une écriture de 16 bits ignore le bit 0 de l'adresse. Une écriture de 8 bits (type 3) ne garde que l'octet bas. Les lignes d'identification (type 0) et d'accroche (type 1) ne sont pas vérifiées, et le remplissage d'une chaîne d'octets (type 5) est ignoré.
+  - Game Boy : un Game Genie écrit par groupes de trois chiffres séparés comme des lignes (`ABC+DEF+GHI`) est lu comme `ABC-DEF-GHI`.
 
 ### Corrigé
 

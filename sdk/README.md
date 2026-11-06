@@ -16,8 +16,8 @@ Pour un jeu GBA dont la détection échoue, `ravenemu_set_gba_save_type()` impos
 
 `ravenemu_set_cheats()` active une liste de codes de triche à partir de l'image suivante ; une liste vide les retire. Chaque entrée est un code d'un menu de triche, en une ou plusieurs lignes séparées par des espaces, des retours à la ligne ou des « + » :
 
-- Game Boy et Game Boy Color : Game Genie (`ABC-DEF-GHI` ou `ABC-DEF`) et GameShark (8 chiffres, comme `010238CD`) ;
-- GBA : Codebreaker non chiffré (`XAAAAAAA YYYY`), GameShark v1/v2 et Pro Action Replay v3 chiffrés tels que l'appareil les affiche (`XXXXXXXX YYYYYYYY`), reconnus à leur déchiffrement.
+- Game Boy et Game Boy Color : Game Genie (`ABC-DEF-GHI` ou `ABC-DEF`, aussi par groupes `ABC+DEF+GHI`) et GameShark (8 chiffres, comme `010238CD`) ;
+- GBA : Codebreaker non chiffré (`XAAAAAAA YYYY`), lu comme l'appareil l'exécute (miroirs de l'EWRAM et de l'IWRAM, adresses alignées, octet bas d'une écriture de 8 bits) ; GameShark v1/v2 et Pro Action Replay v3 (`XXXXXXXX YYYYYYYY`), chiffrés tels que l'appareil les affiche ou déjà déchiffrés (« RAW »), reconnus à la validité de leurs lignes.
 
 `ravenemu_check_cheat()` vérifie un code sans handle, au moment où le joueur le saisit. Un code refusé laisse sa raison, en français, dans `ravenemu_last_error()`, par exemple « le code GameShark « 01021234 » vise la ROM : c'est le rôle d'un code Game Genie ». Si une entrée de `ravenemu_set_cheats()` est refusée, la liste précédente reste active, et l'erreur nomme l'entrée, numérotée à partir de 1. Les codes survivent au chargement, au reset et aux états instantanés, sans y être enregistrés. Restent refusés : les patchs de ROM GBA, le changement de chiffrement `DEADFACE` et les codes Codebreaker chiffrés.
 
@@ -48,7 +48,7 @@ cmake --install build --prefix /chemin/ravencore
 ```
 
 ```cmake
-find_package(RavenCore 0.14 REQUIRED)
+find_package(RavenCore 0.15 REQUIRED)
 target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 

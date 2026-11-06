@@ -99,8 +99,10 @@ Le menu **Codes de triche** de RetroArch fonctionne avec les trois cœurs. Une e
 
 | Cœurs | Formats |
 | --- | --- |
-| RavenGB, RavenGBC | Game Genie (`ABC-DEF-GHI` ou `ABC-DEF`) et GameShark (8 chiffres, comme `010238CD`), mélangeables |
-| RavenGBA | Codebreaker non chiffré (`XAAAAAAA YYYY`), GameShark v1/v2 et Action Replay v3 chiffrés tels que l'appareil les affiche (`XXXXXXXX YYYYYYYY`), reconnus automatiquement |
+| RavenGB, RavenGBC | Game Genie (`ABC-DEF-GHI` ou `ABC-DEF`, aussi par groupes `ABC+DEF+GHI`) et GameShark (8 chiffres, comme `010238CD`), mélangeables |
+| RavenGBA | Codebreaker non chiffré (`XAAAAAAA YYYY`), GameShark v1/v2 et Action Replay v3 (`XXXXXXXX YYYYYYYY`) chiffrés tels que l'appareil les affiche ou déjà déchiffrés (« RAW »), reconnus automatiquement |
+
+Les codes se lisent comme l'appareil les exécute, ce qui fait passer les listes de triches de RetroArch. Un code Codebreaker vers un miroir de l'EWRAM ou de l'IWRAM écrit la mémoire qu'il répète. Une écriture de 16 bits à une adresse impaire est alignée. Une écriture de 8 bits ne garde que l'octet bas de sa valeur. Les lignes d'identification et d'accroche ne sont pas vérifiées.
 
 Un code refusé affiche sa raison. Les patchs de ROM GBA, le changement de chiffrement `DEADFACE` et les codes Codebreaker chiffrés (type 9) ne sont pas pris en charge. Les codes d'activation (« Must Be On ») sont acceptés, mais n'ont pas d'effet : ils ne servent qu'à l'appareil.
 
@@ -128,7 +130,7 @@ RetroAchievements, les codes de triche et les capteurs de l'appareil ne concerne
 Après `cmake --install`, utilisez le paquet CMake :
 
 ```cmake
-find_package(RavenCore 0.14 REQUIRED)
+find_package(RavenCore 0.15 REQUIRED)
 target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 
@@ -180,7 +182,7 @@ ctest --test-dir build --output-on-failure
 
 ## Versions
 
-Version actuelle : **0.14.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro pour Linux, Windows, macOS et Android. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
+Version actuelle : **0.15.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro pour Linux, Windows, macOS et Android. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
 
 Avant la 1.0, une version peut changer l'API ou le format des états ; le journal le signale à chaque fois.
 

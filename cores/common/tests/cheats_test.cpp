@@ -94,6 +94,14 @@ void game_boy_test() {
     check(write.action == CheatAction::write && write.bank == 0x01 && write.value == 0x02 && write.address == 0xcd38U,
           "GameShark : décodage Pan Docs");
     check(game_boy("3EA-12B-FAE + 010238CD\n91FF00D0").operations.size() == 3, "Game Boy : codes mélangés");
+    // Le Game Genie par groupes séparés comme des lignes, ainsi dans des listes de RetroArch.
+    const auto grouped = game_boy("3EA+12B+FAE");
+    check(grouped.operations.size() == 1 && grouped.operations.front().address == 0x4a12U &&
+              grouped.operations.front().original == std::optional<std::uint8_t>{0x05},
+          "Game Genie par groupes : le même code");
+    check(game_boy("3ea 12b").operations.front().address == 0x4a12U, "Game Genie à six chiffres par groupes");
+    check(game_boy("3EA+12B+FAE+010238CD+3EA-12B").operations.size() == 3, "groupes puis autres codes");
+    expect_failure<CheatError>([] { static_cast<void>(game_boy("3EA+12B+FAE+3EA")); }, "groupe isolé accepté");
 
     expect_failure<CheatError>([] { static_cast<void>(game_boy("3EA-127-FAE")); }, "Game Genie hors ROM accepté");
     expect_failure<CheatError>([] { static_cast<void>(game_boy("01021234")); }, "GameShark en ROM accepté");
@@ -212,10 +220,50 @@ void codebreaker_test() {
         check((memory.read(0x02000104U, 2) == 0x99U) == (keys == 0x03feU), "Codebreaker : condition sur les touches");
     }
     expect_gba_error("9A123456 7890", "chiffrés", "Codebreaker chiffré accepté");
-    expect_gba_error("82000101 1234", "Codebreaker", "Codebreaker : écriture de 16 bits non alignée acceptée");
+    expect_gba_error("80000010 1234", "Codebreaker", "Codebreaker : écriture dans le BIOS acceptée");
     expect_gba_error("82000100 1234+0420010012345678", "mélangées", "formats mélangés acceptés");
     expect_gba_error("0420010", "12 chiffres", "ligne tronquée acceptée");
     expect_gba_error("", "vide", "code vide accepté");
+}
+
+// Comme l'appareil, et comme mGBA dans RetroArch : ce que la console ferait
+// de lignes que des listes écrivent ainsi.
+void codebreaker_device_test() {
+    FakeMemory memory;
+    // STRB n'écrit que l'octet bas ; STRH ignore le bit 0 de l'adresse.
+    ravenemu::run_cheat(gba("320073D0 423F"), memory);
+    check(memory.bytes[0x020073d0U] == 0x3f && memory.bytes.count(0x020073d1U) == 0,
+          "Codebreaker : écriture de 8 bits, octet bas");
+    ravenemu::run_cheat(gba("830005A3+0001"), memory);
+    check(memory.read(0x030005a2U, 2) == 0x0001U, "Codebreaker : écriture de 16 bits alignée");
+    // Miroirs de l'EWRAM (256 Kio) et de l'IWRAM (32 Kio).
+    ravenemu::run_cheat(gba("82100010 1234\n83008010 5678"), memory);
+    check(memory.read(0x02000010U, 2) == 0x1234U && memory.read(0x03000010U, 2) == 0x5678U,
+          "Codebreaker : miroirs de l'EWRAM et de l'IWRAM");
+    // Une ligne d'identification inhabituelle ne fait rien, la suivante écrit.
+    const auto identified = gba("02024104 0001+32024104 0001");
+    check(identified.operations.size() == 1, "Codebreaker : identification quelconque, sans effet");
+    // Le remplissage de la dernière ligne d'une chaîne n'est pas écrit, quel qu'il soit.
+    ravenemu::run_cheat(gba("52000400 0001 22FFFFFF FFFF"), memory);
+    check(memory.bytes[0x02000400U] == 0x22 && memory.bytes.count(0x02000401U) == 0,
+          "Codebreaker : remplissage ignoré");
+}
+
+// Des listes donnent les codes GameShark et Action Replay déchiffrés.
+void raw_codes_test() {
+    FakeMemory memory;
+    ravenemu::run_cheat(gba("04200010 12345678"), memory);
+    check(memory.read(0x02000010U, 4) == 0x12345678U, "Action Replay déchiffré : écriture de 32 bits");
+    check(gba("C4000604 00008401+45525042 001DC0DE").operations.empty(),
+          "Action Replay déchiffré : code d'activation sans effet");
+    ravenemu::run_cheat(gba("02000020 00000012\n12000030 00001234"), memory);
+    check(memory.bytes[0x02000020U] == 0x12 && memory.read(0x02000030U, 2) == 0x1234U,
+          "GameShark déchiffré : écritures de 8 et 16 bits");
+    // Chiffré, le même code se lit toujours d'abord ainsi.
+    const auto clear = gba(gameshark({{0x02000020U, 0x00000012U}}));
+    check(clear.operations.size() == 1 && clear.operations.front().address == 0x02000020U,
+          "GameShark chiffré : inchangé");
+    expect_gba_error("FFFFFFFF FFFFFFFF", "illisible", "ligne illisible acceptée");
 }
 
 } // namespace
@@ -226,5 +274,7 @@ int main() {
     action_replay_test();
     gameshark_test();
     codebreaker_test();
+    codebreaker_device_test();
+    raw_codes_test();
     return 0;
 }
