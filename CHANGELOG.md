@@ -2,7 +2,9 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
-## Non publié
+## 0.15.0 - 2026-11-06
+
+Cette version lit les codes de triche comme l'appareil et comme RetroArch : les codes GameShark et Action Replay déjà déchiffrés, les codes Codebreaker tels que la console les exécute et le Game Genie par groupes passent, dans RetroArch comme dans l'API C. Elle corrige aussi le câble distant, plusieurs fonctions du BIOS et l'EEPROM des grandes ROM GBA, ainsi que le joypad Game Boy. Le format des états ne change pas.
 
 ### Ajouté
 
