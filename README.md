@@ -99,8 +99,10 @@ Le menu **Codes de triche** de RetroArch fonctionne avec les trois cœurs. Une e
 
 | Cœurs | Formats |
 | --- | --- |
-| RavenGB, RavenGBC | Game Genie (`ABC-DEF-GHI` ou `ABC-DEF`) et GameShark (8 chiffres, comme `010238CD`), mélangeables |
-| RavenGBA | Codebreaker non chiffré (`XAAAAAAA YYYY`), GameShark v1/v2 et Action Replay v3 chiffrés tels que l'appareil les affiche (`XXXXXXXX YYYYYYYY`), reconnus automatiquement |
+| RavenGB, RavenGBC | Game Genie (`ABC-DEF-GHI` ou `ABC-DEF`, aussi par groupes `ABC+DEF+GHI`) et GameShark (8 chiffres, comme `010238CD`), mélangeables |
+| RavenGBA | Codebreaker non chiffré (`XAAAAAAA YYYY`), GameShark v1/v2 et Action Replay v3 (`XXXXXXXX YYYYYYYY`) chiffrés tels que l'appareil les affiche ou déjà déchiffrés (« RAW »), reconnus automatiquement |
+
+Les codes se lisent comme l'appareil les exécute, ce qui fait passer les listes de triches de RetroArch. Un code Codebreaker vers un miroir de l'EWRAM ou de l'IWRAM écrit la mémoire qu'il répète. Une écriture de 16 bits à une adresse impaire est alignée. Une écriture de 8 bits ne garde que l'octet bas de sa valeur. Les lignes d'identification et d'accroche ne sont pas vérifiées.
 
 Un code refusé affiche sa raison. Les patchs de ROM GBA, le changement de chiffrement `DEADFACE` et les codes Codebreaker chiffrés (type 9) ne sont pas pris en charge. Les codes d'activation (« Must Be On ») sont acceptés, mais n'ont pas d'effet : ils ne servent qu'à l'appareil.
 

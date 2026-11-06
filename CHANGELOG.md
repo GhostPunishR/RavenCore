@@ -4,6 +4,13 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 ## Non publié
 
+### Ajouté
+
+- **Codes de triche, comme dans RetroArch.** Sur la base de triches de RetroArch (`libretro-database`), 229 codes GBA et 115 codes Game Boy et GBC refusés jusqu’ici passent : 6 530 codes GBA sur 7 009 et 24 675 codes Game Boy et GBC sur 26 124. Les codes encore refusés sont des modèles à compléter (`01??E4CB`), des codes Xploder, des codes Codebreaker chiffrés, des patchs de ROM ou des codes faux.
+  - GBA : les codes GameShark v1/v2 et Action Replay v3 **déjà déchiffrés** (« RAW ») sont reconnus. Ils sont essayés après les deux chiffrements, avec les mêmes règles de validité, et aucun code de la base n'y change de sens.
+  - GBA, Codebreaker : un code s'exécute comme sur l'appareil. Un miroir de l'EWRAM, de l'IWRAM, de la palette ou de l'OAM vise la mémoire qu'il répète. Une écriture de 16 bits ignore le bit 0 de l'adresse. Une écriture de 8 bits (type 3) ne garde que l'octet bas. Les lignes d'identification (type 0) et d'accroche (type 1) ne sont pas vérifiées, et le remplissage d'une chaîne d'octets (type 5) est ignoré.
+  - Game Boy : un Game Genie écrit par groupes de trois chiffres séparés comme des lignes (`ABC+DEF+GHI`) est lu comme `ABC-DEF-GHI`.
+
 ### Corrigé
 
 - **Câble distant** : la file des messages reçus est bornée à 4 096. Un partenaire qui envoie plus que la console ne lit, par exemple pendant une pause de l'émulation, ne remplit plus la mémoire : il n'est plus servi, `ravenemu_remote_link_receive()` renvoie 0 et l'état passe à `RAVENEMU_REMOTE_INCOMPATIBLE` jusqu'au prochain branchement. Un transfert en attente finit comme sans câble.
