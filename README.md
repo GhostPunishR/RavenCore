@@ -130,7 +130,7 @@ RetroAchievements, les codes de triche et les capteurs de l'appareil ne concerne
 Après `cmake --install`, utilisez le paquet CMake :
 
 ```cmake
-find_package(RavenCore 0.14 REQUIRED)
+find_package(RavenCore 0.15 REQUIRED)
 target_link_libraries(mon_app PRIVATE RavenCore::ravenemu_c_api)  # ou RavenCore::ravencore en C++
 ```
 
