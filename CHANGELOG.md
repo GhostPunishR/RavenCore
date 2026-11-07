@@ -2,6 +2,16 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.15.3 - 2026-11-07
+
+Cette version supprime les parasites du son des jeux Game Boy Color. L'API, Libretro, le Game Boy, le GBA et le format des états ne changent pas.
+
+### Corrigé
+
+- **Son GBC sans parasites.** En mode CGB, et en GBC sur GBA, le condensateur de sortie de l'APU prenait le facteur MGB/CGB de Pan Docs, 0,998943 par point : une constante de temps de 0,23 ms, une coupure vers 700 Hz. Il ne retirait plus seulement la composante continue, mais les graves et la forme des notes : chaque front de créneau sortait en impulsion retombée en moins d'une milliseconde, et une basse devenait un train de claquements. La CGB prend désormais le facteur du DMG, 0,999958 par point (5,7 ms, coupure vers 28 Hz) : le condensateur qui retire lentement le continu, tel que Pan Docs le décrit. Sur des homebrews GBC joués une minute, la part de l'énergie sous 300 Hz remonte de 15 à 59 % (Aevilia), de 25 à 60 % (A Walk in Snow) et de 22 à 42 % (K32 Super Rocket), et les pics qui dominaient le signal s'atténuent. Seuls les échantillons sonores en mode CGB changent ; le mode DMG et le format des états restent les mêmes.
+  - Nouveau test `cgb_keeps_a_square_waves_shape_test` : un carré à 64 Hz garde, 2 ms après un front, plus de 60 % de son niveau, sur DMG comme sur CGB. Il échoue avec l'ancien facteur.
+  - Écartés par mesure : l'APU différé de la 0.15.1 (le son de cinq homebrews GBC est identique au bit près entre la 0.15.0 et la 0.15.2) et le coût du cœur (une image GBC coûte moins qu'une image GBA).
+
 ## 0.15.2 - 2026-11-07
 
 Cette version rend le cœur Game Boy Advance plus rapide, sans rien changer à ce qu'il émule : images, son et états restent identiques au bit près. Avec le compilateur de l'application Android, un jeu demande de 1,2 à 1,5 fois moins de calcul par image. L'API, Libretro, le Game Boy et le format des états ne changent pas.
