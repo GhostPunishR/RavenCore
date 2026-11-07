@@ -2,6 +2,19 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## Non publié
+
+### Modifié
+
+- **Cœur GBA plus rapide**, sans rien changer à ce qu'il émule : images, son et état final restent identiques au bit près à ceux de la 0.15.1 sur les suites de test publiques (jsmolka, FuzzARM, suite mGBA) et sur quatre jeux du commerce testés en local (Pokémon Émeraude et Rubis, The Legend of Zelda, Grand Theft Auto), en jouant de 1 200 à 3 000 images avec des appuis de touches, en traçant une image sur deux et en rechargeant un état en route. Le format des états ne change pas. Instructions exécutées par image : de 1,21 à 1,54 fois moins avec Clang en -O2, le compilateur de l'application Android (Pokémon Émeraude 33,2 → 23,7 millions, GTA 10,2 → 6,6) ; de 1,05 à 1,45 fois moins en -O3, l'option des cœurs Libretro publiés.
+  - **Affichage.** La palette convertie en couleurs est relue au début de chaque ligne tracée, au lieu d'une conversion par pixel ; une comparaison à la copie de la dernière conversion voit tout changement, CPU, DMA, codes de triche ou état chargé. Un plan texte sans mosaïque se trace tuile par tuile : chaque ligne de tuile se décode une fois, et une ligne transparente est sautée. Les bornes des fenêtres et les coefficients de BLDALPHA et BLDY se lisent une fois par ligne. Sans effet de couleur, seule la couche du dessus est tenue à jour.
+  - **Processeur.** La lecture d'instruction est spécialisée en Thumb et en ARM, et le tampon de préchargement de la cartouche garde l'adresse de l'instruction qu'il attend au lieu de la recalculer. Les formats Thumb rares (PUSH/POP, LDMIA/STMIA, SWI, drapeau C de MUL) sont sortis de la fonction principale : ils imposaient à chaque instruction Thumb une grande pile et le contrôle de pile du compilateur. La ligne d'IRQ suit les changements de IE, IF et IME au moment où ils se font, au lieu d'être recalculée à chaque instruction ; elle l'est encore une fois après un chargement d'état.
+  - Nouveaux tests : couleur changée en cours d'image, plan texte 4 bpp (miroir, banque de palette, ligne vide, défilement), tuile 8 bpp hors de la VRAM, fenêtre passant par le bord de l'écran, BLDY, et tampon de préchargement restauré par un état.
+
+### Corrigé
+
+- **Test `gba_raven_core`** : la vérification de l'horloge réelle du RTC échouait environ une fois sur 200. Le cœur lit l'heure avec `std::chrono::system_clock`, le test la lisait avec `std::time()`, qui suit sous Linux une horloge grossière en retard de quelques millisecondes ; à un changement de seconde, le RTC paraissait en avance. Le test lit désormais la même horloge que le cœur.
+
 ## 0.15.1 - 2026-11-07
 
 Cette version rend le cœur Game Boy et Game Boy Color environ 1,7 fois plus rapide, sans rien changer à ce qu'il émule : images, son et états restent identiques au bit près. L'API, Libretro, le GBA et le format des états ne changent pas.

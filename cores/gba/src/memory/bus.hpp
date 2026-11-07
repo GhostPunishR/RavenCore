@@ -29,12 +29,12 @@ public:
     std::int32_t read32(std::int32_t address);
     // Lecture d'instruction : chemin court en ligne pour la RAM, la ROM et la
     // mémoire vidéo ; le BIOS (latch) et le reste passent par le chemin lent.
-    int fetch16(std::int32_t address) {
+    RAVENEMU_GBA_HOT_INLINE int fetch16(std::int32_t address) {
         const auto value = fetch16_value(address);
         last_fetch = u32(value) | u32(value) << 16U;
         return value;
     }
-    std::int32_t fetch32(std::int32_t address) {
+    RAVENEMU_GBA_HOT_INLINE std::int32_t fetch32(std::int32_t address) {
         const auto value = fetch32_value(address);
         last_fetch = u32(value);
         return value;
@@ -74,6 +74,12 @@ public:
         int progress{};          // cycles déjà passés à lire le demi-mot head
         int halfword_cycles{1};  // durée d'une lecture séquentielle de 16 bits
         bool active{};
+        // Adresse de l'instruction que le tampon attend, head - 2 × count ;
+        // unité arrêtée, une adresse impaire, qu'aucune lecture d'instruction
+        // ne vise. Une seule comparaison par lecture ; jamais sauvegardée,
+        // recalculée au chargement (restore_prefetch).
+        std::uint32_t tail{idle_tail};
+        static constexpr std::uint32_t idle_tail = 1;
     };
     static constexpr int prefetch_capacity = 8;
     [[nodiscard]] const Prefetch& prefetch() const noexcept { return prefetch_; }
@@ -86,6 +92,7 @@ public:
             throw SaveStateError("État GBA corrompu (préchargement)");
         prefetch_ = value;
         prefetch_.halfword_cycles = cycles;
+        prefetch_.tail = value.active ? value.head - 2U * static_cast<std::uint32_t>(value.count) : Prefetch::idle_tail;
     }
     void break_access_sequence() noexcept { next_sequential_address = -1; }
     // Adresse qu'un accès séquentiel viserait : conservée dans les états, sans
@@ -188,14 +195,24 @@ private:
         prefetch_.active = false;
         prefetch_.count = 0;
         prefetch_.progress = 0;
+        prefetch_.tail = Prefetch::idle_tail;
     }
     // Durée de la lecture de l'instruction `address` (width octets) en ROM,
     // tampon actif. `miss_cost` : coût d'une lecture normale (saut, unité
     // arrêtée) ; `halfword_cycles` : durée d'un demi-mot séquentiel à cette adresse.
     int prefetch_fetch(std::uint32_t address, int width, int miss_cost, int halfword_cycles) noexcept {
+        return width == 4 ? prefetch_fetch_of<4>(address, miss_cost, halfword_cycles)
+                          : prefetch_fetch_of<2>(address, miss_cost, halfword_cycles);
+    }
+    // Même calcul, la largeur connue d'avance : le chemin de chaque instruction.
+    template <int Width>
+    RAVENEMU_GBA_HOT_INLINE int prefetch_fetch_of(std::uint32_t address, int miss_cost, int halfword_cycles) noexcept {
+        constexpr auto width = Width;
         auto& unit = prefetch_;
-        const auto halfwords = width / 2;
-        if (unit.active && address == unit.head - 2U * static_cast<std::uint32_t>(unit.count)) {
+        constexpr auto halfwords = width / 2;
+        if (address == unit.tail) {
+            // Le CPU prend l'instruction : le tampon attend la suivante.
+            unit.tail = address + static_cast<std::uint32_t>(width);
             if (unit.count >= halfwords) {
                 // Instruction déjà dans le tampon : 1 cycle, pendant lequel
                 // l'unité lit toujours (un tampon plein se libère d'abord).
@@ -218,7 +235,8 @@ private:
             return ready;
         }
         // Saut, ou unité arrêtée : lecture normale, puis l'unité repart derrière elle.
-        unit = {address + static_cast<std::uint32_t>(width), 0, 0, halfword_cycles, true};
+        unit = {address + static_cast<std::uint32_t>(width), 0, 0, halfword_cycles, true,
+                address + static_cast<std::uint32_t>(width)};
         return miss_cost;
     }
     /**
@@ -234,19 +252,28 @@ private:
         int halfword_cycles{1};        // ROM : durée d'un demi-mot pour le tampon
         bool cart{};      // ROM : le bus de la cartouche est occupé par la lecture
         bool prefetch{};  // ROM avec le tampon de préchargement actif
+        // Décalages où une lecture de 16 ou de 32 bits tient dans la fenêtre :
+        // de 0 à end16 - 1 et de 0 à end32 - 1.
+        std::uint32_t end16{}; std::uint32_t end32{};
+        // Décalage du début d'un bloc de 128 Kio de la cartouche, jamais
+        // séquentiel : 0 si la fenêtre commence un bloc, sinon aucun.
+        std::uint32_t block_start{no_block_start};
+        static constexpr std::uint32_t no_block_start = 0xffff'ffffU;
     };
-    [[nodiscard]] const std::uint8_t* fetch_window_hit(std::uint32_t aligned, std::uint32_t width) noexcept {
+    template <std::uint32_t Width>
+    [[nodiscard]] RAVENEMU_GBA_HOT_INLINE const std::uint8_t* fetch_window_hit(std::uint32_t aligned) noexcept {
+        constexpr auto width = Width;
         const auto& window = fetch_window_;
         const auto offset = aligned - window.low;
-        if (offset >= window.size || window.size - offset < width) return nullptr;
+        if (offset >= (width == 4 ? window.end32 : window.end16)) return nullptr;
         // Après un saut ou un accès de données, la lecture reste dans la fenêtre
         // mais n'est plus séquentielle ; le début d'un bloc de 128 Kio de la
         // cartouche ne l'est jamais.
-        const auto sequential = i32(aligned) == next_sequential_address && (!window.cart || (aligned & 0x1ffffU) != 0);
+        const auto sequential = i32(aligned) == next_sequential_address && offset != window.block_start;
         next_sequential_address = i32(aligned + width);
         const auto cost = width == 4 ? (sequential ? window.wait32 : window.nwait32)
                                      : (sequential ? window.wait16 : window.nwait16);
-        if (window.prefetch) wait_cycles += prefetch_fetch(aligned, static_cast<int>(width), cost, window.halfword_cycles);
+        if (window.prefetch) wait_cycles += prefetch_fetch_of<static_cast<int>(Width)>(aligned, cost, window.halfword_cycles);
         else {
             // Préchargement coupé, l'unité est à l'arrêt : seule une lecture
             // hors cartouche la laisserait avancer.
@@ -275,7 +302,10 @@ private:
             window.cart = true;
             window.prefetch = timing.prefetch_enabled();
             window.halfword_cycles = timing.sequential_halfword_cycles(window.low);
+            if (start == block) window.block_start = 0;
         } else return;
+        window.end16 = window.size >= 2 ? window.size - 1 : 0;
+        window.end32 = window.size >= 4 ? window.size - 3 : 0;
         const auto low = i32(window.low);
         window.wait16 = 1 + timing.cached_wait(low, 2, true, true);
         window.wait32 = 1 + timing.cached_wait(low, 4, true, true);
@@ -284,9 +314,9 @@ private:
         fetch_window_ = window;
     }
     FetchWindow fetch_window_{};
-    int fetch16_value(std::int32_t address) {
+    RAVENEMU_GBA_HOT_INLINE int fetch16_value(std::int32_t address) {
         const auto aligned = u32(address) & ~1U;
-        if (const auto* data = fetch_window_hit(aligned, 2)) return static_cast<int>(load_le(data, 2));
+        if (const auto* data = fetch_window_hit<2>(aligned)) return static_cast<int>(load_le(data, 2));
         account(i32(aligned), 2, true);
         if ((aligned >> 24U) != 0U) {
             executing_bios = false;
@@ -294,9 +324,9 @@ private:
         }
         return fetch16_slow(i32(aligned));
     }
-    std::int32_t fetch32_value(std::int32_t address) {
+    RAVENEMU_GBA_HOT_INLINE std::int32_t fetch32_value(std::int32_t address) {
         const auto aligned = u32(address) & ~3U;
-        if (const auto* data = fetch_window_hit(aligned, 4)) return i32(load_le(data, 4));
+        if (const auto* data = fetch_window_hit<4>(aligned)) return i32(load_le(data, 4));
         account(i32(aligned), 4, true);
         if ((aligned >> 24U) != 0U) {
             executing_bios = false;

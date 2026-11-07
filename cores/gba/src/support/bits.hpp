@@ -23,6 +23,18 @@
 #include <utility>
 #include <vector>
 
+// RAVENEMU_GBA_HOT_INLINE : chemin de chaque instruction (lecture du code), en
+// ligne même là où le compilateur la jugerait trop longue, comme GCC en -O2.
+// RAVENEMU_GBA_NOINLINE : cas rares tenus hors de ce chemin, pour qu'ils ne lui
+// imposent pas leur pile.
+#if defined(_MSC_VER) && !defined(__clang__)
+#define RAVENEMU_GBA_HOT_INLINE __forceinline
+#define RAVENEMU_GBA_NOINLINE __declspec(noinline)
+#else
+#define RAVENEMU_GBA_HOT_INLINE inline __attribute__((always_inline))
+#define RAVENEMU_GBA_NOINLINE __attribute__((noinline))
+#endif
+
 namespace ravenemu::gba {
 
 using detail::BinaryReader;

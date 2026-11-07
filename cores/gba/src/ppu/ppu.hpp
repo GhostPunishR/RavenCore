@@ -3,6 +3,8 @@
 #include "memory/bus.hpp"
 #include "dma/dma_controller.hpp"
 
+#include <cstring>
+
 namespace ravenemu::gba {
 
 class Ppu {
@@ -163,6 +165,13 @@ private:
                                                                           : 0;
     }
     [[nodiscard]] int vram16(int offset) const noexcept { return vram8(offset) | vram8(offset + 1) << 8; }
+    // `width` octets (2 ou 4) petit-boutistes de la VRAM, déjà dans ses bornes.
+    [[nodiscard]] std::uint32_t vram_word(std::size_t offset, unsigned width) const noexcept {
+        const auto* data = bus_.vram.data() + offset;
+        auto value = std::uint32_t{data[0]} | std::uint32_t{data[1]} << 8U;
+        if (width == 4) value |= std::uint32_t{data[2]} << 16U | std::uint32_t{data[3]} << 24U;
+        return value;
+    }
     [[nodiscard]] int oam16(int offset) const noexcept {
         return bus_.oam[static_cast<std::size_t>(offset)] | bus_.oam[static_cast<std::size_t>(offset + 1)] << 8;
     }
@@ -174,10 +183,30 @@ private:
                    static_cast<std::uint32_t>((g << 3) | (g >> 2)) << 8U |
                    static_cast<std::uint32_t>((b << 3) | (b >> 2)));
     }
+    // Couleur d'une entrée de la palette, convertie par refresh_palette() au
+    // début de la ligne : la ligne entière se trace d'un coup, la palette ne
+    // change donc pas pendant le tracé.
     [[nodiscard]] std::int32_t palette_color(int index) const noexcept {
         const auto offset = static_cast<std::size_t>(index * 2);
         if (offset + 1 >= bus_.palette.size()) return i32(0xff000000U);
-        return bgr555(bus_.palette[offset] | bus_.palette[offset + 1] << 8);
+        return palette_argb_[static_cast<std::size_t>(index)];
+    }
+    /**
+     * Met à jour la palette convertie avant de tracer une ligne. Convertir
+     * chaque pixel tracé coûtait plus que le tracé lui-même. La comparaison à
+     * la copie de la dernière conversion voit tout changement, quel que soit
+     * son chemin (CPU, DMA, codes de triche, état chargé) ; seules les
+     * entrées changées sont reconverties, quatre par quatre.
+     */
+    void refresh_palette() noexcept {
+        if (palette_ready_ && std::memcmp(palette_raw_.data(), bus_.palette.data(), palette_raw_.size()) == 0) return;
+        for (std::size_t offset = 0; offset < palette_raw_.size(); offset += 8) {
+            if (palette_ready_ && std::memcmp(palette_raw_.data() + offset, bus_.palette.data() + offset, 8) == 0) continue;
+            std::memcpy(palette_raw_.data() + offset, bus_.palette.data() + offset, 8);
+            for (std::size_t entry = offset; entry < offset + 8; entry += 2)
+                palette_argb_[entry / 2] = bgr555(bus_.palette[entry] | bus_.palette[entry + 1] << 8);
+        }
+        palette_ready_ = true;
     }
     static int positive_mod(int value, int modulus) noexcept {
         const auto result = value % modulus;
@@ -215,19 +244,21 @@ private:
         }
         const auto blend = reg16(0x50);
         simple_composition_ = (blend & 0x3fc0) == 0;
+        refresh_palette();
         const auto backdrop = palette_color(0);
-        for (int x = 0; x < screen_width; ++x) {
-            const auto index = static_cast<std::size_t>(x);
-            line_color_[index] = backdrop;
-            line_priority_[index] = layer_backdrop;
-            line_layer_[index] = layer_backdrop_id;
-            line_color2_[index] = backdrop;
-            line_priority2_[index] = layer_backdrop;
-            line_layer2_[index] = layer_backdrop_id;
-            obj_opaque_[index] = false;
-            obj_semitransparent_[index] = false;
-            obj_window_[index] = false;
+        line_color_.fill(backdrop);
+        line_priority_.fill(layer_backdrop);
+        // La couche du dessous et le numéro des couches ne servent qu'aux
+        // effets (compose) : sans effet, la ligne n'en a pas besoin.
+        if (!simple_composition_) {
+            line_layer_.fill(layer_backdrop_id);
+            line_color2_.fill(backdrop);
+            line_priority2_.fill(layer_backdrop);
+            line_layer2_.fill(layer_backdrop_id);
         }
+        obj_opaque_.fill(false);
+        obj_semitransparent_.fill(false);
+        obj_window_.fill(false);
         render_sprites(y, display);
         compute_window_mask(y, display);
         switch (display & 7) {
@@ -247,6 +278,11 @@ private:
     void push_pixel(int x, std::int32_t color, int priority, int layer) noexcept {
         const auto index = static_cast<std::size_t>(x);
         if (collect_layer_stats) ++pending_layer_pixels_[static_cast<std::size_t>(layer)];
+        if (simple_composition_) {
+            line_color_[index] = color;
+            line_priority_[index] = priority;
+            return;
+        }
         line_color2_[index] = line_color_[index];
         line_priority2_[index] = line_priority_[index];
         line_layer2_[index] = line_layer_[index];
@@ -346,8 +382,69 @@ private:
         const auto initial_py = effective_y & 7;
         const auto horizontal = reg16(0x10 + bg * 4) & 0x1ff;
         const auto block_y = tile_y >= 32 ? 1 : 0;
-        // L'entrée de carte et la ligne de la tuile ne changent qu'avec
-        // tile_x : elles sont relues une fois par tuile, pas par pixel.
+        if (!mosaic) {
+            // Sans mosaïque, le plan avance d'un point par pixel : chaque tuile
+            // couvre un segment de la ligne, que le défilement ne coupe pas
+            // (la largeur du plan est un multiple de 8). La ligne de la tuile se
+            // décode une fois pour tout le segment.
+            const auto bit = 1 << bg;
+            for (int x = 0; x < screen_width;) {
+                const auto effective_x = (x + horizontal) & (width - 1);
+                const auto tile_x = effective_x >> 3;
+                const auto first = effective_x & 7;
+                const auto end = std::min(screen_width, x + 8 - first);
+                const auto block_x = tile_x >= 32 ? 1 : 0;
+                const auto block = size == 1 ? block_x : size == 2 ? block_y : size == 3 ? block_y * 2 + block_x : 0;
+                // La carte (au plus 0x117FF) est toujours dans la VRAM.
+                const auto entry = static_cast<int>(
+                    vram_word(static_cast<std::size_t>(screen_base + block * 0x800 + ((tile_y & 31) * 32 + (tile_x & 31)) * 2), 2));
+                const auto tile = entry & 0x3ff;
+                const auto py = (entry & 0x800) != 0 ? 7 - initial_py : initial_py;
+                // Les 8 points de la tuile dans l'ordre de l'écran (miroir appliqué).
+                const auto flip = (entry & 0x400) != 0 ? 7 : 0;
+                std::array<int, 8> colors{};
+                if (eight_bpp) {
+                    // Une ligne de tuile 8 bits peut sortir de la VRAM (au-delà de
+                    // 0x17FFF) : ses octets s'y lisent alors 0, un à un.
+                    const auto row = char_base + tile * 64 + py * 8;
+                    if (row + 8 <= static_cast<int>(bus_.vram.size())) {
+                        const auto low = vram_word(static_cast<std::size_t>(row), 4);
+                        const auto high = vram_word(static_cast<std::size_t>(row + 4), 4);
+                        if ((low | high) == 0) {
+                            x = end;  // ligne transparente : rien à tracer
+                            continue;
+                        }
+                        for (unsigned px = 0; px < 4; ++px) {
+                            colors[static_cast<std::size_t>(static_cast<int>(px) ^ flip)] = static_cast<int>((low >> (px * 8U)) & 0xffU);
+                            colors[static_cast<std::size_t>(static_cast<int>(px + 4) ^ flip)] = static_cast<int>((high >> (px * 8U)) & 0xffU);
+                        }
+                    } else {
+                        for (int px = 0; px < 8; ++px) colors[static_cast<std::size_t>(px ^ flip)] = vram8(row + px);
+                    }
+                } else {
+                    // Une ligne de tuile 4 bits (au plus 0x13FFF) est toujours dans la VRAM.
+                    const auto bits = vram_word(static_cast<std::size_t>(char_base + tile * 32 + py * 4), 4);
+                    if (bits == 0) {
+                        x = end;  // ligne transparente : rien à tracer
+                        continue;
+                    }
+                    const auto bank = static_cast<unsigned>(((entry >> 12) & 15) * 16);
+                    for (unsigned px = 0; px < 8; ++px) {
+                        const auto nibble = (bits >> (px * 4U)) & 15U;
+                        colors[static_cast<std::size_t>(static_cast<int>(px) ^ flip)] = nibble != 0 ? static_cast<int>(bank | nibble) : 0;
+                    }
+                }
+                // Une couleur de plan est un index de 0 à 255 : toujours dans la palette.
+                for (auto px = first; x < end; ++x, ++px) {
+                    if (!windows_off_ && (window_mask_[static_cast<std::size_t>(x)] & bit) == 0) continue;
+                    const auto color = colors[static_cast<std::size_t>(px)];
+                    if (color != 0) push_pixel(x, palette_argb_[static_cast<std::size_t>(color)], priority, bg);
+                }
+            }
+            return;
+        }
+        // Mosaïque : l'entrée de carte et la ligne de la tuile ne changent
+        // qu'avec tile_x, relues une fois par tuile, pas par pixel.
         int cached_tile_x = -1;
         int row_base{};
         int palette_bank{};
@@ -485,17 +582,21 @@ private:
         const auto win0 = (display & 0x2000) != 0;
         const auto win1 = (display & 0x4000) != 0;
         const auto obj = (display & 0x8000) != 0;
-        if (!win0 && !win1 && !obj) {
+        windows_off_ = !win0 && !win1 && !obj;
+        if (windows_off_) {
             window_mask_.fill(window_all);
             return;
         }
         const auto inside = reg16(0x48);
         const auto outside = reg16(0x4a);
+        // Bornes des deux fenêtres lues une fois pour la ligne, tracée d'un coup.
+        const auto span0 = window_span(win0, 0, y);
+        const auto span1 = window_span(win1, 1, y);
         for (int x = 0; x < screen_width; ++x) {
             const auto index = static_cast<std::size_t>(x);
-            if (win0 && inside_window(0, x, y))
+            if (span0.covers(x))
                 window_mask_[index] = inside & 0x3f;
-            else if (win1 && inside_window(1, x, y))
+            else if (span1.covers(x))
                 window_mask_[index] = (inside >> 8) & 0x3f;
             else if (obj && obj_window_[index])
                 window_mask_[index] = (outside >> 8) & 0x3f;
@@ -503,16 +604,28 @@ private:
                 window_mask_[index] = outside & 0x3f;
         }
     }
-    bool inside_window(int window, int x, int y) const noexcept {
+    // Colonnes d'une fenêtre sur la ligne y : rien si elle est coupée ou si la
+    // ligne est hors de ses bornes verticales. Une borne de départ plus grande
+    // que celle d'arrivée fait passer la fenêtre par le bord de l'écran.
+    struct WindowSpan {
+        bool on{};
+        bool wraps{};  // gauche > droite : la fenêtre passe par le bord de l'écran
+        int left{};
+        int right{};
+        [[nodiscard]] bool covers(int x) const noexcept {
+            return on && (wraps ? x >= left || x < right : x >= left && x < right);
+        }
+    };
+    [[nodiscard]] WindowSpan window_span(bool enabled, int window, int y) const noexcept {
+        if (!enabled) return {};
         const auto horizontal = reg16(0x40 + window * 2);
         const auto vertical = reg16(0x44 + window * 2);
         const auto left = (horizontal >> 8) & 0xff;
         const auto right = horizontal & 0xff;
         const auto top = (vertical >> 8) & 0xff;
         const auto bottom = vertical & 0xff;
-        const auto in_x = left <= right ? x >= left && x < right : x >= left || x < right;
         const auto in_y = top <= bottom ? y >= top && y < bottom : y >= top || y < bottom;
-        return in_x && in_y;
+        return {in_y, left > right, left, right};
     }
     void compose_simple(std::size_t row) noexcept {
         for (int x = 0; x < screen_width; ++x) {
@@ -524,6 +637,10 @@ private:
     }
     void compose(std::size_t row, int blend) {
         const auto mode = (blend >> 6) & 3;
+        // Coefficients lus une fois par ligne : la composition se fait d'un coup.
+        const auto coefficients = reg16(0x52);
+        const Effects effects{std::min(coefficients & 31, 16), std::min((coefficients >> 8) & 31, 16),
+                              std::min(reg16(0x54) & 31, 16)};
         for (int x = 0; x < screen_width; ++x) {
             const auto index = static_cast<std::size_t>(x);
             auto top = line_color_[index];
@@ -543,28 +660,33 @@ private:
                     bottom_layer = layer_obj;
                 }
             }
-            frame[row + index] = color_effect(index, mode, blend, top, top_layer, bottom, bottom_layer, semi);
+            frame[row + index] = color_effect(index, mode, blend, effects, top, top_layer, bottom, bottom_layer, semi);
         }
     }
-    std::int32_t color_effect(std::size_t x, int mode, int blend, std::int32_t top, int top_layer, std::int32_t bottom,
-                              int bottom_layer, bool semi) const noexcept {
+    // BLDALPHA (EVA, EVB) et BLDY (EVY), bornés à 16.
+    struct Effects {
+        int a{};
+        int b{};
+        int brightness{};
+    };
+    std::int32_t color_effect(std::size_t x, int mode, int blend, const Effects& effects, std::int32_t top, int top_layer,
+                              std::int32_t bottom, int bottom_layer, bool semi) const noexcept {
         const auto target2 = (blend & (1 << (8 + bottom_layer))) != 0;
         // Un objet semi-transparent se mélange à une 2e cible même dans une
         // fenêtre qui coupe les effets : la carte de Pokémon Émeraude couvre
         // tout l'écran d'une telle fenêtre, et son brouillard en dépend.
-        if (semi && target2) return alpha(top, bottom);
+        if (semi && target2) return alpha(top, bottom, effects);
         if ((window_mask_[x] & window_effects) == 0) return top;
         const auto target1 = (blend & (1 << top_layer)) != 0;
         if (!target1) return top;
-        if (mode == 1 && target2) return alpha(top, bottom);
-        if (mode == 2) return brightness(top, true);
-        if (mode == 3) return brightness(top, false);
+        if (mode == 1 && target2) return alpha(top, bottom, effects);
+        if (mode == 2) return brightness(top, true, effects.brightness);
+        if (mode == 3) return brightness(top, false, effects.brightness);
         return top;
     }
-    std::int32_t alpha(std::int32_t top, std::int32_t bottom) const noexcept {
-        const auto coefficients = reg16(0x52);
-        const auto a = std::min(coefficients & 31, 16);
-        const auto b = std::min((coefficients >> 8) & 31, 16);
+    static std::int32_t alpha(std::int32_t top, std::int32_t bottom, const Effects& effects) noexcept {
+        const auto a = effects.a;
+        const auto b = effects.b;
         const auto channel = [&](int shift) {
             const auto mixed = ((((u32(top) >> shift) & 0xffU) * static_cast<unsigned>(a)) +
                                 (((u32(bottom) >> shift) & 0xffU) * static_cast<unsigned>(b))) >>
@@ -573,15 +695,14 @@ private:
         };
         return i32(0xff000000U | channel(16) << 16U | channel(8) << 8U | channel(0));
     }
-    std::int32_t brightness(std::int32_t color, bool white) const noexcept {
-        const auto amount = std::min(reg16(0x54) & 31, 16);
-        std::uint32_t result = 0xff000000U;
-        for (const auto shift : {16U, 8U, 0U}) {
+    static std::int32_t brightness(std::int32_t color, bool white, int amount) noexcept {
+        // Les trois canaux un à un : une boucle sur une liste n'est pas déroulée en -O2.
+        const auto channel = [&](unsigned shift) {
             const auto value = static_cast<int>((u32(color) >> shift) & 0xffU);
             const auto adjusted = white ? value + ((255 - value) * amount >> 4) : value - (value * amount >> 4);
-            result |= static_cast<std::uint32_t>(adjusted) << shift;
-        }
-        return i32(result);
+            return static_cast<std::uint32_t>(adjusted) << shift;
+        };
+        return i32(0xff000000U | channel(16U) | channel(8U) | channel(0U));
     }
     void render_mode3(int y, int display) {
         if ((display & 0x0400) == 0) return;
@@ -634,6 +755,7 @@ private:
     std::int32_t bg3_mosaic_ref_x_{};
     std::int32_t bg3_mosaic_ref_y_{};
     bool simple_composition_{};
+    bool windows_off_{true};  // ligne sans fenêtre : tous les plans partout, voir compute_window_mask()
     std::array<std::int32_t, screen_width> line_color_{};
     std::array<int, screen_width> line_priority_{};
     std::array<int, screen_width> line_layer_{};
@@ -647,6 +769,10 @@ private:
     std::array<bool, screen_width> obj_window_{};
     std::array<int, screen_width> window_mask_{};
     std::array<std::int32_t, 5> pending_layer_pixels_{};
+    // Palette convertie en ARGB et copie des octets d'où elle vient : voir refresh_palette().
+    std::array<std::uint8_t, 0x400> palette_raw_{};
+    std::array<std::int32_t, 0x200> palette_argb_{};
+    bool palette_ready_{};
 };
 
 inline int ppu_dispstat_low(const Ppu* ppu) noexcept {

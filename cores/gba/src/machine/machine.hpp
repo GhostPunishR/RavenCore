@@ -168,7 +168,12 @@ public:
                 }
                 continue;
             }
-            track_irq_line();
+            // Hors chargement d'état, la ligne suit déjà IE, IF et IME : tout
+            // changement passe par on_change, qui la met à jour sur le moment.
+            if (irq_line_unsynced_) {
+                track_irq_line();
+                irq_line_unsynced_ = false;
+            }
             if (irq_raised_at_ && !cpu.state.irq_disabled && irq_settling_cycles() == 0) {
                 cpu.raise_exception(CpuState::mode_irq, 0x18, add32(cpu.state.regs[15], 4));
                 // Cycles internes du CPU : l'unité de préchargement de la cartouche lit pendant ce temps.
@@ -179,7 +184,11 @@ public:
             in_instruction_ = true;
             const auto consumed = cpu.step(); bus.diagnostics.instruction();
             in_instruction_ = false;
-            pending_cycles_ += consumed - std::exchange(synced_in_instruction_, 0); elapsed += consumed;
+            pending_cycles_ += consumed; elapsed += consumed;
+            if (synced_in_instruction_ != 0) {
+                pending_cycles_ -= synced_in_instruction_;
+                synced_in_instruction_ = 0;
+            }
             if (pending_cycles_ >= next_event_) sync_peripherals();
         }
         sync_peripherals();
@@ -244,6 +253,9 @@ public:
         if (age < -1 || age > irq_sync_cycles) throw SaveStateError("État d'interruption GBA invalide");
         if (age < 0) irq_raised_at_.reset();
         else irq_raised_at_ = clock_ + pending_cycles_ - age;
+        // IE, IF et IME viennent d'être écrits sans on_change : la ligne est
+        // recalculée avant la prochaine instruction, comme à chaque instruction avant.
+        irq_line_unsynced_ = true;
     }
     /**
      * Le Halt du BIOS d'origine (SWI 2) ne rend pas la main dès le réveil :
@@ -304,6 +316,9 @@ private:
     std::int32_t halt_return_{};                 // instruction qui suit un Halt du BIOS en cours
     int pending_cycles_{};
     int next_event_{};
+    // Vrai tant que la ligne d'IRQ n'a pas été recalculée depuis la mise
+    // sous tension ou un chargement d'état : voir run_for().
+    bool irq_line_unsynced_{true};
     bool in_instruction_{};
     int synced_in_instruction_{};
 };
