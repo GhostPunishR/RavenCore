@@ -2,7 +2,9 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
-## Non publié
+## 0.15.1 - 2026-11-07
+
+Cette version rend le cœur Game Boy et Game Boy Color environ 1,7 fois plus rapide, sans rien changer à ce qu'il émule : images, son et états restent identiques au bit près. L'API, Libretro, le GBA et le format des états ne changent pas.
 
 ### Modifié
 
