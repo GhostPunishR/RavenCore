@@ -44,7 +44,14 @@ public:
     virtual void write_control(int address, int value) = 0;
     [[nodiscard]] virtual int read_ram(int address) const = 0;
     virtual void write_ram(int address, int value) = 0;
+    /**
+     * Temps physique, en points, pour les cartouches qui ont leur propre
+     * horloge. Une cartouche qui le redéfinit met `clocked_` à vrai dans son
+     * constructeur : le bus n'appelle tick() que pour elles, l'appel virtuel
+     * à vide coûtant autrement 70 224 fois par image.
+     */
     virtual void tick(int) {}
+    [[nodiscard]] bool clocked() const noexcept { return clocked_; }
     [[nodiscard]] virtual bool rumble_active() const noexcept { return false; }
     virtual void set_acceleration(int, int) noexcept {}
     [[nodiscard]] virtual bool connect_infrared_endpoint(InfraredEndpoint*) noexcept {
@@ -136,6 +143,8 @@ protected:
     RomImage rom_;
     CartridgeHeader header_;
     std::vector<std::uint8_t> ram_;
+    /** Vrai pour une cartouche qui redéfinit tick() : voir tick(). */
+    bool clocked_{};
 
 private:
     std::uint64_t generation_{};

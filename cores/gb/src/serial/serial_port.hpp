@@ -24,6 +24,12 @@ public:
      */
     void tick(int cycles) noexcept {
         clock_ += static_cast<std::uint64_t>(cycles);
+        // Sans transfert à horloge interne, seul le diviseur avance : un
+        // transfert ne commence que par une écriture du CPU, jamais ici.
+        if (!internal_transfer_active()) {
+            if (cycles > 0) serial_divider_ = (serial_divider_ + cycles) & 0x1ff;
+            return;
+        }
         for (int cycle = 0; cycle < cycles; ++cycle) {
             serial_divider_ = (serial_divider_ + 1) & 0x1ff;
             if (internal_transfer_active() &&

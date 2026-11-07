@@ -248,21 +248,25 @@ private:
     void tick_cpu_clock(int cpu_cycles, bool pause_hblank_hdma) {
         const int cpu_cycles_per_dot = 1 << speed_.peripheral_shift();
         const int peripheral_dots = cpu_cycles / cpu_cycles_per_dot;
+        // La vitesse ne change qu'en fin de transition KEY1, jamais ici.
+        const bool double_speed = speed_.double_speed();
         for (int dot = 0; dot < peripheral_dots; ++dot) {
-            const bool apu_divider_before = timer_.apu_divider_signal(speed_.double_speed());
+            const bool apu_divider_before = timer_.apu_divider_signal(double_speed);
             timer_.tick(cpu_cycles_per_dot);
-            if (apu_divider_before && !timer_.apu_divider_signal(speed_.double_speed())) {
+            if (apu_divider_before && !timer_.apu_divider_signal(double_speed)) {
                 apu_.clock_divider_falling_edge();
             }
             serial_.tick(cpu_cycles_per_dot);
             ppu_.tick(1);
             if (ppu_.take_hblank_entry()) notify_hblank();
             apu_.tick(1);
-            tick_oam_dma(cpu_cycles_per_dot);
-            if (!pause_hblank_hdma || !hdma_hblank_) tick_hdma(1);
+            // Les deux DMA, sortis au plus tôt quand ils ne transfèrent rien :
+            // l'appel coûtait autant que le reste du point.
+            if (oam_dma_pending_ || oam_dma_active_) tick_oam_dma(cpu_cycles_per_dot);
+            if (hdma_active_ && (!pause_hblank_hdma || !hdma_hblank_)) tick_hdma(1);
             // Les périphériques autonomes de cartouche suivent le temps
             // physique : un dot reste un dot même en double vitesse CGB.
-            cartridge_.tick(1);
+            if (cartridge_.clocked()) cartridge_.tick(1);
             ++elapsed_dots_;
         }
     }

@@ -2,6 +2,16 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## Non publié
+
+### Modifié
+
+- **Cœur GB/GBC environ 1,7 fois plus rapide**, sans rien changer à ce qu'il émule : sur 1 339 ROM de test publiques, 120 images chacune, en DMG comme en CGB, les images, le son et l'état final restent identiques au bit près. Seule exception, attendue : l'état des trois ROM MBC3 à horloge, qui contient l'heure réelle et change déjà d'un lancement à l'autre. Le format des états ne change pas. Mesuré en instructions exécutées par image, une mesure stable : de 23,7-25,4 millions à 14,5-14,7 millions, sur une boucle vide, `cpu_instrs`, `dmg_sound` et `cgb-acid-hell`.
+  - **APU différé.** Le bus l'avançait d'un point à chaque point d'image, soit 70 224 fois par image, et y faisait avancer les quatre canaux : le quart du temps du cœur. Entre deux accès, l'APU ne dépend que du temps écoulé, et avancer de N points d'un coup donne le même état que N pas d'un point. `tick()` entasse donc le temps et `catch_up()` le rattrape avant tout ce qui l'observe ou le modifie : registres, wave RAM, PCM, échantillons, séquenceur, états et réinitialisations. Au-delà de 65 536 points en attente, l'APU rattrape de lui-même, pour qu'un jeu qui bloque le séquenceur n'entasse pas le temps sans fin.
+  - **Raccourcis exacts du bus**, quand le composant n'a rien à faire : timer éteint sans recharge en attente, port série sans transfert, DMA OAM et HDMA inactives, cartouche sans horloge propre (toutes sauf HuC3 et MBC7).
+  - **PPU** : des points 81 à 447 d'une ligne, aucune règle de point particulier ne s'applique. En HBlank et en VBlank, le point se réduit alors à avancer le compteur, et en mode 3 le reste de la fonction est sauté.
+  - Nouveau test `deferred_ticks_match_single_dots_test` : un APU avancé par paquets irréguliers rend exactement les registres, la wave RAM, le PCM, les échantillons et l'état d'un APU avancé point par point, sur DMG comme sur CGB.
+
 ## 0.15.0 - 2026-11-06
 
 Cette version lit les codes de triche comme l'appareil et comme RetroArch : les codes GameShark et Action Replay déjà déchiffrés, les codes Codebreaker tels que la console les exécute et le Game Genie par groupes passent, dans RetroArch comme dans l'API C. Elle corrige aussi le câble distant, plusieurs fonctions du BIOS et l'EEPROM des grandes ROM GBA, ainsi que le joypad Game Boy. Le format des états ne change pas.

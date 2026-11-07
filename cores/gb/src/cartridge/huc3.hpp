@@ -12,7 +12,7 @@ public:
     static constexpr std::size_t battery_footer_size = Huc3Mcu::battery_footer_size;
 
     Huc3(RomImage rom, CartridgeHeader header, Clock clock)
-        : Cartridge(std::move(rom), header), mcu_(std::move(clock)) {}
+        : Cartridge(std::move(rom), header), mcu_(std::move(clock)) { clocked_ = true; }
 
     int rom_bank_at(int address) const noexcept override {
         return address < rom_bank_size ? 0 : normalize_rom_bank(rom_bank_);
