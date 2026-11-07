@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <ctime>
 #include <optional>
@@ -921,10 +922,17 @@ void automatic_rtc_public_core_test() {
     check(!core->gba_rtc_active() && core->snapshot_battery_ram()->data.size() == 0x20000,
           "forçage RTC off perdu dans l'interface publique");
     core->set_gba_forced_rtc(std::nullopt); core->set_clock_epoch(std::nullopt);
-    const auto before = std::time(nullptr);
+    // Même horloge que le cœur : std::time() suit l'horloge grossière du
+    // système, en retard de quelques millisecondes, et lisait parfois la
+    // seconde d'avant celle que le RTC venait de prendre.
+    const auto host_seconds = [] {
+        return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    };
+    const auto before = host_seconds();
     core->load_rom(rom,{});
     const auto host_battery = core->snapshot_battery_ram()->data;
-    const auto after = std::time(nullptr);
+    const auto after = host_seconds();
     std::uint64_t latch = 0;
     for (unsigned byte = 0; byte < 8; ++byte) latch |= std::uint64_t{host_battery[0x20008 + byte]} << (byte * 8);
     check(latch >= static_cast<std::uint64_t>(before) && latch <= static_cast<std::uint64_t>(after),
