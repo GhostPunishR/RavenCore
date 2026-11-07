@@ -12,6 +12,16 @@ public:
         : interrupts_(interrupts), hardware_mode_(hardware_mode) {}
 
     void tick(int cycles) noexcept {
+        // TAC éteint et aucune recharge en attente, le cas de la plupart des
+        // cycles : le signal de TIMA reste bas, seul DIV avance. Même état que
+        // la boucle, sans la parcourir cycle par cycle.
+        if ((tac_ & 4) == 0 && reload_delay_ <= 0) {
+            if (cycles > 0) {
+                reload_cycle_ = false;
+                div_counter_ = word(div_counter_ + cycles);
+            }
+            return;
+        }
         for (int i = 0; i < cycles; ++i) {
             reload_cycle_ = false;
             if (reload_delay_ > 0 && --reload_delay_ == 0) {

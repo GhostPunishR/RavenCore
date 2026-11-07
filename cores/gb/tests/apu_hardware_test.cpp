@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <vector>
 
 using ravenemu::testing::check;
 using ravenemu::testing::expect_failure;
@@ -551,6 +552,77 @@ void apu_state_mid_wave_access_test() {
           "timing APU divergent après restauration en lecture wave RAM");
 }
 
+/**
+ * Le temps différé rend exactement l'APU d'un pas par point.
+ *
+ * tick() n'avance plus rien : il entasse le temps, et catch_up() le rattrape
+ * avant chaque lecture, écriture, front du séquenceur ou état. La référence
+ * rattrape à chaque point, comme avant ; l'autre APU avance par paquets
+ * irréguliers. Les quatre canaux jouent, lus et redéclenchés en cours de
+ * route : registres, wave RAM, PCM, échantillons et état doivent rester
+ * identiques, sur DMG comme sur CGB.
+ */
+void deferred_ticks_match_single_dots_test() {
+    for (const auto mode : {gb::HardwareMode::dmg, gb::HardwareMode::cgb_native}) {
+        Apu reference(mode);
+        Apu deferred(mode);
+        const auto play = [](Apu& apu) {
+            apu.write(0xff26, 0x80); apu.write(0xff24, 0x77); apu.write(0xff25, 0xff);
+            // Carré 1 : enveloppe décroissante ; carré 2 : volume tenu.
+            apu.write(0xff11, 0x80); apu.write(0xff12, 0xf3); apu.write(0xff13, 0x00); apu.write(0xff14, 0x87);
+            apu.write(0xff16, 0x40); apu.write(0xff17, 0xf0); apu.write(0xff18, 0xd6); apu.write(0xff19, 0x86);
+            // Onde : une rampe, à pleine période courte pour croiser les lectures.
+            for (int i = 0; i < 16; ++i) apu.write(0xff30 + i, (i * 0x11) & 0xff);
+            apu.write(0xff1a, 0x80); apu.write(0xff1c, 0x20); apu.write(0xff1d, 0x00); apu.write(0xff1e, 0x87);
+            // Bruit, avec une longueur qui l'éteint en route.
+            apu.write(0xff20, 0x3f); apu.write(0xff21, 0xf1); apu.write(0xff22, 0x21); apu.write(0xff23, 0xc0);
+        };
+        play(reference);
+        play(deferred);
+        const auto observe = [](Apu& apu, std::vector<int>& out) {
+            out.push_back(apu.read(0xff26)); out.push_back(apu.read(0xff30)); out.push_back(apu.read(0xff3f));
+            out.push_back(apu.read_pcm12()); out.push_back(apu.read_pcm34());
+        };
+        const auto drain = [](Apu& apu, std::vector<std::int16_t>& out) {
+            std::array<std::int16_t, 512> block{};
+            for (std::size_t count = apu.read_samples(block); count > 0; count = apu.read_samples(block)) {
+                out.insert(out.end(), block.begin(), block.begin() + static_cast<std::ptrdiff_t>(count));
+            }
+        };
+        std::vector<int> reference_reads, deferred_reads;
+        std::vector<std::int16_t> reference_samples, deferred_samples;
+        constexpr std::array<int, 6> chunks{1, 7, 128, 333, 4096, 61};
+        constexpr int total = 70'224 * 6;
+        int dot = 0;
+        for (std::size_t step = 1; dot < total; ++step) {
+            // Un paquet ne franchit jamais un front du séquenceur (DIV, 8192 points).
+            const int chunk = std::min({chunks[step % chunks.size()], 8192 - dot % 8192, total - dot});
+            for (int i = 0; i < chunk; ++i) { reference.tick(1); reference.catch_up(); }
+            deferred.tick(chunk);
+            dot += chunk;
+            if (dot % 8192 == 0) { reference.clock_divider_falling_edge(); deferred.clock_divider_falling_edge(); }
+            if (step % 5 == 0) { observe(reference, reference_reads); observe(deferred, deferred_reads); }
+            if (step % 97 == 0) { reference.write(0xff19, 0x86); deferred.write(0xff19, 0x86); }
+            if (step % 13 == 0) { drain(reference, reference_samples); drain(deferred, deferred_samples); }
+        }
+        drain(reference, reference_samples);
+        drain(deferred, deferred_samples);
+        check(!reference_reads.empty() && reference_reads == deferred_reads,
+              "l'APU différé lit d'autres registres, wave RAM ou PCM que l'APU d'un pas par point");
+        // Six images : 421 344 points, 3 291 trames stéréo à 32 768 Hz.
+        check(reference_samples.size() == 2 * 3'291 && reference_samples == deferred_samples &&
+              std::any_of(reference_samples.begin(), reference_samples.end(), [](std::int16_t v) { return v != 0; }),
+              "l'APU différé rend d'autres échantillons que l'APU d'un pas par point");
+        detail::BinaryWriter reference_state, deferred_state;
+        deferred.tick(17);  // du temps en attente : save() le rattrape d'abord
+        for (int i = 0; i < 17; ++i) { reference.tick(1); reference.catch_up(); }
+        reference.save(reference_state);
+        deferred.save(deferred_state);
+        check(std::move(reference_state).take() == std::move(deferred_state).take(),
+              "l'APU différé enregistre un autre état que l'APU d'un pas par point");
+    }
+}
+
 void apu_state_layout_rejection_test() {
     Apu source(gb::HardwareMode::dmg);
     detail::BinaryWriter writer;
@@ -617,5 +689,6 @@ int main() {
     first_duty_step_and_idle_clock_test();
     apu_state_mid_wave_access_test();
     apu_state_layout_rejection_test();
+    deferred_ticks_match_single_dots_test();
     return 0;
 }

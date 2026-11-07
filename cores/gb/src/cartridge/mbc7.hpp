@@ -10,7 +10,7 @@ public:
     static constexpr std::size_t eeprom_size = Mbc7Eeprom::storage_size;
 
     Mbc7(RomImage rom, CartridgeHeader header)
-        : Cartridge(std::move(rom), header) {}
+        : Cartridge(std::move(rom), header) { clocked_ = true; }
 
     int rom_bank_at(int address) const noexcept override {
         return address < rom_bank_size ? 0 : normalize_rom_bank(rom_bank_);

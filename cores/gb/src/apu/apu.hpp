@@ -12,8 +12,29 @@ public:
     explicit Apu(gb::HardwareMode hardware_mode = gb::HardwareMode::dmg)
         : hardware_mode_(hardware_mode) {}
 
-    void tick(int cycles) {
-        int remaining = cycles;
+    /**
+     * Avance de `cycles` points (4,19 MHz), en différé.
+     *
+     * Le bus appelle tick(1) à chaque point, soit 70 224 fois par image : y
+     * faire avancer les quatre canaux coûtait le quart du temps du cœur. Entre
+     * deux accès, l'APU ne dépend que du temps écoulé, et avancer de N points
+     * d'un coup donne exactement l'état de N pas d'un point : les tranches ne
+     * se coupent qu'aux expirations des minuteurs et des fenêtres
+     * d'échantillonnage, les accumulateurs s'additionnent. Le temps s'entasse
+     * donc ici, et catch_up() le rattrape avant tout ce qui l'observe ou le
+     * modifie : registres, PCM, échantillons, séquenceur, états, réinitialisations.
+     */
+    void tick(int cycles) noexcept {
+        pending_cycles_ += cycles;
+        // Sans accès ni front du séquenceur (un jeu qui remet DIV à zéro sans
+        // cesse), le temps ne s'entasse pas indéfiniment.
+        if (pending_cycles_ >= max_pending_cycles) catch_up();
+    }
+
+    /** Rattrape le temps en attente, tel que l'auraient fait les tick() un à un. */
+    void catch_up() noexcept {
+        int remaining = pending_cycles_;
+        pending_cycles_ = 0;
         while (remaining > 0) {
             const int slice = std::min(sample_timer_, remaining);
             if (power_on_) {
@@ -30,10 +51,12 @@ public:
      * le séquenceur ne compte pas : le rallumage le remet au pas 0.
      */
     void clock_divider_falling_edge() noexcept {
+        catch_up();
         if (power_on_) clock_frame_sequencer();
     }
 
     [[nodiscard]] std::size_t read_samples(std::span<std::int16_t> destination) noexcept {
+        catch_up();
         std::size_t copied{};
         const auto maximum = destination.size() & ~std::size_t{1};
         while (copied < maximum && ring_count_ > 0) {
@@ -44,15 +67,18 @@ public:
         return copied;
     }
 
-    [[nodiscard]] int read_pcm12() const noexcept {
+    [[nodiscard]] int read_pcm12() noexcept {
+        catch_up();
         return square1_.output() | (square2_.output() << 4);
     }
 
-    [[nodiscard]] int read_pcm34() const noexcept {
+    [[nodiscard]] int read_pcm34() noexcept {
+        catch_up();
         return wave_.output() | (noise_.output() << 4);
     }
 
     void reset_for_boot_rom() noexcept {
+        catch_up();
         power_down();
         frame_step_ = 0;
         sample_timer_ = cycles_per_sample;
@@ -62,6 +88,7 @@ public:
 
     /** État observable à l'entrée $0100 sans redistribuer de boot ROM. */
     void initialize_hle_post_boot() noexcept {
+        catch_up();
         square1_.reset(); square2_.reset(); wave_.reset(); noise_.reset();
         power_on_ = true;
         raw_registers_.fill(0);
@@ -101,7 +128,8 @@ public:
         prime_capacitors();
     }
 
-    [[nodiscard]] int read(int address) const noexcept {
+    [[nodiscard]] int read(int address) noexcept {
+        catch_up();
         if (address >= 0xff30 && address <= 0xff3f) {
             return read_wave_ram(address - 0xff30);
         }
@@ -127,6 +155,7 @@ public:
      * représente ni l'un ni l'autre ; [emit_sample] la traite à part.
      */
     void write(int address, int value) {
+        catch_up();
         const bool connected_before = power_on_ && any_dac_enabled();
         write_register(address, value);
         if (sample_timer_ < cycles_per_sample &&
@@ -206,7 +235,8 @@ private:
     }
 
 public:
-    void save(BinaryWriter& out) const {
+    void save(BinaryWriter& out) {
+        catch_up();
         out.i32(state_layout);
         out.boolean(power_on_); out.i32(nr50_); out.i32(nr51_);
         for (const int value : raw_registers_) out.i32(value);
@@ -215,6 +245,7 @@ public:
         square1_.save(out); square2_.save(out); wave_.save(out); noise_.save(out);
     }
     void load(BinaryReader& in) {
+        pending_cycles_ = 0;
         if (in.i32() != state_layout) throw SaveStateError("État instantané corrompu (APU)");
         power_on_ = in.boolean(); nr50_ = in.i32(); nr51_ = in.i32();
         for (auto& value : raw_registers_) value = in.i32();
@@ -748,6 +779,7 @@ private:
 
     static constexpr int state_layout = 1;
     static constexpr int cycles_per_sample = 128;
+    static constexpr int max_pending_cycles = 1 << 16;
     static constexpr std::size_t ring_capacity = 8192;
     static constexpr int mix_gain = 64;
     static constexpr double dmg_charge_factor = 0.9946383125332977;
@@ -791,6 +823,8 @@ private:
      * fenêtre.
      */
     bool mixer_changed_mid_window_{};
+    /** Points pas encore rattrapés : voir tick(). Jamais sérialisé, save() rattrape d'abord. */
+    int pending_cycles_{};
 };
 
 } // namespace ravenemu::cgb

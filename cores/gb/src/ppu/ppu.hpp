@@ -615,6 +615,15 @@ private:
     static constexpr int obj_fetch_high = 4;
 
     void advance_dot() {
+        // HBlank ou VBlank, rien en attente, entre les points 81 et 447 de la
+        // ligne : aucune des règles ci-dessous ne peut s'appliquer (elles
+        // visent les points 1, 4, 76, 80, 448, 452 et 456), seul le compteur
+        // avance. Près de la moitié des points d'une image passent par là.
+        if (reported_mode_delay_ <= 0 && lyc_compare_delay_ <= 0 &&
+            (ly_ >= height || mode_ == mode_hblank) && line_dot_ >= 80 && line_dot_ < 446) {
+            ++line_dot_;
+            return;
+        }
         if (reported_mode_delay_ > 0 && --reported_mode_delay_ == 0) {
             reported_mode_ = reported_mode_target_;
         }
@@ -626,6 +635,9 @@ private:
         if (ly_ < height && mode_ == mode_transfer) advance_transfer();
 
         ++line_dot_;
+        // Même raison que plus haut : de 81 à 447, aucune règle suivante ne
+        // vise ce point, et la ligne n'est pas finie.
+        if (line_dot_ > 80 && line_dot_ < 448) return;
         if (ly_ == 153 && line_dot_ == 4) {
             update_lyc_compare();
             check_stat();
