@@ -369,6 +369,18 @@ void prefetch_state_is_validated() {
     bus.restore_prefetch({0x08000102U, 3, 1, 1, true});
     check(bus.prefetch().count == 3 && bus.prefetch().progress == 1 && bus.prefetch().halfword_cycles == 3,
           "état du préchargement mal restauré");
+    // Le tampon restauré attend l'instruction head - 2 × count : déjà lue, elle
+    // ne coûte qu'un cycle. Un accès de données à la cartouche arrête l'unité,
+    // qui ne sert plus cette adresse.
+    using ravenemu::gba::i32;
+    bus.take_wait_cycles();
+    static_cast<void>(bus.fetch16(i32(0x080000fcU)));
+    check(bus.take_wait_cycles() == 1, "tampon restauré : l'instruction attendue n'est pas servie en un cycle");
+    static_cast<void>(bus.read16(i32(0x08000000U)));
+    bus.take_wait_cycles();
+    static_cast<void>(bus.fetch16(i32(0x080000feU)));
+    check(bus.take_wait_cycles() > 1 && bus.prefetch().active,
+          "unité arrêtée : l'instruction qu'elle attendait servie comme si elle était lue");
     rejected({0x08000102U, 9, 0, 1, true}, "plus de huit demi-mots acceptés");
     rejected({0x08000103U, 0, 0, 1, true}, "adresse impaire acceptée");
     rejected({0x08000102U, 0, 3, 1, true}, "lecture en cours plus longue qu'un demi-mot acceptée");

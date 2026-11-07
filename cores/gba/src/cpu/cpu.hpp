@@ -75,18 +75,22 @@ public:
      * change pas ce qui s'exécute ensuite (code automodifiant). Un saut vide
      * le pipeline, rechargé (avec ses attentes mémoire) à l'instruction suivante.
      */
-    int step() {
+    RAVENEMU_GBA_HOT_INLINE int step() { return state.thumb ? step_in<true>() : step_in<false>(); }
+    // Une instruction dans le mode qu'avait le CPU avant de l'exécuter : un BX
+    // qui en change saute, et le pipeline se recharge à l'instruction suivante.
+    template <bool Thumb>
+    RAVENEMU_GBA_HOT_INLINE int step_in() {
+        constexpr int width = Thumb ? 2 : 4;
         branched_ = false;
         bus.take_wait_cycles();
-        if (!pipeline_valid_ || pipeline_thumb_ != state.thumb) refill_pipeline();
-        const auto width = state.thumb ? 2 : 4;
+        if (!pipeline_valid_ || pipeline_thumb_ != Thumb) refill_pipeline_in<Thumb>();
         const auto pc = state.regs[15];
         const auto instruction = pipeline_[0];
-        const auto prefetched = fetch(add32(pc, 2 * width));
+        const auto prefetched = fetch_in<Thumb>(add32(pc, 2 * width));
         // Le bus compte les cycles de chaque accès, attentes comprises ;
         // l'instruction ne rend que ses cycles internes (I), qui suivent ses accès.
         int internal{};
-        if (state.thumb)
+        if constexpr (Thumb)
             internal = execute_thumb(static_cast<int>(u32(instruction) & 0xffffU));
         else
             internal = check_condition(static_cast<int>(u32(instruction) >> 28U)) ? execute_arm(instruction) : 0;
@@ -275,16 +279,23 @@ private:
     int arm_block(std::int32_t instruction);
     int arm_swi(std::int32_t instruction);
     int execute_thumb(int instruction);
+    RAVENEMU_GBA_NOINLINE static bool thumb_multiply_carry(std::uint32_t multiplicand, std::uint32_t multiplier);
+    RAVENEMU_GBA_NOINLINE int thumb_push_pop(unsigned instr);
+    RAVENEMU_GBA_NOINLINE int thumb_multiple(unsigned instr);
+    RAVENEMU_GBA_NOINLINE int thumb_swi(unsigned instr);
     int thumb_undefined(int instruction);
     void thumb_arithmetic_flags(std::int32_t value) noexcept;
-    std::int32_t fetch(std::int32_t address) {
-        return state.thumb ? i32(u32(bus.fetch16(address)) & 0xffffU) : bus.fetch32(address);
+    template <bool Thumb>
+    RAVENEMU_GBA_HOT_INLINE std::int32_t fetch_in(std::int32_t address) {
+        if constexpr (Thumb) return i32(u32(bus.fetch16(address)) & 0xffffU);
+        else return bus.fetch32(address);
     }
-    void refill_pipeline() {
-        pipeline_thumb_ = state.thumb;
+    template <bool Thumb>
+    void refill_pipeline_in() {
+        pipeline_thumb_ = Thumb;
         const auto pc = state.regs[15];
-        pipeline_[0] = fetch(pc);
-        pipeline_[1] = fetch(add32(pc, state.thumb ? 2 : 4));
+        pipeline_[0] = fetch_in<Thumb>(pc);
+        pipeline_[1] = fetch_in<Thumb>(add32(pc, Thumb ? 2 : 4));
         pipeline_valid_ = true;
     }
     bool branched_{};

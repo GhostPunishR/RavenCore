@@ -3,6 +3,7 @@
 #include "check.hpp"
 #include "synthetic_roms.hpp"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -323,6 +324,143 @@ void un_objet_semi_transparent_se_melange_dans_une_fenetre_sans_effets() {
     check(normal.pixel(0, 0) == static_cast<std::int32_t>(0xffff0000U), "la fenêtre sans effets n'empêche plus le mélange d'un objet normal");
 }
 
+/** Couleur affichée d'une entrée BGR555 (GBATEK) : 5 bits étendus à 8. */
+std::int32_t argb(int color) {
+    const auto expand = [](int value) { return static_cast<std::uint32_t>((value << 3) | (value >> 2)); };
+    return static_cast<std::int32_t>(0xff000000U | expand(color & 31) << 16U | expand((color >> 5) & 31) << 8U |
+                                     expand((color >> 10) & 31));
+}
+std::int32_t rgb(int red, int green, int blue) {
+    return static_cast<std::int32_t>(0xff000000U | static_cast<std::uint32_t>(red) << 16U |
+                                     static_cast<std::uint32_t>(green) << 8U | static_cast<std::uint32_t>(blue));
+}
+/** Entrée de carte de BG0 en colonne `column` de la première rangée (carte en 0x8000). */
+void map_entry(Fixture& fixture, int column, int entry) {
+    fixture.bus.vram[static_cast<std::size_t>(0x8000 + column * 2)] = static_cast<std::uint8_t>(entry);
+    fixture.bus.vram[static_cast<std::size_t>(0x8000 + column * 2 + 1)] = static_cast<std::uint8_t>(entry >> 8);
+}
+
+/**
+ * Une couleur changée en cours d'image ne vaut que pour les lignes suivantes,
+ * même écrite droit en mémoire, comme le ferait un DMA ou un code de triche :
+ * la palette convertie se relit avant chaque ligne tracée.
+ */
+void une_couleur_changee_en_cours_d_image_vaut_pour_les_lignes_suivantes() {
+    Fixture fixture;
+    setup_text_background(fixture, false, 0);
+    constexpr int lines = 80;
+    fixture.ppu.tick(lines * 1232);  // lignes 0 à 79 tracées
+    fixture.palette(1, 0x7fff);
+    fixture.ppu.tick(cycles_per_frame - lines * 1232);
+    check(fixture.pixel(0, 72) == argb(1), "couleur changée après la ligne 79 appliquée à une ligne déjà tracée");
+    check(fixture.pixel(0, 80) == argb(0x7fff), "couleur changée en mémoire ignorée par les lignes suivantes");
+    check(fixture.pixel(1, 80) == argb(2), "une couleur inchangée a changé avec sa voisine");
+}
+
+/**
+ * Plan texte 4 bpp : les huit points d'une ligne de tuile dans l'ordre, puis en
+ * miroir, puis dans une autre banque de palette ; une ligne de tuile vide
+ * laisse voir le fond. Défilé de 3 points, chaque tuile se coupe en deux
+ * segments de la ligne, sans changer ce qui s'affiche.
+ */
+void un_plan_texte_4bpp_suit_miroir_banque_et_transparence() {
+    Fixture fixture;
+    fixture.reg(0x00, 0x0100);  // mode 0, BG0 actif
+    fixture.reg(0x08, 0x1000);  // 4 bpp, tuiles en 0, carte en 0x8000
+    // Tuile 1 : points 1 à 8 sur la ligne 0, ligne 1 vide, point 1 ailleurs.
+    const std::array<std::uint8_t, 4> first_row{0x21, 0x43, 0x65, 0x87};
+    for (std::size_t index = 0; index < 4; ++index) fixture.bus.vram[32 + index] = first_row[index];
+    for (std::size_t index = 8; index < 32; ++index) fixture.bus.vram[32 + index] = 0x11;
+    map_entry(fixture, 0, 0x0001);  // tuile 1
+    map_entry(fixture, 1, 0x0401);  // tuile 1 en miroir horizontal
+    map_entry(fixture, 2, 0x2001);  // tuile 1, banque de palette 2
+    for (int index = 1; index <= 8; ++index) {
+        fixture.palette(index, index * 3);
+        fixture.palette(32 + index, 0x7c00 | index);
+    }
+    constexpr int backdrop = 0x03e0;
+    fixture.palette(0, backdrop);
+    const auto expected = [](int effective_x) {
+        const auto px = effective_x % 8;
+        switch (effective_x / 8) {
+        case 0: return argb((px + 1) * 3);
+        case 1: return argb((8 - px) * 3);
+        case 2: return argb(0x7c00 | (px + 1));
+        default: return argb(backdrop);
+        }
+    };
+    fixture.render_frame();
+    for (int x = 0; x < 32; ++x) {
+        check(fixture.pixel(x, 0) == expected(x), "plan 4 bpp : ordre, miroir ou banque des points faux");
+        check(fixture.pixel(x, 1) == argb(backdrop), "plan 4 bpp : une ligne de tuile vide masque le fond");
+    }
+    fixture.reg(0x10, 3);  // BG0HOFS : 3 points
+    fixture.render_frame();
+    for (int x = 0; x < 29; ++x)
+        check(fixture.pixel(x, 0) == expected(x + 3), "plan 4 bpp défilé : segments de tuile mal raccordés");
+}
+
+/**
+ * Plan texte 8 bpp dont les tuiles sont en 0xC000 : la tuile 767 finit sur le
+ * dernier octet de la VRAM (0x17FFF) et s'affiche ; la tuile 768 est tout
+ * entière au-delà, ses points se lisent 0, transparents.
+ */
+void une_ligne_8bpp_hors_de_la_vram_reste_transparente() {
+    Fixture fixture;
+    fixture.reg(0x00, 0x0100);  // mode 0, BG0 actif
+    fixture.reg(0x08, 0x108c);  // 8 bpp, tuiles en 0xC000, carte en 0x8000
+    for (std::size_t index = 0; index < 64; ++index) fixture.bus.vram[0xc000 + 767 * 64 + index] = 5;
+    map_entry(fixture, 0, 767);
+    map_entry(fixture, 1, 768);
+    fixture.palette(5, 0x7fff);
+    fixture.palette(0, 0x001f);
+    fixture.render_frame();
+    check(fixture.pixel(0, 0) == argb(0x7fff) && fixture.pixel(7, 7) == argb(0x7fff),
+          "plan 8 bpp : la dernière tuile de la VRAM n'est pas affichée");
+    check(fixture.pixel(8, 0) == argb(0x001f) && fixture.pixel(15, 7) == argb(0x001f),
+          "plan 8 bpp : une tuile hors de la VRAM est affichée");
+}
+
+/**
+ * Fenêtre 0 de la colonne 200 à la colonne 40, par le bord droit de l'écran, et
+ * des lignes 10 à 19 : BG0 n'apparaît que dedans.
+ */
+void une_fenetre_qui_passe_par_le_bord_garde_ses_colonnes() {
+    Fixture fixture;
+    setup_text_background(fixture, false, 0);
+    fixture.reg(0x00, 0x2100);             // mode 0, BG0 et fenêtre 0
+    fixture.reg(0x40, (200 << 8) | 40);    // WIN0H
+    fixture.reg(0x44, (10 << 8) | 20);     // WIN0V
+    fixture.reg(0x48, 0x0001);             // WININ : BG0
+    fixture.reg(0x4a, 0x0000);             // WINOUT : rien
+    constexpr int backdrop = 0x7c00;       // bleu, absent du dégradé
+    fixture.palette(0, backdrop);
+    fixture.render_frame();
+    const auto shown = [&](int x, int y) { return fixture.pixel(x, y) != argb(backdrop); };
+    check(shown(0, 15) && shown(39, 15) && shown(200, 15) && shown(239, 15),
+          "fenêtre par le bord de l'écran : colonnes du dedans masquées");
+    check(!shown(40, 15) && !shown(120, 15) && !shown(199, 15), "fenêtre par le bord de l'écran : colonnes du dehors affichées");
+    check(!shown(0, 9) && !shown(0, 20) && shown(0, 10) && shown(0, 19), "fenêtre : bornes verticales non respectées");
+}
+
+/**
+ * BLDY : éclaircir ou assombrir de 8/16 un point dont les trois canaux valent
+ * 8, soit 66 une fois étendus : 66 + (255 - 66) × 8 / 16 = 160, puis
+ * 66 - 66 × 8 / 16 = 33 (GBATEK, « BLDY »).
+ */
+void l_eclaircissement_et_l_assombrissement_suivent_bldy() {
+    Fixture fixture;
+    setup_text_background(fixture, false, 0);
+    fixture.palette(1, 0x2108);
+    fixture.reg(0x54, 8);       // EVY = 8
+    fixture.reg(0x50, 0x0081);  // BG0 première cible, éclaircir
+    fixture.render_frame();
+    check(fixture.pixel(0, 0) == rgb(160, 160, 160), "éclaircissement BLDY faux");
+    fixture.reg(0x50, 0x00c1);  // assombrir
+    fixture.render_frame();
+    check(fixture.pixel(0, 0) == rgb(33, 33, 33), "assombrissement BLDY faux");
+}
+
 } // namespace
 
 } // namespace ravenemu::gba::testing
@@ -337,5 +475,10 @@ int main() {
     la_mosaique_d_un_objet_repete_le_coin_du_bloc();
     les_mosaiques_des_plans_et_des_objets_ne_se_melangent_pas();
     un_objet_semi_transparent_se_melange_dans_une_fenetre_sans_effets();
+    une_couleur_changee_en_cours_d_image_vaut_pour_les_lignes_suivantes();
+    un_plan_texte_4bpp_suit_miroir_banque_et_transparence();
+    une_ligne_8bpp_hors_de_la_vram_reste_transparente();
+    une_fenetre_qui_passe_par_le_bord_garde_ses_colonnes();
+    l_eclaircissement_et_l_assombrissement_suivent_bldy();
     return 0;
 }

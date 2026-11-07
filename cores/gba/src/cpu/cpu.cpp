@@ -410,6 +410,81 @@ int Cpu::thumb_undefined(int instruction) {
     return 0;
 }
 
+// Formats rares ou longs de execute_thumb(), hors de la fonction : leurs
+// variables (boucles, multiplieur) y imposaient à chaque instruction Thumb une
+// grande pile, des registres sauvés et le contrôle de pile.
+bool Cpu::thumb_multiply_carry(std::uint32_t multiplicand, std::uint32_t multiplier) {
+    return BoothMultiplier(multiplicand, multiplier, 0, true, false).carry_flag();
+}
+
+int Cpu::thumb_push_pop(unsigned instr) {
+    const auto load = ((instr >> 11U) & 1U) != 0;
+    const auto extra = ((instr >> 8U) & 1U) != 0;
+    const auto list = instr & 0xffU;
+    const auto count = static_cast<int>(std::popcount(list)) + (extra ? 1 : 0);
+    if (load) {
+        auto address = read_reg(13);
+        for (int reg = 0; reg < 8; ++reg)
+            if ((list & (1U << reg)) != 0) {
+                write_reg(reg, bus.read32(address));
+                address = add32(address, 4);
+            }
+        if (extra) {
+            write_reg(15, bus.read32(address));
+            address = add32(address, 4);
+        }
+        write_reg(13, address);
+    } else {
+        auto address = add32(read_reg(13), -count * 4);
+        write_reg(13, address);
+        for (int reg = 0; reg < 8; ++reg)
+            if ((list & (1U << reg)) != 0) {
+                bus.write32(address, read_reg(reg));
+                address = add32(address, 4);
+            }
+        if (extra) bus.write32(address, read_reg(14));
+    }
+    // POP : nS + 1N + 1I ; PUSH : (n-1)S + 2N.
+    return load ? 1 : 0;
+}
+
+int Cpu::thumb_multiple(unsigned instr) {
+    const auto load = ((instr >> 11U) & 1U) != 0;
+    const auto rb = static_cast<int>((instr >> 8U) & 7U);
+    const auto list = instr & 0xffU;
+    const auto base = read_reg(rb);
+    // Liste vide : PC seul est transféré (stocké à l'adresse + 6) et la
+    // base avance de 0x40, comme en ARM.
+    if (list == 0) {
+        if (load)
+            branch_to(bus.read32(base));
+        else
+            bus.write32(base, add32(read_reg(15), 2));
+        write_reg(rb, add32(base, 0x40));
+        return load ? 1 : 0;
+    }
+    const auto final_base = add32(base, static_cast<std::int32_t>(std::popcount(list)) * 4);
+    auto address = base;
+    bool first = true;
+    for (int reg = 0; reg < 8; ++reg)
+        if ((list & (1U << reg)) != 0) {
+            if (load) write_reg(reg, bus.read32(address));
+            // La base est réécrite après le premier transfert : seule la
+            // première valeur stockée est l'ancienne base.
+            else
+                bus.write32(address, reg == rb && !first ? final_base : read_reg(reg));
+            first = false;
+            address = add32(address, 4);
+        }
+    if (!(load && (list & (1U << rb)) != 0)) write_reg(rb, final_base);
+    return load ? 1 : 0;
+}
+
+int Cpu::thumb_swi(unsigned instr) {
+    execute_swi(static_cast<int>(instr & 0xffU), add32(state.regs[15], 2));
+    return 0;
+}
+
 int Cpu::execute_thumb(int instruction) {
     const auto instr = static_cast<unsigned>(instruction) & 0xffffU;
     // Les formats sont testés dans l'ordre croissant des opcodes : on entre
@@ -536,7 +611,7 @@ int Cpu::execute_thumb(int instruction) {
             // MUL : 1S + mI (m selon Rd d'origine) ; décalage par registre : 1S + 1I.
             // Rd est le multiplicateur que lit le multiplieur, comme Rs en ARM.
             if (opcode == 13) {
-                state.carry = BoothMultiplier(u32(b), u32(a), 0, true, false).carry_flag();
+                state.carry = thumb_multiply_carry(u32(b), u32(a));
                 return multiply_cycles(u32(a), true);
             }
             return shift ? 1 : 0;
@@ -643,73 +718,11 @@ int Cpu::execute_thumb(int instruction) {
             write_reg(13, add32(read_reg(13), ((instr >> 7U) & 1U) != 0 ? -offset : offset));
             return 0;
         }
-        if ((instr & 0xf600U) == 0xb400U) {
-            const auto load = ((instr >> 11U) & 1U) != 0;
-            const auto extra = ((instr >> 8U) & 1U) != 0;
-            const auto list = instr & 0xffU;
-            const auto count = static_cast<int>(std::popcount(list)) + (extra ? 1 : 0);
-            if (load) {
-                auto address = read_reg(13);
-                for (int reg = 0; reg < 8; ++reg)
-                    if ((list & (1U << reg)) != 0) {
-                        write_reg(reg, bus.read32(address));
-                        address = add32(address, 4);
-                    }
-                if (extra) {
-                    write_reg(15, bus.read32(address));
-                    address = add32(address, 4);
-                }
-                write_reg(13, address);
-            } else {
-                auto address = add32(read_reg(13), -count * 4);
-                write_reg(13, address);
-                for (int reg = 0; reg < 8; ++reg)
-                    if ((list & (1U << reg)) != 0) {
-                        bus.write32(address, read_reg(reg));
-                        address = add32(address, 4);
-                    }
-                if (extra) bus.write32(address, read_reg(14));
-            }
-            // POP : nS + 1N + 1I ; PUSH : (n-1)S + 2N.
-            return load ? 1 : 0;
-        }
+        if ((instr & 0xf600U) == 0xb400U) return thumb_push_pop(instr);
         [[fallthrough]];
     case 6:
-        if ((instr & 0xf000U) == 0xc000U) {
-            const auto load = ((instr >> 11U) & 1U) != 0;
-            const auto rb = static_cast<int>((instr >> 8U) & 7U);
-            const auto list = instr & 0xffU;
-            const auto base = read_reg(rb);
-            // Liste vide : PC seul est transféré (stocké à l'adresse + 6) et la
-            // base avance de 0x40, comme en ARM.
-            if (list == 0) {
-                if (load)
-                    branch_to(bus.read32(base));
-                else
-                    bus.write32(base, add32(read_reg(15), 2));
-                write_reg(rb, add32(base, 0x40));
-                return load ? 1 : 0;
-            }
-            const auto final_base = add32(base, static_cast<std::int32_t>(std::popcount(list)) * 4);
-            auto address = base;
-            bool first = true;
-            for (int reg = 0; reg < 8; ++reg)
-                if ((list & (1U << reg)) != 0) {
-                    if (load) write_reg(reg, bus.read32(address));
-                    // La base est réécrite après le premier transfert : seule la
-                    // première valeur stockée est l'ancienne base.
-                    else
-                        bus.write32(address, reg == rb && !first ? final_base : read_reg(reg));
-                    first = false;
-                    address = add32(address, 4);
-                }
-            if (!(load && (list & (1U << rb)) != 0)) write_reg(rb, final_base);
-            return load ? 1 : 0;
-        }
-        if ((instr & 0xff00U) == 0xdf00U) {
-            execute_swi(static_cast<int>(instr & 0xffU), add32(state.regs[15], 2));
-            return 0;
-        }
+        if ((instr & 0xf000U) == 0xc000U) return thumb_multiple(instr);
+        if ((instr & 0xff00U) == 0xdf00U) return thumb_swi(instr);
         if ((instr & 0xf000U) == 0xd000U) {
             const auto condition = static_cast<int>((instr >> 8U) & 15U);
             if (condition >= 14 || !check_condition(condition)) return 0;
