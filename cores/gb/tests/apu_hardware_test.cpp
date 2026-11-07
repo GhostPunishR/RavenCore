@@ -664,6 +664,44 @@ void corrupt_channel_state_is_rejected() {
     }
 }
 
+/**
+ * La CGB garde la forme d'un créneau, comme le DMG.
+ *
+ * Le condensateur de sortie retire lentement la composante continue. Avec le
+ * facteur MGB/CGB de Pan Docs, il la retirait en 0,23 ms : chaque front d'un
+ * créneau sortait en impulsion retombée en moins d'une milliseconde, et une
+ * note grave devenait un train de claquements, les parasites entendus en
+ * GBC. Un carré à 64 Hz (7,8 ms par demi-période) doit encore garder, 2 ms
+ * après un front, plus de 60 % de son niveau, sur les deux consoles.
+ */
+void cgb_keeps_a_square_waves_shape_test() {
+    for (const auto mode : {gb::HardwareMode::dmg, gb::HardwareMode::cgb_native}) {
+        Apu apu(mode);
+        apu.write(0xff26, 0x80); apu.write(0xff24, 0x77); apu.write(0xff25, 0x11);
+        // Carré 1 : duty 50 %, volume 15 tenu, fréquence 0 (64 Hz), sans longueur.
+        apu.write(0xff11, 0x80); apu.write(0xff12, 0xf0); apu.write(0xff13, 0x00); apu.write(0xff14, 0x80);
+        std::vector<std::int16_t> left;
+        std::array<std::int16_t, 4096> block{};
+        for (int frame = 0; frame < 8; ++frame) {
+            apu.tick(70'224);
+            for (std::size_t count = apu.read_samples(block); count > 0; count = apu.read_samples(block))
+                for (std::size_t i = 0; i < count; i += 2) left.push_back(block[i]);
+        }
+        // Le front le plus haut de la seconde moitié, loin de l'attaque.
+        std::size_t edge = 0;
+        int jump = 0;
+        for (std::size_t i = left.size() / 2; i + 70 < left.size(); ++i) {
+            const int step = std::abs(left[i] - left[i - 1]);
+            if (step > jump) { jump = step; edge = i; }
+        }
+        const double after = static_cast<double>(left[edge + 64]) / static_cast<double>(left[edge]);
+        check(jump > 4000 && edge != 0, "précondition : le carré à 64 Hz ne sonne pas");
+        check(after > 0.6, mode == gb::HardwareMode::dmg
+              ? "le condensateur DMG retire le niveau d'un créneau en moins de 2 ms"
+              : "le condensateur CGB retire le niveau d'un créneau en moins de 2 ms : parasites en GBC");
+    }
+}
+
 } // namespace ravenemu::cgb::testing
 
 int main() {
@@ -690,5 +728,6 @@ int main() {
     apu_state_mid_wave_access_test();
     apu_state_layout_rejection_test();
     deferred_ticks_match_single_dots_test();
+    cgb_keeps_a_square_waves_shape_test();
     return 0;
 }

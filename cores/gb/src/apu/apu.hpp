@@ -745,8 +745,6 @@ private:
             return;
         }
         const auto [left, right] = route(c1, c2, c3, c4);
-        const double charge_factor = gb::is_cgb_hardware(hardware_mode_)
-            ? cgb_charge_factor : dmg_charge_factor;
         const double filtered_left = left - capacitor_left_;
         capacitor_left_ = left - filtered_left * charge_factor;
         const double filtered_right = right - capacitor_right_;
@@ -782,8 +780,24 @@ private:
     static constexpr int max_pending_cycles = 1 << 16;
     static constexpr std::size_t ring_capacity = 8192;
     static constexpr int mix_gain = 64;
-    static constexpr double dmg_charge_factor = 0.9946383125332977;
-    static constexpr double cgb_charge_factor = 0.8733948326038061;
+    /**
+     * Le condensateur de sortie, par échantillon : 0,999958 par point
+     * (4,19 MHz), soit 0,999958^128. Sa constante de temps, 5,7 ms (coupure
+     * vers 28 Hz), lui fait retirer *lentement* la composante continue, comme
+     * le décrit Pan Docs (Audio details).
+     *
+     * **La même pour la CGB.** Pan Docs donne 0,998943 pour la MGB et la CGB,
+     * repris de l'ancien wiki gbdev, sans plus. Appliqué tel quel (0,8734 par
+     * échantillon), il donne une constante de 0,23 ms, une coupure vers
+     * 700 Hz : il ne retire plus le continu, mais les graves et la forme des
+     * notes. Chaque front de créneau sortait en impulsion retombée en moins
+     * d'une milliseconde ; une basse devenait un train de claquements. Ce sont
+     * les parasites entendus en GBC : sur des jeux GBC, la part de l'énergie
+     * sous 300 Hz tombait de 59 % à 15 % (Aevilia) et le facteur de crête
+     * doublait. Le texte même de Pan Docs décrit un condensateur qui retire
+     * lentement le continu : la CGB prend donc le facteur du DMG.
+     */
+    static constexpr double charge_factor = 0.9946383125332977;
     inline static constexpr std::array<std::array<int, 8>, 4> duty_table{{
         {{0, 0, 0, 0, 0, 0, 0, 1}}, {{1, 0, 0, 0, 0, 0, 0, 1}},
         {{1, 0, 0, 0, 0, 1, 1, 1}}, {{0, 1, 1, 1, 1, 1, 1, 0}},
