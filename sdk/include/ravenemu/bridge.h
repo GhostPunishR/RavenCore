@@ -75,13 +75,20 @@ size_t ravenemu_read_audio(ravenemu_bridge* handle,
 /* Read-only RetroAchievements address space. Returns the number of bytes
  * really available, never clocks the emulation bus or changes state.
  * Unmapped addresses return short reads; frontend/SDK must respect count.
+ * At most 0x58000 bytes per call (the whole space RetroAchievements reads):
+ * a larger capacity returns 0 and sets ravenemu_last_error.
  * Call serially on the same handle as run_frame/load_state. */
 size_t ravenemu_read_achievement_memory(const ravenemu_bridge* handle,
                                            uint32_t address, uint8_t* output,
                                            size_t capacity);
 
 /* Caller owns buffers. Check size, allocate and then copy.
- * Save states can change size between frames and between core versions. */
+ * Save states can change size between frames and between core versions:
+ * ravenemu_save_state writes the state ravenemu_state_size measured, as long
+ * as no call that may change the machine (run_frame, set_button, reset,
+ * load, load_state...) comes in between. After such a call, ask
+ * ravenemu_state_size again: the state may now be shorter, and the bytes
+ * past its end in the caller's buffer are not part of it. */
 size_t ravenemu_state_size(ravenemu_bridge* handle);
 int ravenemu_save_state(ravenemu_bridge* handle, uint8_t* output, size_t capacity);
 int ravenemu_load_state(ravenemu_bridge* handle,
@@ -233,7 +240,10 @@ typedef void (*ravenemu_remote_send)(void* user, const uint8_t* message, size_t 
 ravenemu_remote_link* ravenemu_remote_link_create(ravenemu_bridge* handle, int player,
                                                   ravenemu_remote_send send, void* user);
 /* Unplugs and frees the cable: the handle plays alone again. Not while the
- * handle runs a frame: unplug first, a waiting handle then returns at once. */
+ * handle runs a frame: unplug first, a waiting handle then returns at once.
+ * Nor while another thread is inside ravenemu_remote_link_receive or
+ * ravenemu_remote_link_set_connected for this cable: the host stops those
+ * calls (its network thread) before destroying it. */
 void ravenemu_remote_link_destroy(ravenemu_remote_link* link);
 /* A message from the other device. Returns 0 when it is malformed: it is
  * then ignored. Also 0 when the other device sends more than this console

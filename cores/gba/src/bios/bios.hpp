@@ -384,10 +384,11 @@ private:
             const auto cosine = std::cos(angle);
             const auto sine = std::sin(angle);
             bus_.write16(destination, static_cast<int>(cosine * scale_x));
+            // r3 vient du jeu : ses multiples sont calculés modulo 2^32.
             bus_.write16(add32(destination, stride), static_cast<int>(-sine * scale_x));
-            bus_.write16(add32(destination, stride * 2), static_cast<int>(sine * scale_y));
-            bus_.write16(add32(destination, stride * 3), static_cast<int>(cosine * scale_y));
-            destination = add32(destination, stride * 4);
+            bus_.write16(add32(destination, i32(u32(stride) * 2U)), static_cast<int>(sine * scale_y));
+            bus_.write16(add32(destination, i32(u32(stride) * 3U)), static_cast<int>(cosine * scale_y));
+            destination = add32(destination, i32(u32(stride) * 4U));
         }
     }
 

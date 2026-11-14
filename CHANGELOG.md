@@ -2,6 +2,22 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## Non publié
+
+Corrections issues d'une relecture du Game Boy, du GBA, de Libretro et de l'API C. Aucune ne change ce qu'un jeu voit : images, son et format des états restent les mêmes. Elles ferment des écritures hors limites ou des débordements que seuls un état modifié, une ROM hostile ou un partenaire réseau anormal pouvaient atteindre.
+
+### Corrigé
+
+- **Game Boy, état modifié.** Un état gardant le PPU en mode 3 au bout de la ligne (`transfer_x` à 160) était accepté ; le pixel suivant s'écrivait hors de la ligne, et hors de l'image à la ligne 143. Le mode 3 passe en H-Blank dès son 160e pixel : un tel état est désormais refusé.
+- **GBA, Huffman sans fin (SWI 0x13).** Un arbre en chaîne lu dans une ROM lente pouvait compter plus de deux milliards de cycles dans un seul appel : débordement du compteur d'attente du bus, plusieurs secondes de blocage et un état pris ensuite impossible à recharger. L'appel s'arrête désormais à 2^27 cycles (huit secondes de console), signalé aux diagnostics et sans rien écrire ; aucun jeu n'en approche.
+- **GBA, ObjAffineSet (SWI 0x0F).** Les multiples de l'écart r3 étaient calculés en entier signé : débordement pour un écart de 2^30 ou plus. Ils le sont désormais modulo 2^32, comme les adresses.
+- **GBA, câble distant.** La durée d'un transfert reçue du partenaire n'était pas bornée : une valeur hors de toute durée réelle débordait au départ du transfert et rendait l'état pris en attendant impossible à recharger. Elle est bornée comme dans un état.
+- **GBA, état DMA.** Un état donnant à une phase de DMA jusqu'à 2^31 cycles figeait le CPU deux minutes ; une phase dure au plus un accès (36 cycles), et l'état est refusé au-delà de 64.
+- **GBA, ROM refusée.** Le nouveau jeu n'est installé qu'une fois entier, empreinte comprise : un refus laisse l'ancien en place.
+- **Libretro.** `retro_serialize` ne peut plus sortir du tampon si un joueur du câble link dépasse la marge de l'état (soustraction non signée). `retro_unserialize` et `retro_set_environment` ne laissent plus passer une erreur d'allocation par l'ABI C. Un redémarrage interrompu (`retro_reset`) est écrit au journal.
+- **API C.** Un `ravenemu_load` refusé laisse la partie en cours accessible, batterie non sauvegardée comprise, au lieu de la rendre injoignable. L'en-tête précise la limite de 0x58000 octets de `ravenemu_read_achievement_memory`, le moment où prendre `ravenemu_state_size` avant `ravenemu_save_state`, et l'arrêt des appels réseau avant `ravenemu_remote_link_destroy`.
+- Nouveaux tests : état PPU au bout de la ligne, Huffman sans fin, ObjAffineSet avec un écart de 2^30 et 2^31, durée distante hors bornes, phase DMA de 2^31 cycles, et états Libretro abîmés (tronqués, mauvais en-tête, longueur au-delà de la fin, tampon trop petit) refusés sans toucher au jeu en cours. Chaque test des cœurs échoue sans son correctif (ObjAffineSet sous UBSan) ; les états Libretro abîmés étaient déjà refusés, ce test le garde.
+
 ## 0.15.3 - 2026-11-07
 
 Cette version supprime les parasites du son des jeux Game Boy Color. L'API, Libretro, le Game Boy, le GBA et le format des états ne changent pas.

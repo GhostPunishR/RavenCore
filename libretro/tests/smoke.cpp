@@ -414,6 +414,29 @@ int main() {
         std::cerr << "State round-trip failed\n";
         return 1;
     }
+    // Damaged states are refused, and the game keeps its own: a truncated
+    // one, a wrong header, a length past the end, a buffer too small.
+    {
+        std::vector<std::uint8_t> before(state_size), after(state_size);
+        if (!retro_serialize(before.data(), before.size())) return 1;
+        const std::size_t length = state[4] | state[5] << 8 | state[6] << 16 | static_cast<std::size_t>(state[7]) << 24;
+        if (length < 16 || 8 + length > state.size()) return 1;
+        auto bad_header = state;
+        bad_header[0] = 'X';
+        auto past_end = state;
+        past_end[4] = past_end[5] = past_end[6] = past_end[7] = 0xff;
+        const bool refused = !retro_unserialize(state.data(), 3) &&
+                             !retro_unserialize(state.data(), 7) &&
+                             !retro_unserialize(state.data(), 8 + length - 1) &&
+                             !retro_unserialize(bad_header.data(), bad_header.size()) &&
+                             !retro_unserialize(past_end.data(), past_end.size()) &&
+                             !retro_unserialize(nullptr, state.size()) &&
+                             !retro_serialize(after.data(), after.size() - 1);
+        if (!refused || !retro_serialize(after.data(), after.size()) || after != before) {
+            std::cerr << "Damaged state accepted, or the running game changed\n";
+            return 1;
+        }
+    }
     retro_reset();
     retro_unload_game();
     if (retro_serialize_size() != 0) {

@@ -862,7 +862,13 @@ void retro_set_environment(retro_environment_t callback) {
     retro_log_callback logging{};
     log_cb = env_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging) ? logging.log : nullptr;
     env_cb(RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS, &achievements);
-    declare_options();
+    // Never let an allocation failure cross the C ABI.
+    try {
+        declare_options();
+    } catch (...) {
+        // Out of memory: log without allocating.
+        if (log_cb) log_cb(RETRO_LOG_ERROR, "[%s] options non déclarées\n", name);
+    }
     // Two games joined by a link cable, offered by RetroArch's Load Content
     // menu once the core is loaded.
     static const std::array<retro_subsystem_memory_info, 2> saves{{{"srm", link_save_ram}, {"srm", link_save_ram + 1}}};
@@ -1010,7 +1016,10 @@ void retro_reset(void) {
         update_save_ram();
         update_rumble();
         refresh_achievement_memory(true);
-    } catch (const std::exception&) {}
+    } catch (const std::exception& error) {
+        // In link mode, the consoles may now be out of step: say why.
+        log_line(RETRO_LOG_ERROR, std::string("redémarrage interrompu : ") + error.what());
+    }
 }
 void retro_run(void) {
     if (!core) return;
@@ -1057,7 +1066,8 @@ bool retro_serialize(void* data, std::size_t size) {
         std::size_t offset = 4;
         for (auto& player : players) {
             const auto state = player.core->save_state();
-            if (state.size() > state_capacity - offset - 4 ||
+            // offset <= state_capacity : the subtraction cannot wrap.
+            if (state.size() + 4 > state_capacity - offset ||
                 state.size() > std::numeric_limits<std::uint32_t>::max()) return false;
             const auto length = static_cast<std::uint32_t>(state.size());
             for (unsigned i = 0; i < 4; ++i)
@@ -1073,17 +1083,17 @@ bool retro_unserialize(const void* data, std::size_t size) {
     const auto* bytes = static_cast<const std::uint8_t*>(data);
     const auto count = static_cast<std::uint8_t>('0' + players.size());
     if (bytes[0] != 'R' || bytes[1] != 'V' || bytes[2] != 'L' || bytes[3] != count) return false;
-    std::vector<std::span<const std::uint8_t>> states;
-    for (std::size_t offset = 4; states.size() < players.size();) {
-        if (size - offset < 4) return false;
-        std::uint32_t length = 0;
-        for (unsigned i = 0; i < 4; ++i)
-            length |= static_cast<std::uint32_t>(bytes[offset + i]) << (8U * i);
-        if (length > size - offset - 4) return false;
-        states.emplace_back(bytes + offset + 4, length);
-        offset += 4 + length;
-    }
     try {
+        std::vector<std::span<const std::uint8_t>> states;
+        for (std::size_t offset = 4; states.size() < players.size();) {
+            if (size - offset < 4) return false;
+            std::uint32_t length = 0;
+            for (unsigned i = 0; i < 4; ++i)
+                length |= static_cast<std::uint32_t>(bytes[offset + i]) << (8U * i);
+            if (length > size - offset - 4) return false;
+            states.emplace_back(bytes + offset + 4, length);
+            offset += 4 + length;
+        }
         import_save_ram_once();
         // Each console replaces its machine only once its state is read
         // whole; if player 2 refuses its state, player 1 goes back to its own.

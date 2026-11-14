@@ -89,6 +89,9 @@ void Serial::join(std::int64_t start_in, int duration, std::uint32_t id) {
     }
     join_id_ = id;
     next_received_.reset();
+    // La durée vient du partenaire (câble distant) : bornée comme dans un
+    // état, pour que join_now ne déborde pas et que l'état reste chargeable.
+    duration = std::clamp(duration, 1, longest_transfer);
     if (start_in > 0) {
         join_in_ = static_cast<int>(std::min<std::int64_t>(start_in, longest_transfer));
         join_duration_ = duration;
