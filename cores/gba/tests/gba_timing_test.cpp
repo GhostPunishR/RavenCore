@@ -99,6 +99,12 @@ void dma_effects_follow_elapsed_cycles() {
 
     machine.run_frame(1); // lecture du second mot, sans écriture
     const auto dma_state = machine.dma.export_state();
+    // Une phase dure au plus un accès (36 cycles) : un état modifié ne fige
+    // pas le CPU deux minutes derrière un DMA.
+    auto stuck = dma_state;
+    stuck[13] = 0x7fff'ffff;
+    expect_failure<ravenemu::SaveStateError>([&] { machine.dma.import_state(stuck); },
+                                             "phase DMA de 2^31 cycles acceptée");
     machine.bus.write32(ravenemu::gba::i32(source + 4U), 0);
     machine.dma.import_state(dma_state);
     check(machine.bus.read32(ravenemu::gba::i32(destination + 4U)) == 0,
@@ -409,6 +415,28 @@ void io_registers_are_not_mirrored() {
     check(static_cast<std::uint32_t>(bus.read32(i32(0x04000800U))) == 0x0d000020U &&
               static_cast<std::uint32_t>(bus.read32(i32(0x04020800U))) == 0x0d000020U,
           "registre de contrôle mémoire 0x04000800 mal lu");
+}
+
+// La durée d'un transfert vient du partenaire distant : hors de toute durée
+// réelle, elle reste bornée (pas de débordement au départ), et l'état pris
+// en attendant le départ se recharge.
+void remote_transfer_duration_is_bounded() {
+    using ravenemu::gba::i32;
+    std::vector<std::uint8_t> rom(0x2000);
+    rom[0xb2] = 0x96;
+    for (unsigned byte = 0; byte < 4; ++byte) rom[byte] = static_cast<std::uint8_t>(0xeafffffeU >> (8U * byte));  // b .
+    const auto image = std::make_shared<const std::vector<std::uint8_t>>(rom);
+    ravenemu::gba::Machine child(image, ravenemu::GbaSaveType::none, false, [] { return std::int64_t{0}; });
+    child.bus.write16(i32(0x04000134U), 0);       // RCNT
+    child.bus.write16(i32(0x04000128U), 0x2003);  // multijoueur, 115200 bauds
+    for (const auto duration : {static_cast<int>(0x8000'0000U), 0x7fff'ffff, 0}) {
+        child.serial.join(100, duration, 7);
+        const auto saved = child.serial.export_link_state();
+        child.serial.import_link_state(saved);
+        child.run_for(200'000);
+        check(child.serial.export_remaining() == ravenemu::gba::Serial::idle,
+              "câble distant : transfert de durée hors bornes non terminé");
+    }
 }
 
 // Un état restauré au milieu d'un transfert que le câble a déjà terminé se
@@ -812,6 +840,7 @@ int main() {
     timer_counts_two_cycles_after_enable();
     io_registers_are_not_mirrored();
     restored_transfer_stays_out_of_the_next_one();
+    remote_transfer_duration_is_bounded();
     frame_overshoot_does_not_accumulate();
     long_dma_stops_at_frame_boundary();
     dma_effects_follow_elapsed_cycles();

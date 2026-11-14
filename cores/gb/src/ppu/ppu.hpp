@@ -583,7 +583,10 @@ private:
              (hardware_mode_ != gb::HardwareMode::dmg || lcd_startup_lines_remaining_ == 0 ||
               reported_mode_ == reported_mode_target_)) ||
             (ly_ >= height && mode_ != mode_vblank) ||
-            (ly_ < height && mode_ == mode_vblank)) {
+            (ly_ < height && mode_ == mode_vblank) ||
+            // Le mode 3 passe en H-Blank dès son 160e pixel : un état qui
+            // le garderait au bout de la ligne écrirait hors de l'image.
+            (mode_ == mode_transfer && transfer_x_ >= width)) {
             throw SaveStateError("État instantané incohérent (phase PPU)");
         }
         if (!lcd_enabled() &&

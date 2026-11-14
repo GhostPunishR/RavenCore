@@ -18,6 +18,11 @@ namespace ravenemu::gba {
  */
 class BiosDecompression {
 public:
+    // Un arbre Huffman en chaîne coûte jusqu'à 255 nœuds par symbole : sur
+    // 1 Mio lu dans la ROM la plus lente, plus de deux milliards de cycles,
+    // soit le compteur d'attente du bus (int) dépassé et une minute et demie
+    // de console. Aucun jeu n'approche ce plafond de huit secondes.
+    static constexpr int max_huffman_cycles = 1 << 27;
     explicit BiosDecompression(Bus& bus) : bus_(bus) {}
 
     void lz77(std::int32_t source, std::int32_t destination, bool vram) {
@@ -94,9 +99,14 @@ public:
         std::uint32_t word{};
         int bits{};
         std::int64_t budget = static_cast<std::int64_t>(size) * 8 * 32 + 64;
+        const auto started = bus_.wait_cycles;
         while (written < size) {
             if (--budget <= 0) {
                 decompression_error("flux Huffman GBA sans fin");
+                return;
+            }
+            if (bus_.wait_cycles - started > max_huffman_cycles) {
+                decompression_error("flux Huffman GBA trop long");
                 return;
             }
             if (bits == 0) {

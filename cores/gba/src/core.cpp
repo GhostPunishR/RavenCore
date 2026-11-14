@@ -27,9 +27,11 @@ public:
         const auto traits = RomTraits::detect(rom);
         auto replacement = new_machine(image, traits, bios_);
         if (!battery.empty()) replacement->cartridge.import_battery(battery);
+        // Nothing changes until the new game is whole: a refusal keeps the old one.
+        auto hash = detail::sha256(rom);
         loaded_rom_ = std::move(image);
         rom_traits_ = traits;
-        rom_hash_ = detail::sha256(rom);
+        rom_hash_ = std::move(hash);
         install(std::move(replacement));
     }
     void reset() override {

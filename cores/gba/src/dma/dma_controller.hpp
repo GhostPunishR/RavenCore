@@ -106,7 +106,7 @@ public:
         const auto active_channel_valid = active_channel >= 0 && active_channel <= 3;
         const auto invalid_active = active_channel_valid &&
             (phase < phase_startup || phase > phase_write || values[10] <= 0 ||
-             values[10] > 0x10000 || values[13] <= 0 ||
+             values[10] > 0x10000 || values[13] <= 0 || values[13] > max_phase_cycles ||
              (values[11] & 0x8000) == 0 || (sound_fifo(active_channel, values[11]) != (values[16] != 0)) ||
              (pending_requests & (1 << active_channel)) != 0);
         if (active_channel < -1 || active_channel > 3 || pending_requests < 0 ||
@@ -136,6 +136,7 @@ public:
                 values[static_cast<std::size_t>(offset + 1)] <= 0 ||
                 values[static_cast<std::size_t>(offset + 1)] > 0x10000 ||
                 values[static_cast<std::size_t>(offset + 4)] <= 0 ||
+                values[static_cast<std::size_t>(offset + 4)] > max_phase_cycles ||
                 (control & 0x8000) == 0 || sequential < 0 || sequential > 1 || fifo < 0 || fifo > 1 ||
                 (sound_fifo(channel, control) != (fifo != 0)) ||
                 (pending_requests & (1 << channel)) != 0) {
@@ -248,6 +249,10 @@ private:
         const auto value = raw & mask;
         return value == 0 ? mask + 1 : value;
     }
+
+    // Une phase dure au plus un accès : 32 bits dans la SRAM 8 bits aux
+    // attentes maximales, 1 + 8 + 3 × (8 + 1) = 36 cycles.
+    static constexpr int max_phase_cycles = 64;
 
     int access_cycles(std::int32_t address, int size, bool sequential) const noexcept {
         return 1 + bus_.timing.wait_states(address, size, sequential);

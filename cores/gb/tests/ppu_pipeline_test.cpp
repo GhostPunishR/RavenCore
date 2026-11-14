@@ -1044,6 +1044,33 @@ void ppu_timing_state_validation_test() {
         "retard de publication PPU invalide accepté au lieu d'être refusé");
 }
 
+// Le mode 3 passe en H-Blank dès son 160e pixel : un état modifié qui le
+// garderait au bout de la ligne écrirait au-delà de la ligne et de l'image.
+void transfer_at_the_line_end_is_rejected() {
+    InterruptController interrupts;
+    Ppu source(interrupts, gb::HardwareMode::cgb_native);
+    source.write_lcdc(0x11);
+    source.write_lcdc(0x93);  // sans fenêtre : aucun glitch WX armé
+    source.tick(111);
+    check(source.mode() == Ppu::mode_transfer, "PPU hors du mode 3");
+    const auto load = [](const std::vector<std::uint8_t>& bytes) {
+        InterruptController restored_interrupts;
+        Ppu restored(restored_interrupts, gb::HardwareMode::cgb_native);
+        detail::BinaryReader reader(bytes);
+        restored.load(reader);
+    };
+    auto state = snapshot(source);
+    load(state);
+    constexpr std::size_t transfer_x_offset = 4 + 29 * 4;
+    check(state.size() > transfer_x_offset + 3, "état PPU trop court pour la position du mode 3");
+    // Entier 32 bits gros-boutiste : 160.
+    state[transfer_x_offset] = 0;
+    state[transfer_x_offset + 1] = 0;
+    state[transfer_x_offset + 2] = 0;
+    state[transfer_x_offset + 3] = 160;
+    expect_failure<SaveStateError>([&] { load(state); }, "mode 3 au bout de la ligne accepté");
+}
+
 void corrupt_background_fifo_is_rejected() {
     constexpr std::size_t fifo_offset = 4 + 72 * 4; // PPU layout 72.
     for (auto mode : {gb::HardwareMode::dmg, gb::HardwareMode::cgb_native}) {
@@ -1431,6 +1458,7 @@ int main() {
     mid_object_fifo_save_state_test();
     object_fifo_state_validation_test();
     ppu_timing_state_validation_test();
+    transfer_at_the_line_end_is_rejected();
     retained_sprite_state_validation_test();
     register_state_validation_test();
     frame_encoding_save_state_test();

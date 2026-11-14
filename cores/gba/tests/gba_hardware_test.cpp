@@ -299,6 +299,65 @@ void bios_decompression() {
     check(u32(bus.read32(i32(0x0201'0000U))) == 0x0000'3204U, "BitUnPack");
 }
 
+// Un arbre Huffman en chaîne : 255 nœuds par symbole, 1 Mio à produire, le
+// tout lu dans la ROM la plus lente (WS0 à 8 attentes). La console y
+// passerait une minute et demie et le compteur d'attente du bus (int)
+// déborderait : le BIOS s'arrête au plafond, sans rien écrire.
+void endless_huffman_stops_at_its_cycle_cap() {
+    std::vector<std::uint8_t> rom(0x1000);
+    rom[0] = 0xfe; rom[1] = 0xff; rom[2] = 0xff; rom[3] = 0xea;
+    rom[0xb2] = 0x96;
+    constexpr std::size_t stream = 0x400, tree = stream + 4;
+    rom[stream] = 0x28;      // Huffman, symboles de 8 bits
+    rom[stream + 3] = 0x10;  // 0x100000 octets
+    rom[tree] = 0xff;        // arbre de 512 octets
+    // Chaque nœud mène à la paire suivante ; les deux derniers ont deux feuilles.
+    rom[tree + 508] = 0xc0;
+    rom[tree + 509] = 0xc0;
+    Machine machine(std::make_shared<const std::vector<std::uint8_t>>(std::move(rom)), std::nullopt, std::nullopt,
+                    [] { return std::int64_t{0}; });
+    machine.bus.write16(i32(0x0400'0204U), 0x000c);  // WAITCNT : WS0 premier accès à 8 attentes
+    auto& registers = machine.cpu.state.regs;
+    registers[0] = i32(0x0800'0000U + stream);
+    registers[1] = i32(0x0200'0000U);
+    machine.bus.write32(i32(0x0200'0000U), 0x1234'5678);
+    machine.bus.diagnostics.drain();
+    const auto before = machine.bus.wait_cycles;
+    machine.bios.handle_swi(0x13);
+    const auto spent = static_cast<std::int64_t>(machine.bus.wait_cycles) - before;
+    check(spent > BiosDecompression::max_huffman_cycles &&
+              spent < BiosDecompression::max_huffman_cycles + 1000,
+          "Huffman sans fin : temps du BIOS non borné");
+    const auto messages = machine.bus.diagnostics.drain();
+    check(machine.bus.diagnostics.count(DiagnosticEvent::decompression_error) > 0 && !messages.empty(),
+          "Huffman sans fin : arrêt non signalé");
+    check(u32(machine.bus.read32(i32(0x0200'0000U))) == 0x1234'5678U, "Huffman interrompu : sortie écrite");
+}
+
+// ObjAffineSet : r3, l'écart entre deux valeurs, vient du jeu. Ses multiples
+// sont calculés modulo 2^32, sans débordement signé.
+void obj_affine_set_takes_any_stride() {
+    Fixture fixture;
+    auto& bus = fixture.bus();
+    const auto source = i32(0x0200'0000U);
+    bus.write16(source, 0x0100);           // échelle X 1.0
+    bus.write16(add32(source, 2), 0x0100); // échelle Y 1.0
+    bus.write16(add32(source, 4), 0);      // angle 0
+    auto& registers = fixture.machine().cpu.state.regs;
+    registers[0] = source;
+    registers[1] = i32(0x0300'0000U);
+    registers[2] = 1;
+    registers[3] = 0x4000'0000;  // 2 × r3 et 4 × r3 sortent d'un int
+    fixture.machine().bios.handle_swi(0x0f);
+    check(bus.read16(i32(0x0300'0000U)) == 0x0100, "ObjAffineSet : PA");
+    registers[0] = source;
+    registers[1] = i32(0x0300'0100U);
+    bus.write16(i32(0x0300'0100U), 0x7777);
+    registers[3] = i32(0x8000'0000U);  // 2 × r3 = 2^32 : PC (0 pour un angle nul) tombe sur PA
+    fixture.machine().bios.handle_swi(0x0f);
+    check(bus.read16(i32(0x0300'0100U)) == 0, "ObjAffineSet : écart négatif extrême mal calculé modulo 2^32");
+}
+
 // Un DMA ne redémarre que quand le bit 15 de son contrôle passe de 0 à 1.
 // GTA Advance arrête son DMA de son en réécrivant 0xB600 en 0x8400 (bit 15
 // gardé, déclenchement immédiat), puis efface le bit 15 : si la réécriture
@@ -713,6 +772,8 @@ int main() {
     io_registers_read_back_console_values();
     serial_registers_read_by_mode();
     bios_decompression();
+    endless_huffman_stops_at_its_cycle_cap();
+    obj_affine_set_takes_any_stride();
     dma3_video_capture();
     rewriting_an_enabled_dma_keeps_it_stopped();
     object_rendering_budget();

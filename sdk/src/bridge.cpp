@@ -158,7 +158,9 @@ int ravenemu_load(ravenemu_bridge* handle, const uint8_t* rom, size_t rom_size,
         if (!handle || !handle->core) throw std::invalid_argument("Null handle");
         if (!rom || !rom_size || (battery_size && !battery))
             throw std::invalid_argument("Invalid ROM or battery data");
-        handle->loaded = false;
+        // A refused ROM leaves the running game in place (load_rom replaces
+        // the machine only once the new one is whole): it stays reachable,
+        // its unsaved battery included.
         handle->core->load_rom({rom, rom_size}, {battery, battery_size});
         handle->loaded = true;
     });

@@ -244,6 +244,11 @@ static_assert(rotation_from_gyroscope(-full_rotation) == 32767 && rotation_from_
 void log_line(retro_log_level level, const std::string& text) {
     if (log_cb) log_cb(level, "[%s] %s\n", name, text.c_str());
 }
+// For exception handlers at the C ABI: allocates nothing, so an exhausted
+// memory cannot throw again on the way out.
+void log_failure(retro_log_level level, const char* what, const char* why) noexcept {
+    if (log_cb) log_cb(level, "[%s] %s : %s\n", name, what, why);
+}
 // A message on screen, for a few seconds.
 void show_message(const std::string& text) {
     if (!env_cb) return;
@@ -862,7 +867,12 @@ void retro_set_environment(retro_environment_t callback) {
     retro_log_callback logging{};
     log_cb = env_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging) ? logging.log : nullptr;
     env_cb(RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS, &achievements);
-    declare_options();
+    // Never let an allocation failure cross the C ABI.
+    try {
+        declare_options();
+    } catch (const std::exception& error) {
+        log_failure(RETRO_LOG_ERROR, "options non déclarées", error.what());
+    }
     // Two games joined by a link cable, offered by RetroArch's Load Content
     // menu once the core is loaded.
     static const std::array<retro_subsystem_memory_info, 2> saves{{{"srm", link_save_ram}, {"srm", link_save_ram + 1}}};
@@ -973,9 +983,13 @@ bool load_players(std::span<const retro_game_info> games) {
         return true;
     } catch (const std::exception& error) {
         clear_game();
-        report_load_failure(games.size() > 1 && index < games.size()
-                                ? "joueur " + std::to_string(index + 1) + " : " + error.what()
-                                : std::string(error.what()));
+        try {
+            report_load_failure(games.size() > 1 && index < games.size()
+                                    ? "joueur " + std::to_string(index + 1) + " : " + error.what()
+                                    : std::string(error.what()));
+        } catch (const std::exception&) {
+            log_failure(RETRO_LOG_ERROR, "jeu refusé", error.what());
+        }
         return false;
     }
 }
@@ -1010,7 +1024,10 @@ void retro_reset(void) {
         update_save_ram();
         update_rumble();
         refresh_achievement_memory(true);
-    } catch (const std::exception&) {}
+    } catch (const std::exception& error) {
+        // In link mode, the consoles may now be out of step: say why.
+        log_failure(RETRO_LOG_ERROR, "redémarrage interrompu", error.what());
+    }
 }
 void retro_run(void) {
     if (!core) return;
@@ -1040,7 +1057,7 @@ void retro_run(void) {
         refresh_audio((av & RETRO_AV_ENABLE_AUDIO) != 0);
     } catch (const std::exception& error) {
         // Never propagate an exception through Libretro's C ABI; say it once per game.
-        if (!run_error_logged) log_line(RETRO_LOG_ERROR, std::string("image interrompue : ") + error.what());
+        if (!run_error_logged) log_failure(RETRO_LOG_ERROR, "image interrompue", error.what());
         run_error_logged = true;
     }
 }
@@ -1057,7 +1074,8 @@ bool retro_serialize(void* data, std::size_t size) {
         std::size_t offset = 4;
         for (auto& player : players) {
             const auto state = player.core->save_state();
-            if (state.size() > state_capacity - offset - 4 ||
+            // offset <= state_capacity : the subtraction cannot wrap.
+            if (state.size() + 4 > state_capacity - offset ||
                 state.size() > std::numeric_limits<std::uint32_t>::max()) return false;
             const auto length = static_cast<std::uint32_t>(state.size());
             for (unsigned i = 0; i < 4; ++i)
@@ -1073,17 +1091,17 @@ bool retro_unserialize(const void* data, std::size_t size) {
     const auto* bytes = static_cast<const std::uint8_t*>(data);
     const auto count = static_cast<std::uint8_t>('0' + players.size());
     if (bytes[0] != 'R' || bytes[1] != 'V' || bytes[2] != 'L' || bytes[3] != count) return false;
-    std::vector<std::span<const std::uint8_t>> states;
-    for (std::size_t offset = 4; states.size() < players.size();) {
-        if (size - offset < 4) return false;
-        std::uint32_t length = 0;
-        for (unsigned i = 0; i < 4; ++i)
-            length |= static_cast<std::uint32_t>(bytes[offset + i]) << (8U * i);
-        if (length > size - offset - 4) return false;
-        states.emplace_back(bytes + offset + 4, length);
-        offset += 4 + length;
-    }
     try {
+        std::vector<std::span<const std::uint8_t>> states;
+        for (std::size_t offset = 4; states.size() < players.size();) {
+            if (size - offset < 4) return false;
+            std::uint32_t length = 0;
+            for (unsigned i = 0; i < 4; ++i)
+                length |= static_cast<std::uint32_t>(bytes[offset + i]) << (8U * i);
+            if (length > size - offset - 4) return false;
+            states.emplace_back(bytes + offset + 4, length);
+            offset += 4 + length;
+        }
         import_save_ram_once();
         // Each console replaces its machine only once its state is read
         // whole; if player 2 refuses its state, player 1 goes back to its own.
@@ -1102,7 +1120,7 @@ bool retro_unserialize(const void* data, std::size_t size) {
         refresh_achievement_memory(true);
         return true;
     } catch (const std::exception& error) {
-        log_line(RETRO_LOG_WARN, std::string("état refusé : ") + error.what());
+        log_failure(RETRO_LOG_WARN, "état refusé", error.what());
         return false;
     }
 }
@@ -1137,7 +1155,7 @@ void retro_cheat_set(unsigned index, bool enabled, const char* code) {
         }
         apply_cheats();
     } catch (const std::exception& error) {
-        log_line(RETRO_LOG_ERROR, std::string("codes de triche non appliqués : ") + error.what());
+        log_failure(RETRO_LOG_ERROR, "codes de triche non appliqués", error.what());
     }
 }
 unsigned retro_get_region(void) { return RETRO_REGION_NTSC; }
