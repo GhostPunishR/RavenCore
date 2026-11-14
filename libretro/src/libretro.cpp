@@ -244,6 +244,11 @@ static_assert(rotation_from_gyroscope(-full_rotation) == 32767 && rotation_from_
 void log_line(retro_log_level level, const std::string& text) {
     if (log_cb) log_cb(level, "[%s] %s\n", name, text.c_str());
 }
+// For exception handlers at the C ABI: allocates nothing, so an exhausted
+// memory cannot throw again on the way out.
+void log_failure(retro_log_level level, const char* what, const char* why) noexcept {
+    if (log_cb) log_cb(level, "[%s] %s : %s\n", name, what, why);
+}
 // A message on screen, for a few seconds.
 void show_message(const std::string& text) {
     if (!env_cb) return;
@@ -865,9 +870,8 @@ void retro_set_environment(retro_environment_t callback) {
     // Never let an allocation failure cross the C ABI.
     try {
         declare_options();
-    } catch (...) {
-        // Out of memory: log without allocating.
-        if (log_cb) log_cb(RETRO_LOG_ERROR, "[%s] options non déclarées\n", name);
+    } catch (const std::exception& error) {
+        log_failure(RETRO_LOG_ERROR, "options non déclarées", error.what());
     }
     // Two games joined by a link cable, offered by RetroArch's Load Content
     // menu once the core is loaded.
@@ -979,9 +983,13 @@ bool load_players(std::span<const retro_game_info> games) {
         return true;
     } catch (const std::exception& error) {
         clear_game();
-        report_load_failure(games.size() > 1 && index < games.size()
-                                ? "joueur " + std::to_string(index + 1) + " : " + error.what()
-                                : std::string(error.what()));
+        try {
+            report_load_failure(games.size() > 1 && index < games.size()
+                                    ? "joueur " + std::to_string(index + 1) + " : " + error.what()
+                                    : std::string(error.what()));
+        } catch (const std::exception&) {
+            log_failure(RETRO_LOG_ERROR, "jeu refusé", error.what());
+        }
         return false;
     }
 }
@@ -1018,7 +1026,7 @@ void retro_reset(void) {
         refresh_achievement_memory(true);
     } catch (const std::exception& error) {
         // In link mode, the consoles may now be out of step: say why.
-        log_line(RETRO_LOG_ERROR, std::string("redémarrage interrompu : ") + error.what());
+        log_failure(RETRO_LOG_ERROR, "redémarrage interrompu", error.what());
     }
 }
 void retro_run(void) {
@@ -1049,7 +1057,7 @@ void retro_run(void) {
         refresh_audio((av & RETRO_AV_ENABLE_AUDIO) != 0);
     } catch (const std::exception& error) {
         // Never propagate an exception through Libretro's C ABI; say it once per game.
-        if (!run_error_logged) log_line(RETRO_LOG_ERROR, std::string("image interrompue : ") + error.what());
+        if (!run_error_logged) log_failure(RETRO_LOG_ERROR, "image interrompue", error.what());
         run_error_logged = true;
     }
 }
@@ -1112,7 +1120,7 @@ bool retro_unserialize(const void* data, std::size_t size) {
         refresh_achievement_memory(true);
         return true;
     } catch (const std::exception& error) {
-        log_line(RETRO_LOG_WARN, std::string("état refusé : ") + error.what());
+        log_failure(RETRO_LOG_WARN, "état refusé", error.what());
         return false;
     }
 }
@@ -1147,7 +1155,7 @@ void retro_cheat_set(unsigned index, bool enabled, const char* code) {
         }
         apply_cheats();
     } catch (const std::exception& error) {
-        log_line(RETRO_LOG_ERROR, std::string("codes de triche non appliqués : ") + error.what());
+        log_failure(RETRO_LOG_ERROR, "codes de triche non appliqués", error.what());
     }
 }
 unsigned retro_get_region(void) { return RETRO_REGION_NTSC; }
