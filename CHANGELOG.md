@@ -2,9 +2,9 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
-## Non publié
+## 0.15.4 - 2026-11-14
 
-Corrections issues d'une relecture du Game Boy, du GBA, de Libretro et de l'API C. Aucune ne change ce qu'un jeu voit : images, son et format des états restent les mêmes. Elles ferment des écritures hors limites ou des débordements que seuls un état modifié, une ROM hostile ou un partenaire réseau anormal pouvaient atteindre.
+Cette version apporte des corrections issues d'une relecture du Game Boy, du GBA, de Libretro et de l'API C. Aucune ne change ce qu'un jeu voit : images, son et format des états restent les mêmes. L'API C ne change pas, seul son en-tête est précisé. Elles ferment des écritures hors limites ou des débordements que seuls un état modifié, une ROM hostile ou un partenaire réseau anormal pouvaient atteindre.
 
 ### Corrigé
 
