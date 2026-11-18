@@ -22,9 +22,11 @@ case "$platform" in
         done ;;
     *) echo "Unknown platform: $platform" >&2; exit 1 ;;
 esac
+# RavenGB (Game Boy and Game Boy Color) and RavenGBA, each with its information file.
 count=$(find "$stage/cores" -type f | wc -l)
-if [ "$count" -ne 3 ]; then
-    echo "Expected 3 cores for $platform, found $count" >&2; exit 1
+infos=$(find "$stage/info" -type f | wc -l)
+if [ "$count" -ne 2 ] || [ "$infos" -ne 2 ]; then
+    echo "Expected 2 cores and 2 information files for $platform, found $count and $infos" >&2; exit 1
 fi
 case "$platform" in
     linux-*) tar -C "$stage" -czf "$name.tar.gz" cores info ;;
