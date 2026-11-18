@@ -9,7 +9,7 @@
 #include "input/joypad.hpp"
 #include "speed/speed_controller.hpp"
 #include "boot/boot_rom.hpp"
-#include <ravenemu/gbc/infrared_port.hpp>
+#include "infrared/infrared_port.hpp"
 #include <ravenemu/gb/hardware_mode.hpp>
 
 #include <optional>

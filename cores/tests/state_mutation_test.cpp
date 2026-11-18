@@ -3,7 +3,6 @@
 
 #include <ravenemu/core.hpp>
 #include <ravenemu/gb/core.hpp>
-#include <ravenemu/gbc/core.hpp>
 
 #include <algorithm>
 #include <array>
@@ -103,7 +102,7 @@ int main() {
         rom[0x143] = 0x80; // CGB
         rom[0x147] = 0x10; // MBC3 + RTC + RAM + batterie
         rom[0x149] = 0x03;
-        auto core = ravenemu::gbc::make_core();
+        auto core = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::cgb);
         core->set_clock_epoch(1'700'000'000);
         core->load_rom(rom, {});
         exercise("GBC MBC3", *core);

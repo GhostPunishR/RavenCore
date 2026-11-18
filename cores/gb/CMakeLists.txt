@@ -3,18 +3,11 @@ target_include_directories(gb_raven_core
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     PRIVATE src
 )
-# `gbc_hardware` est déclarée par `cores/gbc` et porte les composants CGB déjà
-# extraits (KEY1, port infrarouge). Seuls les en-têtes privés de `src/` les
-# incluent : l'API publique du cœur GB n'en expose aucun, d'où PRIVATE.
-#
-# Passer par la cible plutôt que par `../gbc/include` n'est pas cosmétique :
-# un chemin d'inclusion brut ne transporte ni les objets ni les dépendances
-# transitives, et l'extraction restait donc condamnée aux composants
-# header-only.
-target_link_libraries(gb_raven_core
-    PUBLIC ravenemu_common
-    PRIVATE gbc_hardware
-)
+# Un seul moteur pour la Game Boy et la Game Boy Color : le mode matériel
+# (DMG, CGB, CGB en compatibilité, CGB d'une GBA) se choisit pour chaque jeu.
+# Les composants propres à la CGB (KEY1 et double vitesse, port infrarouge)
+# sont dans `src/speed` et `src/infrared`, avec le reste du matériel.
+target_link_libraries(gb_raven_core PUBLIC ravenemu_common)
 set_target_properties(gb_raven_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(BUILD_TESTING)
@@ -22,6 +15,16 @@ if(BUILD_TESTING)
     target_include_directories(gb_raven_core_tests PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support)
     target_link_libraries(gb_raven_core_tests PRIVATE gb_raven_core)
     add_test(NAME gb_raven_core COMMAND gb_raven_core_tests)
+
+    # Matériel propre à la Game Boy Color : KEY1, port infrarouge, VRAM et
+    # WRAM en banques, palettes, HDMA, mode de compatibilité.
+    add_executable(gb_cgb_hardware_tests tests/cgb_hardware_test.cpp)
+    target_include_directories(gb_cgb_hardware_tests PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/src
+        ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support
+    )
+    target_link_libraries(gb_cgb_hardware_tests PRIVATE gb_raven_core)
+    add_test(NAME gb_cgb_hardware COMMAND gb_cgb_hardware_tests)
 
     add_executable(gb_cpu_mcycle_tests tests/cpu_mcycle_test.cpp)
     target_include_directories(gb_cpu_mcycle_tests PRIVATE
@@ -44,7 +47,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_LIST_DIR}/src
         ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support
     )
-    target_link_libraries(gb_ppu_pipeline_tests PRIVATE gb_raven_core gbc_hardware)
+    target_link_libraries(gb_ppu_pipeline_tests PRIVATE gb_raven_core)
     add_test(NAME gb_ppu_pipeline COMMAND gb_ppu_pipeline_tests)
 
     add_executable(gb_cartridge_mbc_tests tests/cartridge_mbc_test.cpp)
@@ -76,7 +79,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_LIST_DIR}/src
         ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support
     )
-    target_link_libraries(gb_cartridge_huc1_tests PRIVATE gb_raven_core gbc_hardware)
+    target_link_libraries(gb_cartridge_huc1_tests PRIVATE gb_raven_core)
     add_test(NAME gb_cartridge_huc1 COMMAND gb_cartridge_huc1_tests)
 
     add_executable(gb_cartridge_huc3_tests tests/cartridge_huc3_test.cpp)
@@ -84,7 +87,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_LIST_DIR}/src
         ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support
     )
-    target_link_libraries(gb_cartridge_huc3_tests PRIVATE gb_raven_core gbc_hardware)
+    target_link_libraries(gb_cartridge_huc3_tests PRIVATE gb_raven_core)
     add_test(NAME gb_cartridge_huc3 COMMAND gb_cartridge_huc3_tests)
 
     add_executable(gb_apu_hardware_tests tests/apu_hardware_test.cpp)
@@ -102,7 +105,7 @@ if(BUILD_TESTING)
     target_include_directories(gb_conformance_runner PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/src
     )
-    target_link_libraries(gb_conformance_runner PRIVATE gb_raven_core gbc_hardware)
+    target_link_libraries(gb_conformance_runner PRIVATE gb_raven_core)
     add_test(NAME gb_conformance_harness COMMAND gb_conformance_runner --self-test)
     add_test(NAME gb_conformance_harness_memory COMMAND gb_conformance_runner --self-test
         --serial-pass __disabled__ --no-mooneye-signature

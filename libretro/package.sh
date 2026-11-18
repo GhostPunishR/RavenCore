@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Packs the three Libretro cores of a build for one platform, with their
+# Packs the Libretro cores of a build (RavenGB, RavenGBA) for one platform, with their
 # RetroArch information files: cores/ and info/ at the root of the archive.
 #   libretro/package.sh BUILD_DIR PLATFORM NAME
 # PLATFORM is linux-*, windows-*, macos-* or android-*; the archive is

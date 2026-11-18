@@ -1,7 +1,6 @@
 #include <ravenemu/bridge.h>
 #include <ravenemu/core.hpp>
 #include <ravenemu/gb/core.hpp>
-#include <ravenemu/gbc/core.hpp>
 #include <ravenemu/remote_link.hpp>
 
 #include <array>
@@ -124,7 +123,7 @@ ravenemu_bridge* ravenemu_create(int system) {
             handle->core = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::dmg);
             break;
         case RAVENEMU_GBC:
-            handle->core = ravenemu::gbc::make_core();
+            handle->core = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::cgb);
             break;
         case RAVENEMU_GBA:
             handle->core = ravenemu::make_gba_core(std::nullopt);

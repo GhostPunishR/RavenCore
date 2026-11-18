@@ -5,7 +5,7 @@
 #include "cartridge/cartridge_factory.hpp"
 #include "infrared/machine_infrared_port.hpp"
 #include <ravenemu/gb/hardware_mode.hpp>
-#include <ravenemu/gbc/infrared_port.hpp>
+#include "infrared/infrared_port.hpp"
 
 namespace ravenemu::cgb {
 

@@ -1,6 +1,7 @@
-#include <ravenemu/gbc/core.hpp>
-#include <ravenemu/gbc/infrared_port.hpp>
-#include <ravenemu/gbc/speed_controller.hpp>
+#include <ravenemu/gb/core.hpp>
+
+#include "infrared/infrared_port.hpp"
+#include "speed/speed_controller.hpp"
 
 #include "apu/apu.hpp"
 #include "cartridge/cartridge_factory.hpp"
@@ -1354,13 +1355,13 @@ int main() {
 
     auto rom = minimal_game_boy_rom();
     rom[0x0143] = 0x80;
-    auto core = ravenemu::gbc::make_core();
+    auto core = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::cgb);
     core->load_rom(rom, {});
     check(core->framebuffer_format() == ravenemu::FramebufferFormat::argb_8888,
           "frontière GBC n'active pas le framebuffer couleur");
 
     auto dmg_rom = minimal_game_boy_rom();
-    auto cgb_compatibility = ravenemu::gbc::make_core();
+    auto cgb_compatibility = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::cgb);
     cgb_compatibility->load_rom(dmg_rom, {});
     check(cgb_compatibility->framebuffer_format() == ravenemu::FramebufferFormat::argb_8888,
           "une ROM DMG sur matériel CGB doit conserver la sortie couleur de compatibilité");
@@ -1379,7 +1380,7 @@ int main() {
     huc1_rom[0x0148] = 0x05;
     huc1_rom[0x0149] = 0x03;
     ravenemu::LocalInfraredEndpoint huc1_infrared;
-    auto huc1_cgb = ravenemu::gbc::make_core();
+    auto huc1_cgb = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::cgb);
     check(huc1_cgb->connect_infrared_endpoint(&huc1_infrared),
           "endpoint HuC1 refusé par la façade CGB");
     huc1_cgb->load_rom(huc1_rom, std::vector<std::uint8_t>(32U * 1024U, 0x5a));
@@ -1400,7 +1401,7 @@ int main() {
     huc3_rom[0x0147] = 0xfe;
     huc3_rom[0x0148] = 0x06;
     ravenemu::LocalInfraredEndpoint huc3_infrared;
-    auto huc3_cgb = ravenemu::gbc::make_core();
+    auto huc3_cgb = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::cgb);
     huc3_cgb->set_clock_epoch(60'000);
     check(huc3_cgb->connect_infrared_endpoint(&huc3_infrared),
           "endpoint HuC3 refusé par la façade CGB");

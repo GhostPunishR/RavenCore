@@ -29,17 +29,18 @@ if(BUILD_TESTING)
 endif()
 
 add_subdirectory(common)
+# Game Boy et Game Boy Color : un seul moteur, qui choisit le matériel (DMG,
+# CGB ou CGB d'une GBA) pour chaque jeu ; Game Boy Advance : le sien.
 add_subdirectory(gb)
-add_subdirectory(gbc)
 add_subdirectory(gba)
 
-# Les trois moteurs ensemble : RavenCore::ravencore une fois installés.
+# Les deux moteurs ensemble : RavenCore::ravencore une fois installés.
 add_library(ravencore INTERFACE)
-target_link_libraries(ravencore INTERFACE gb_raven_core gbc_raven_core gba_raven_core)
+target_link_libraries(ravencore INTERFACE gb_raven_core gba_raven_core)
 
 if(BUILD_TESTING)
     # Filet transversal : des états instantanés corrompus ne doivent planter
-    # aucun des trois cœurs. La CI l'exécute aussi sous ASan/UBSan.
+    # aucun des cœurs, Game Boy, Game Boy Color et GBA. La CI l'exécute aussi sous ASan/UBSan.
     add_executable(ravenemu_state_mutation_tests tests/state_mutation_test.cpp)
     target_include_directories(ravenemu_state_mutation_tests PRIVATE common/tests/support)
     target_link_libraries(ravenemu_state_mutation_tests PRIVATE ravencore)
