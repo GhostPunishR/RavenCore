@@ -8,7 +8,7 @@ if(PROJECT_IS_TOP_LEVEL AND NOT RAVENEMU_MULTI_CONFIG AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-option(RAVENEMU_BUILD_LIBRETRO "Build the two Libretro frontend adapters (Game Boy/Color, Game Boy Advance)" ON)
+option(RAVENEMU_BUILD_LIBRETRO "Build the two Libretro frontend adapters (Game Boy Color with the Game Boy, Game Boy Advance)" ON)
 option(RAVENEMU_INSTALL "Install the engines, the C API and the CMake package" ${PROJECT_IS_TOP_LEVEL})
 include(CTest)
 
@@ -28,12 +28,12 @@ if(RAVENEMU_INSTALL)
     set(RAVENEMU_PACKAGE_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/RavenCore")
 
     install(TARGETS
-            ravenemu_options ravenemu_common gb_raven_core gba_raven_core ravencore ravenemu_c_api
+            ravenemu_options ravenemu_common gbc_raven_core gba_raven_core ravencore ravenemu_c_api
         EXPORT RavenCoreTargets
         ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
         INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
     install(DIRECTORY
-            cores/common/include/ cores/gb/include/ cores/gba/include/
+            cores/common/include/ cores/gbc/include/ cores/gba/include/
             sdk/include/
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
     install(EXPORT RavenCoreTargets

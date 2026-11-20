@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Packs the Libretro cores of a build (RavenGB, RavenGBA) for one platform, with their
+# Packs the Libretro cores of a build (RavenGBC, RavenGBA) for one platform, with their
 # RetroArch information files: cores/ and info/ at the root of the archive.
 #   libretro/package.sh BUILD_DIR PLATFORM NAME
 # PLATFORM is linux-*, windows-*, macos-* or android-*; the archive is
@@ -22,7 +22,7 @@ case "$platform" in
         done ;;
     *) echo "Unknown platform: $platform" >&2; exit 1 ;;
 esac
-# RavenGB (Game Boy and Game Boy Color) and RavenGBA, each with its information file.
+# RavenGBC (Game Boy Color and Game Boy) and RavenGBA, each with its information file.
 count=$(find "$stage/cores" -type f | wc -l)
 infos=$(find "$stage/info" -type f | wc -l)
 if [ "$count" -ne 2 ] || [ "$infos" -ne 2 ]; then

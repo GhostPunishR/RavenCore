@@ -11,10 +11,10 @@ Ce sont les cœurs maison de [RavenEmu](https://github.com/GhostPunishR/RavenEmu
 
 | Cœur | Console | État |
 | --- | --- | --- |
-| **RavenGB** | Game Boy et Game Boy Color | Avancé |
+| **RavenGBC** | Game Boy Color et Game Boy | Avancé |
 | **RavenGBA** | Game Boy Advance | Expérimental |
 
-La Game Boy et la Game Boy Color forment un seul cœur, comme une seule famille de consoles : un moteur qui choisit, pour chaque jeu, la console qu'il émule.
+Comme la console, le cœur Game Boy Color lit aussi les jeux Game Boy : un seul moteur qui choisit, pour chaque jeu, la console qu'il émule.
 
 **Sommaire :** [Compiler](#compiler) · [RetroArch](#utiliser-avec-retroarch) · [Intégrer](#intégrer-dans-un-projet) · [Tests](#tests) · [Limites](#état-et-limites) · [Versions](#versions) · [Contribuer](#contribuer) · [Licence](#licence)
 
@@ -51,10 +51,10 @@ Pour ne compiler que les moteurs, ajoutez `-DRAVENEMU_BUILD_LIBRETRO=OFF -DBUILD
 
 | Cœur | Console |
 | --- | --- |
-| `ravenemu_gb_libretro` | Game Boy et Game Boy Color (`.gb`, `.gbc`, `.sgb`) |
+| `ravenemu_gbc_libretro` | Game Boy Color et Game Boy (`.gbc`, `.gb`, `.sgb`) |
 | `ravenemu_gba_libretro` | Game Boy Advance |
 
-RavenGB émule par défaut la console du jeu : un jeu Game Boy sur la Game Boy, un jeu Game Boy Color sur la Game Boy Color. L'option **Console émulée** l'impose à tous les jeux, ou met la Game Boy Color sur une Game Boy Advance.
+RavenGBC émule par défaut une Game Boy Color : les jeux Game Boy y prennent des couleurs, comme sur la console. L'option **Console émulée** choisit la Game Boy, la console de chaque jeu, ou la Game Boy Color d'une Game Boy Advance.
 
 Les cœurs gèrent la vibration (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) et les capteurs des cartouches. Ils les pilotent au stick analogique gauche, et avec les capteurs du téléphone ou de la manette s'il en a :
 
@@ -78,20 +78,20 @@ Les options s'affichent en français, rangées en quatre catégories : **Image**
 
 | Option | Clé | Cœurs | Valeurs |
 | --- | --- | --- | --- |
-| Console émulée | `ravenemu_gb_hardware` | RavenGB | `auto` par défaut : la console du jeu. `auto_gba` : de même, mais la Game Boy Color sur une Game Boy Advance, dont les jeux qui la reconnaissent débloquent leurs bonus (Zelda Oracle, Shantae…). `gb`, `gbc`, `gba` : Game Boy, Game Boy Color ou Game Boy Advance pour tous les jeux ; sur la GBC ou la GBA, les jeux Game Boy prennent des couleurs, et la Game Boy refuse les jeux réservés à la GBC |
-| Palette | `ravenemu_gb_palette` | RavenGB | Jeux sur la Game Boy. Vert (Game Boy) par défaut, gris (Game Boy Pocket) ou gris neutre |
-| Couleurs des jeux Game Boy | `ravenemu_gb_dmg_colors` | RavenGB | Sur la Game Boy Color ou Advance, sans boot ROM. « Comme sur la GBC » par défaut : celles que sa boot ROM choisit d'après le titre du jeu (Pokémon Rouge en rouge…), ou ses couleurs par défaut pour un jeu qu'elle ne connaît pas. Ou l'une des douze combinaisons de touches tenues pendant son logo (B + Gauche : gris, B + Droite : négatif…) |
-| Correction des couleurs LCD | `ravenemu_gb_color_correction`, `ravenemu_gba_color_correction` | RavenGB (GBC et GBA), RavenGBA | Désactivée par défaut. Activée, elle adoucit les couleurs vives comme l'écran de la console, avec le réglage de RavenEmu Android |
-| Mélange d'images | `ravenemu_gb_frame_blending`, `ravenemu_gba_frame_blending` | Tous | Désactivé par défaut. **Mélange** : la moyenne des deux dernières images, pour les jeux qui font clignoter un objet une image sur deux. **Rémanence** : l'image s'efface lentement, comme sur l'écran LCD |
-| Directions opposées | `ravenemu_gb_opposing_directions`, `ravenemu_gba_opposing_directions` | Tous | Bloquées par défaut : haut et bas, ou gauche et droite, tenus ensemble ne sont pas transmis, comme sur la croix de la console. Autorisées, sinon |
-| Boot ROM | `ravenemu_gb_boot_rom` | RavenGB | Utilisée si son fichier est présent (par défaut), ou non : celle de la console émulée |
+| Console émulée | `ravenemu_gbc_hardware` | RavenGBC | `gbc` par défaut : la Game Boy Color, où les jeux Game Boy prennent des couleurs. `gba` : la GBC d'une Game Boy Advance, dont les jeux qui la reconnaissent débloquent leurs bonus (Zelda Oracle, Shantae…). `auto` : la console du jeu (un jeu Game Boy sur la Game Boy) ; `auto_gba` : de même, la GBC sur une GBA. `gb` : la Game Boy pour tous, qui refuse les jeux réservés à la GBC |
+| Palette | `ravenemu_gbc_palette` | RavenGBC | Jeux sur la Game Boy. Vert (Game Boy) par défaut, gris (Game Boy Pocket) ou gris neutre |
+| Couleurs des jeux Game Boy | `ravenemu_gbc_dmg_colors` | RavenGBC | Sur la Game Boy Color ou Advance, sans boot ROM. « Comme sur la GBC » par défaut : celles que sa boot ROM choisit d'après le titre du jeu (Pokémon Rouge en rouge…), ou ses couleurs par défaut pour un jeu qu'elle ne connaît pas. Ou l'une des douze combinaisons de touches tenues pendant son logo (B + Gauche : gris, B + Droite : négatif…) |
+| Correction des couleurs LCD | `ravenemu_gbc_color_correction`, `ravenemu_gba_color_correction` | RavenGBC (GBC et GBA), RavenGBA | Désactivée par défaut. Activée, elle adoucit les couleurs vives comme l'écran de la console, avec le réglage de RavenEmu Android |
+| Mélange d'images | `ravenemu_gbc_frame_blending`, `ravenemu_gba_frame_blending` | Tous | Désactivé par défaut. **Mélange** : la moyenne des deux dernières images, pour les jeux qui font clignoter un objet une image sur deux. **Rémanence** : l'image s'efface lentement, comme sur l'écran LCD |
+| Directions opposées | `ravenemu_gbc_opposing_directions`, `ravenemu_gba_opposing_directions` | Tous | Bloquées par défaut : haut et bas, ou gauche et droite, tenus ensemble ne sont pas transmis, comme sur la croix de la console. Autorisées, sinon |
+| Boot ROM | `ravenemu_gbc_boot_rom` | RavenGBC | Utilisée si son fichier est présent (par défaut), ou non : celle de la console émulée |
 | Type de sauvegarde | `ravenemu_gba_save_type` | RavenGBA | `auto`, `sram`, `flash64`, `flash128`, `eeprom512`, `eeprom8k`, `none` |
 | Horloge (RTC) | `ravenemu_gba_rtc` | RavenGBA | `auto`, `enabled`, `disabled` |
 | Lumière du capteur solaire | `ravenemu_gba_solar_light` | RavenGBA | Pourcentage de plein soleil : `50` par défaut, de `0` à `100` par pas de 10. Ou `sensor` : le capteur de lumière de l'appareil, 50 % s'il n'en a pas |
-| Capteurs de l'appareil | `ravenemu_gb_device_sensors`, `ravenemu_gba_device_sensors` | Tous | Utilisés s'il y en a (par défaut) : accéléromètre et gyroscope s'ajoutent au stick gauche. Ou stick gauche seul |
+| Capteurs de l'appareil | `ravenemu_gbc_device_sensors`, `ravenemu_gba_device_sensors` | Tous | Utilisés s'il y en a (par défaut) : accéléromètre et gyroscope s'ajoutent au stick gauche. Ou stick gauche seul |
 | BIOS | `ravenemu_gba_bios` | RavenGBA | BIOS de RavenCore par défaut, ou vrai BIOS (`gba_bios.bin`), avec ou sans son animation de démarrage |
 
-RavenGB démarre un jeu sans boot ROM, dans l'état où elle l'aurait laissé. Il utilise celle de la console émulée, depuis le dossier système de RetroArch, si l'option le permet : `dmg_boot.bin` ou `gb_bios.bin` (Game Boy), `cgb_boot.bin` ou `gbc_bios.bin` (Game Boy Color), `agb_boot.bin` (Game Boy Advance). On retrouve alors l'animation de démarrage. Sans elle, un jeu Game Boy sur la Game Boy Color prend quand même les couleurs que la boot ROM de la GBC lui aurait choisies, d'après la table relevée par [The Cutting Room Floor](https://tcrf.net/Notes:Game_Boy_Color_Bootstrap_ROM) (CC BY 3.0, voir [NOTICE.md](NOTICE.md)). Aucune boot ROM n'est fournie.
+RavenGBC démarre un jeu sans boot ROM, dans l'état où elle l'aurait laissé. Il utilise celle de la console émulée, depuis le dossier système de RetroArch, si l'option le permet : `dmg_boot.bin` ou `gb_bios.bin` (Game Boy), `cgb_boot.bin` ou `gbc_bios.bin` (Game Boy Color), `agb_boot.bin` (Game Boy Advance). On retrouve alors l'animation de démarrage. Sans elle, un jeu Game Boy sur la Game Boy Color prend quand même les couleurs que la boot ROM de la GBC lui aurait choisies, d'après la table relevée par [The Cutting Room Floor](https://tcrf.net/Notes:Game_Boy_Color_Bootstrap_ROM) (CC BY 3.0, voir [NOTICE.md](NOTICE.md)). Aucune boot ROM n'est fournie.
 
 RavenGBA n'a besoin d'aucun BIOS : RavenCore répond lui-même à ses appels. L'option **BIOS** lui fait utiliser `gba_bios.bin` (16 Kio), le BIOS d'une console, depuis le dossier système. Les appels et les interruptions du jeu passent alors par lui, avec ou sans son animation de démarrage. Un état ne se recharge qu'avec le BIOS qui l'a créé. Aucun BIOS n'est fourni.
 
@@ -101,7 +101,7 @@ Le menu **Codes de triche** de RetroArch fonctionne avec les deux cœurs. Une en
 
 | Cœurs | Formats |
 | --- | --- |
-| RavenGB | Game Genie (`ABC-DEF-GHI` ou `ABC-DEF`, aussi par groupes `ABC+DEF+GHI`) et GameShark (8 chiffres, comme `010238CD`), mélangeables |
+| RavenGBC | Game Genie (`ABC-DEF-GHI` ou `ABC-DEF`, aussi par groupes `ABC+DEF+GHI`) et GameShark (8 chiffres, comme `010238CD`), mélangeables |
 | RavenGBA | Codebreaker non chiffré (`XAAAAAAA YYYY`), GameShark v1/v2 et Action Replay v3 (`XXXXXXXX YYYYYYYY`) chiffrés tels que l'appareil les affiche ou déjà déchiffrés (« RAW »), reconnus automatiquement |
 
 Les codes se lisent comme l'appareil les exécute, ce qui fait passer les listes de triches de RetroArch. Un code Codebreaker vers un miroir de l'EWRAM ou de l'IWRAM écrit la mémoire qu'il répète. Une écriture de 16 bits à une adresse impaire est alignée. Une écriture de 8 bits ne garde que l'octet bas de sa valeur. Les lignes d'identification et d'accroche ne sont pas vérifiées.
@@ -149,7 +149,7 @@ L'API C couvre :
 - les couleurs des jeux Game Boy sur une Game Boy Color ;
 - la Game Boy Color d'une Game Boy Advance, pour les bonus des jeux qui la reconnaissent.
 
-Détails dans le [README du SDK](sdk/README.md). En C++, `parse_cheat` décode un code de triche, `Core::set_cheats` active la liste, et `gb::HardwareModel::agb` crée la GBC d'une Game Boy Advance.
+Détails dans le [README du SDK](sdk/README.md). En C++, `parse_cheat` décode un code de triche, `Core::set_cheats` active la liste, et `gbc::HardwareModel::agb` crée la GBC d'une Game Boy Advance.
 
 ## Tests
 
@@ -157,13 +157,13 @@ Les tests de base n'utilisent aucune ROM. La CI exécute en plus des suites de t
 
 | Console | Suites | Documentation |
 | --- | --- | --- |
-| GB / GBC | Mooneye Test Suite, Blargg, dmg-acid2, cgb-acid2 (200 tests) | [Tests GB/GBC](cores/gb/tests/README.md) |
+| GB / GBC | Mooneye Test Suite, Blargg, dmg-acid2, cgb-acid2 (200 tests) | [Tests GB/GBC](cores/gbc/tests/README.md) |
 | GBA | jsmolka/gba-tests, FuzzARM | [Tests GBA](cores/gba/tests/README.md) |
 
 Pour les lancer en local :
 
 ```bash
-cores/gb/tests/fetch_test_roms.sh build/gb-test-roms
+cores/gbc/tests/fetch_test_roms.sh build/gb-test-roms
 cores/gba/tests/fetch_test_roms.sh build/gba-test-roms
 cmake -S . -B build -DRAVENEMU_GB_TEST_ROMS=build/gb-test-roms -DRAVENEMU_GBA_TEST_ROMS=build/gba-test-roms
 cmake --build build --parallel

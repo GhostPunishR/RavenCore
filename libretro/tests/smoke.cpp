@@ -15,10 +15,10 @@
 #include <string>
 #include <vector>
 
-// One scenario per build: a Game Boy game on RavenGB as it comes (SMOKE_GB),
-// RavenGB set to Game Boy Color hardware (SMOKE_GBC), a GBA game (SMOKE_GBA).
+// One scenario per build: RavenGBC set to the Game Boy (SMOKE_GB), RavenGBC as
+// it comes, a Game Boy Color (SMOKE_GBC), and a GBA game on RavenGBA (SMOKE_GBA).
 #if defined(SMOKE_GB) || defined(SMOKE_GBC)
-#define OPTION(name) "ravenemu_gb_" name
+#define OPTION(name) "ravenemu_gbc_" name
 #else
 #define OPTION(name) "ravenemu_gba_" name
 #endif
@@ -239,11 +239,11 @@ std::int16_t input_state(unsigned port, unsigned device, unsigned, unsigned id) 
     if (device == RETRO_DEVICE_JOYPAD && id < held_buttons.size() && held_buttons[id]) return 1;
     return 0;
 }
-// The user's settings start over; the GBC scenario keeps its Game Boy Color.
+// The user's settings start over; the Game Boy scenario keeps its Game Boy.
 void reset_options() {
     option_values.clear();
-#if defined(SMOKE_GBC)
-    option_values["ravenemu_gb_hardware"] = "gbc";
+#if defined(SMOKE_GB)
+    option_values["ravenemu_gbc_hardware"] = "gb";
 #endif
 }
 // Mélange d'un canal sur deux images, comme le cœur : (a × wa + b × wb) / 8, arrondi.
@@ -526,10 +526,10 @@ int main() {
     std::copy_n("V49E", 4, rumble_rom.begin() + 0xac);
 #else
 #if defined(SMOKE_GB)
-    const char* video_option = "ravenemu_gb_palette";
+    const char* video_option = "ravenemu_gbc_palette";
     const char* video_choices = "; dmg|pocket";
 #else
-    const char* video_option = "ravenemu_gb_color_correction";
+    const char* video_option = "ravenemu_gbc_color_correction";
     const char* video_choices = "; disabled|enabled";
 #endif
     constexpr std::size_t option_count = 8;
@@ -813,7 +813,7 @@ int main() {
 #if defined(SMOKE_GBA)
         last_message.find("RavenGBA") != 0 || last_message.find("trop courte") == std::string::npos
 #else
-        last_message.find("RavenGB") != 0 || last_message.find("trop petite") == std::string::npos
+        last_message.find("RavenGBC") != 0 || last_message.find("trop petite") == std::string::npos
 #endif
     ) {
         std::cerr << "Refused game not reported: " << last_message << "\n";
@@ -827,7 +827,7 @@ int main() {
     constexpr std::uint32_t greens[]{0xe0f8d0, 0x88c070, 0x346856, 0x081820};
     constexpr std::uint32_t greys[]{0xececec, 0xa6a6a6, 0x565656, 0x141414};
     const auto shade = std::find(std::begin(greens), std::end(greens), green) - std::begin(greens);
-    option_values["ravenemu_gb_palette"] = "pocket";
+    option_values["ravenemu_gbc_palette"] = "pocket";
     options_updated = true;
     retro_run();
     if (shade == 4 || first_pixel != greys[shade]) {
@@ -846,7 +846,7 @@ int main() {
     std::memcpy(red.data(), &entry, sizeof entry);
     std::memcpy(red.data() + 0xc0, backdrop, sizeof backdrop);
 #else
-    const char* correction = "ravenemu_gb_color_correction";
+    const char* correction = "ravenemu_gbc_color_correction";
     // LCD éteint, couleur 0 de la palette de fond 0 en rouge pur, LCD rallumé.
     auto red = ravenemu::testing::minimal_game_boy_rom();
     red[0x143] = 0x80;
@@ -943,16 +943,17 @@ int main() {
 #endif
 #if defined(SMOKE_GBC)
     retro_unload_game();
-    option_values["ravenemu_gb_hardware"] = "gba";
+    option_values["ravenemu_gbc_hardware"] = "gba";
     static_cast<void>(pixel_after(flicker, 2));
     if (!mapped(0xc001) || *mapped(0xc001) != 1) {
         std::cerr << "Game Boy Advance hardware not selected\n";
         return 1;
     }
-    option_values["ravenemu_gb_hardware"] = "gbc";
+    option_values.erase("ravenemu_gbc_hardware");
 #endif
 #if defined(SMOKE_GB)
-    // Un seul core pour la famille. « Selon le jeu » met un jeu Game Boy sur
+    // Le core Game Boy Color lit aussi les jeux Game Boy. Par défaut, il est
+    // une Game Boy Color pour tous. « Selon le jeu » met un jeu Game Boy sur
     // la Game Boy, sans les banques 2 à 7 de la WRAM de la GBC dans la carte
     // mémoire, et un jeu Game Boy Color sur la GBC (ou sur la GBA, où B vaut 1
     // au démarrage) ; les autres choix imposent leur console à tous les jeux,
@@ -964,13 +965,14 @@ int main() {
         enum Console { refused, game_boy, game_boy_color, game_boy_advance };
         const auto runs_on = [](std::vector<std::uint8_t>& rom, const char* hardware) {
             retro_unload_game();
-            if (hardware) option_values["ravenemu_gb_hardware"] = hardware;
-            else option_values.erase("ravenemu_gb_hardware");
+            if (hardware) option_values["ravenemu_gbc_hardware"] = hardware;
+            else option_values.erase("ravenemu_gbc_hardware");
             if (pixel_after(rom, 2) == 0xffffffffU) return refused;
             if (mapped(0xc001) && *mapped(0xc001) == 1) return game_boy_advance;
             return mapped(0x10000) ? game_boy_color : game_boy;
         };
-        if (runs_on(flicker, nullptr) != game_boy || runs_on(color, nullptr) != game_boy_color ||
+        if (runs_on(flicker, nullptr) != game_boy_color || runs_on(color, nullptr) != game_boy_color ||
+            runs_on(flicker, "auto") != game_boy || runs_on(color, "auto") != game_boy_color ||
             runs_on(color_only, "auto") != game_boy_color || runs_on(flicker, "auto_gba") != game_boy ||
             runs_on(color, "auto_gba") != game_boy_advance || runs_on(flicker, "gbc") != game_boy_color ||
             runs_on(flicker, "gba") != game_boy_advance || runs_on(color, "gb") != game_boy ||
@@ -978,7 +980,7 @@ int main() {
             std::cerr << "Game Boy or Game Boy Color hardware not chosen per game\n";
             return 1;
         }
-        option_values.erase("ravenemu_gb_hardware");
+        option_values["ravenemu_gbc_hardware"] = "gb";
     }
 #endif
 #if !defined(SMOKE_GBA)
@@ -1174,16 +1176,16 @@ int main() {
         return 1;
     }
 #else
-    const auto& palette = declared_v2["ravenemu_gb_palette"];
-    const auto& lcd = declared_v2["ravenemu_gb_color_correction"];
-    const auto& dmg_colors = declared_v2["ravenemu_gb_dmg_colors"];
-    const auto& hardware = declared_v2["ravenemu_gb_hardware"];
+    const auto& palette = declared_v2["ravenemu_gbc_palette"];
+    const auto& lcd = declared_v2["ravenemu_gbc_color_correction"];
+    const auto& dmg_colors = declared_v2["ravenemu_gbc_dmg_colors"];
+    const auto& hardware = declared_v2["ravenemu_gbc_hardware"];
     if (declared_v2.size() != 8 || !declared_options.empty() || palette.default_value != "dmg" ||
         palette.category != "video" || palette.values.size() != 3 || palette.desc != "Palette" ||
         lcd.default_value != "disabled" || lcd.category != "video" || lcd.values.size() != 2 ||
         dmg_colors.default_value != "auto" || dmg_colors.category != "video" || dmg_colors.values.size() != 14 ||
-        hardware.default_value != "auto" || hardware.category != "system" ||
-        hardware.values != std::vector<std::string>{"auto", "auto_gba", "gb", "gbc", "gba"}) {
+        hardware.default_value != "gbc" || hardware.category != "system" ||
+        hardware.values != std::vector<std::string>{"gbc", "gba", "auto", "auto_gba", "gb"}) {
         std::cerr << "Options v2 not declared\n";
         return 1;
     }

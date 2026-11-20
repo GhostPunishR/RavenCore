@@ -1,5 +1,5 @@
-# Two independent shared Libretro adapters over the RavenCore engines: RavenGB
-# for the Game Boy and the Game Boy Color (one engine, the hardware chosen per
+# Two independent shared Libretro adapters over the RavenCore engines: RavenGBC
+# for the Game Boy Color and the Game Boy (one engine, the hardware chosen per
 # game), RavenGBA for the Game Boy Advance.
 
 # Only the Libretro interface is exported. The statically linked engines keep
@@ -7,7 +7,7 @@
 # by the same frontend. Windows already exports only `dllexport` symbols.
 set(RAVENEMU_LIBRETRO_EXPORTS "${CMAKE_CURRENT_SOURCE_DIR}/link.T")
 
-foreach(system IN ITEMS gb gba)
+foreach(system IN ITEMS gbc gba)
     set(target "ravenemu_${system}_libretro")
     add_library(${target} SHARED src/libretro.cpp)
     string(TOUPPER "${system}" system_upper)
@@ -16,8 +16,8 @@ foreach(system IN ITEMS gb gba)
         RAVENEMU_LIBRETRO_${system_upper}=1 RAVENEMU_VERSION="${PROJECT_VERSION}")
     configure_file(info/${target}.info.in "${CMAKE_CURRENT_BINARY_DIR}/info/${target}.info" @ONLY)
     target_include_directories(${target} PRIVATE include)
-    if(system STREQUAL "gb")
-        target_link_libraries(${target} PRIVATE gb_raven_core)
+    if(system STREQUAL "gbc")
+        target_link_libraries(${target} PRIVATE gbc_raven_core)
     else()
         target_link_libraries(${target} PRIVATE gba_raven_core)
     endif()
@@ -29,14 +29,14 @@ foreach(system IN ITEMS gb gba)
     target_compile_options(${target} PRIVATE ${RAVENEMU_WARNING_OPTIONS})
 endforeach()
 
-# The smoke test plays one scenario per console: a Game Boy game on RavenGB as
-# it comes, Game Boy Color hardware on RavenGB, a GBA game on RavenGBA.
+# The smoke test plays one scenario per console: a Game Boy game on RavenGBC as
+# it comes, RavenGBC set to Game Boy Color hardware, a GBA game on RavenGBA.
 if(BUILD_TESTING)
     foreach(scenario IN ITEMS gb gbc gba)
         if(scenario STREQUAL "gba")
             set(core ravenemu_gba_libretro)
         else()
-            set(core ravenemu_gb_libretro)
+            set(core ravenemu_gbc_libretro)
         endif()
         string(TOUPPER "${scenario}" scenario_upper)
         add_executable(libretro_smoke_${scenario} tests/smoke.cpp)

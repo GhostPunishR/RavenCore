@@ -29,14 +29,14 @@ if(BUILD_TESTING)
 endif()
 
 add_subdirectory(common)
-# Game Boy et Game Boy Color : un seul moteur, qui choisit le matériel (DMG,
-# CGB ou CGB d'une GBA) pour chaque jeu ; Game Boy Advance : le sien.
-add_subdirectory(gb)
+# Game Boy Color : un seul moteur, qui émule aussi la Game Boy et choisit le
+# matériel (DMG, CGB ou CGB d'une GBA) pour chaque jeu ; Game Boy Advance : le sien.
+add_subdirectory(gbc)
 add_subdirectory(gba)
 
 # Les deux moteurs ensemble : RavenCore::ravencore une fois installés.
 add_library(ravencore INTERFACE)
-target_link_libraries(ravencore INTERFACE gb_raven_core gba_raven_core)
+target_link_libraries(ravencore INTERFACE gbc_raven_core gba_raven_core)
 
 if(BUILD_TESTING)
     # Filet transversal : des états instantanés corrompus ne doivent planter

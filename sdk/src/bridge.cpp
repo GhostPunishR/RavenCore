@@ -1,6 +1,6 @@
 #include <ravenemu/bridge.h>
 #include <ravenemu/core.hpp>
-#include <ravenemu/gb/core.hpp>
+#include <ravenemu/gbc/core.hpp>
 #include <ravenemu/remote_link.hpp>
 
 #include <array>
@@ -120,16 +120,16 @@ ravenemu_bridge* ravenemu_create(int system) {
         auto handle = std::make_unique<ravenemu_bridge>();
         switch (system) {
         case RAVENEMU_GB:
-            handle->core = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::dmg);
+            handle->core = ravenemu::gbc::make_core(ravenemu::gbc::HardwareModel::dmg);
             break;
         case RAVENEMU_GBC:
-            handle->core = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::cgb);
+            handle->core = ravenemu::gbc::make_core(ravenemu::gbc::HardwareModel::cgb);
             break;
         case RAVENEMU_GBA:
             handle->core = ravenemu::make_gba_core(std::nullopt);
             break;
         case RAVENEMU_GBC_ON_GBA:
-            handle->core = ravenemu::gb::make_core(ravenemu::gb::HardwareModel::agb);
+            handle->core = ravenemu::gbc::make_core(ravenemu::gbc::HardwareModel::agb);
             break;
         default:
             throw std::invalid_argument("Invalid system");

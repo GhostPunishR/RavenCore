@@ -117,14 +117,14 @@ Un message mal formé est refusé et ignoré. Sont considérés comme mal formé
 
 ## Tests
 
-- **`gb_cgb_hardware` (deux ports série Game Boy reliés par deux câbles distants) :**
+- **`gbc_color_hardware` (deux ports série Game Boy reliés par deux câbles distants) :**
   - octets échangés ;
   - interruptions des deux côtés ;
   - transfert sans câble ;
   - collision de deux consoles qui cadencent ;
   - partenaire qui n'attend pas ;
   - débranchement pendant une attente.
-- **`gb_cgb_hardware`, protocole :**
+- **`gbc_color_hardware`, protocole :**
   - annonce ;
   - refus d'une autre famille ou d'une autre version ;
   - messages mal formés ;
