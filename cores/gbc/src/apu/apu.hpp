@@ -271,6 +271,10 @@ public:
 
 private:
     struct Square {
+        static constexpr int trigger_delay_cycles = 8;
+        static constexpr int restart_delay_cycles = 4;
+        static constexpr int max_timer = 2048 * 4 + trigger_delay_cycles + 3;
+
         explicit Square(bool sweep) : has_sweep(sweep) {}
         bool has_sweep{};
         bool enabled{};
@@ -373,7 +377,12 @@ private:
                 length = 64;
                 if (shorten_zero_length_reload) --length;
             }
-            timer = ((2048 - frequency) * 4) | (timer & 3);
+            // Le premier échantillon arrive une période et deux tops de 1 MHz
+            // après le déclenchement ; un seul top si le minuteur tournait
+            // déjà. La position dans le cycle de service ne revient pas à zéro
+            // (SameSuite, channel_1_delay et channel_1_restart).
+            timer = ((2048 - frequency) * 4 +
+                     (timer_running ? restart_delay_cycles : trigger_delay_cycles)) | (timer & 3);
             timer_running = true;
             volume = envelope_initial;
             envelope_timer = (envelope_period != 0 ? envelope_period : 8) +
@@ -407,7 +416,7 @@ private:
             enabled = in.boolean(); dac_enabled = in.boolean(); duty = in.bounded_i32(0, 3); length = in.bounded_i32(0, 64);
             length_enabled = in.boolean(); envelope_initial = in.bounded_i32(0, 15); envelope_add = in.boolean();
             envelope_period = in.bounded_i32(0, 7); volume = in.bounded_i32(0, 15); envelope_timer = in.bounded_i32(0, 9);
-            frequency = in.bounded_i32(0, 2047); timer = in.bounded_i32(1, 8195); duty_position = in.bounded_i32(0, 7); sweep_period = in.bounded_i32(0, 7);
+            frequency = in.bounded_i32(0, 2047); timer = in.bounded_i32(1, max_timer); duty_position = in.bounded_i32(0, 7); sweep_period = in.bounded_i32(0, 7);
             sweep_negate = in.boolean(); sweep_shift = in.bounded_i32(0, 7); sweep_timer = in.bounded_i32(0, 8);
             sweep_enabled = in.boolean(); shadow_frequency = in.bounded_i32(0, 2047);
             sweep_negate_used = in.boolean(); accumulator = in.bounded_i32(-1920, 1920);

@@ -464,6 +464,62 @@ void mid_oam_scan_save_state_test() {
                          "restauration en milieu de scan OAM non déterministe");
 }
 
+/**
+ * La source mode 2 de la ligne 0 : point 4 sur DMG (Mooneye,
+ * intr_1_2_timing-GS), point 0 sur CGB (Mealybug Tearoom, qui compense quatre
+ * points de retard sur les autres lignes).
+ */
+void line0_mode2_stat_test() {
+    for (const auto mode : {gbc::HardwareMode::dmg, gbc::HardwareMode::cgb_native,
+                            gbc::HardwareMode::cgb_compatibility}) {
+        InterruptController interrupts;
+        Ppu ppu(interrupts, mode);
+        ppu.write_stat(0x20);
+        ppu.tick(154 * 456 - 1);
+        check(ppu.line_dot() == 455, "fin de la ligne 153 manquée");
+        interrupts.flags = 0;
+        ppu.tick(1);
+        const bool at_dot_0 = (interrupts.flags & interrupt_mask(Interrupt::stat)) != 0;
+        ppu.tick(4);
+        const bool by_dot_4 = (interrupts.flags & interrupt_mask(Interrupt::stat)) != 0;
+        if (mode == gbc::HardwareMode::dmg) {
+            check(!at_dot_0 && by_dot_4, "DMG : IRQ mode 2 de la ligne 0 hors du point 4");
+        } else {
+            check(at_dot_0, "CGB : IRQ mode 2 de la ligne 0 retardée");
+        }
+    }
+}
+
+/**
+ * Une écriture de palette en mode 3 atteint les pixels sortis pendant les
+ * trois points qui précèdent la fin de son M-cycle : un pixel n'est coloré que
+ * trois points après sa sortie de la FIFO (Mealybug Tearoom, m3_bgp_change).
+ */
+void render_register_write_phase_test() {
+    for (const auto mode : {gbc::HardwareMode::dmg, gbc::HardwareMode::cgb_compatibility}) {
+        auto image = std::make_shared<const std::vector<std::uint8_t>>(ravenemu::testing::minimal_game_boy_rom());
+        Machine machine(image, [] { return std::int64_t{0}; }, mode);
+        machine.bus.write(0xff47, 0x00); // couleur 0 : blanc
+        constexpr int line = 10;
+        while (!(machine.ppu.ly() == line && machine.ppu.mode() == Ppu::mode_transfer &&
+                 machine.ppu.transfer_x() >= 40)) {
+            machine.bus.tick_mcycle();
+        }
+        const int x = machine.ppu.transfer_x();
+        machine.bus.write_mcycle(0xff47, 0xff); // couleur 0 : noir
+        check(machine.ppu.transfer_x() == x + 4, "le mode 3 ne sort pas un pixel par point");
+        machine.bus.write(0xff47, 0x00);
+        while (machine.ppu.ly() != Ppu::height) machine.bus.tick_mcycle();
+        const auto pixel = [&](int column) {
+            return machine.ppu.completed_frame[static_cast<std::size_t>(line * Ppu::width + column)];
+        };
+        check(pixel(x) == pixel(x - 1), "le pixel sorti avant l'écriture a changé de couleur");
+        for (int column = x + 1; column < x + 4; ++column) {
+            check(pixel(column) != pixel(x), "écriture de palette pas encore visible trois points avant la fin du M-cycle");
+        }
+    }
+}
+
 void stat_line_edge_test() {
     InterruptController interrupts;
     interrupts.flags = 0;
@@ -1440,6 +1496,8 @@ int main() {
     mid_oam_scan_save_state_test();
     oam_corruption_patterns_test();
     stat_line_edge_test();
+    line0_mode2_stat_test();
+    render_register_write_phase_test();
     mode2_stat_lead_test();
     video_bus_lock_boundary_test();
     dmg_lcd_startup_bus_gate_test();

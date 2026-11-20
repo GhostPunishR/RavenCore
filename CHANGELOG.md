@@ -2,6 +2,24 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.16.1 - 2026-11-20
+
+Cette version rapproche le son et l'image de la Game Boy et de la Game Boy Color de ceux de la console, d'après deux suites de test publiques plus exigeantes que celles de la CI : SameSuite (37 tests sur 76 passent, contre 22) et Mealybug Tearoom (2 tests CGB sur 27, contre 0). L'API, Libretro, le GBA et le format des états ne changent pas. Les 46 tests de ces suites et des AGE test roms qui passent rejoignent la CI.
+
+### Corrigé
+
+- **Son : départ des canaux carrés.** Après son déclenchement, un canal carré attend une période et deux tops de 1 MHz (8 cycles) avant son premier échantillon ; un seul top s'il tournait déjà, sans repartir du début de son cycle de service (SameSuite, `channel_1_delay`, `channel_1_restart`). RavenCore le faisait partir 8 cycles trop tôt : les registres PCM12 de la GBC, que lisent ces tests, l'exposaient, et chaque note des canaux 1 et 2 commençait 2 µs en avance. 15 tests SameSuite passent désormais.
+- **Image : écritures de palette en mode 3.** Un pixel sorti de la FIFO n'est coloré que trois points plus tard : une écriture dans BGP, OBP0, OBP1, la RAM couleur (BCPD, OCPD) ou les bits 0 et 1 de LCDC atteint déjà les pixels sortis pendant les trois points qui la précèdent. RavenCore la faisait voir trois pixels trop tard. Le bus valide désormais ces écritures dès le premier point de leur M-cycle ; les autres bits de LCDC, lus par le fetcher ou qui allument l'écran, gardent leur instant, et la durée du mode 3 ne change pas. Mealybug Tearoom `m3_bgp_change` et `m3_window_timing` (CGB-D) et AGE `m3-bg-bgp` passent. En double vitesse, faute de mesure, l'écriture est validée au premier des deux points du M-cycle.
+- **Image : ligne 0 sur GBC.** Sur GBC, l'interruption STAT du mode 2 de la ligne 0 arrive au point 0, comme le compensent les tests Mealybug Tearoom, et non au point 4 comme sur Game Boy (Mooneye `intr_1_2_timing-GS`, vérifié sur DMG et qui échoue sur CGB). La ligne 0 de chaque test Mealybug était décalée de quatre pixels.
+- Tests : redéclenchement d'un canal carré en marche, instant de l'interruption mode 2 de la ligne 0 sur Game Boy et sur GBC, et pixels qu'atteint une écriture de palette en mode 3 ; chacun échoue sans son correctif. Trois tests existants attendaient l'ancien départ des canaux carrés. La CI exécute désormais 246 ROMs de test publiques au lieu de 200 : 37 SameSuite, 3 Mealybug Tearoom et 6 AGE s'ajoutent.
+- Performances : le coût est nul en Game Boy et d'environ 1 % d'instructions sur `cgb-acid-hell`, qui écrit la RAM couleur à chaque ligne.
+
+### Reste à faire
+
+- **Logo de la boot ROM.** Sans boot ROM, la VRAM reste vide alors que la vraie laisse le logo de la cartouche et le glyphe « ® » : plusieurs tests Mealybug Tearoom affichent ce glyphe en sprite et restent faux pour cette seule raison.
+- **SameSuite.** Restent l'alignement des canaux sur l'horloge à 1 MHz en double vitesse, les écritures NRx2 pendant qu'un canal joue (« zombie mode »), le balayage du canal 1, le bruit (canal 4) et trois tests HDMA.
+- **Mealybug Tearoom.** Restent les écritures de LCDC, SCX, SCY et WX lues par le fetcher, l'objet au bord gauche de l'écran, et, sur Game Boy, la ligne 0, que contredit Mooneye.
+
 ## 0.16.0 - 2026-11-20
 
 La Game Boy Color et la Game Boy ne forment plus qu'**un seul cœur**, **RavenGBC** : comme la console, il lit aussi les jeux Game Boy. Le moteur était déjà commun ; le cœur Libretro RavenGB et l'ancienne façade disparaissent, et le moteur prend le nom de la Game Boy Color. Ce qu'un jeu voit ne change pas, ni le format des états ; l'API C ne change pas. Le cœur Libretro RavenGB, ses clés d'options et l'en-tête C++ `ravenemu/gb/` sont retirés : c'est la raison de la version mineure.

@@ -374,7 +374,12 @@ void pcm_register_test() {
     native.apu.write(0xff14, 0x87); // trigger, première étape forcée à zéro
     check((native.bus.read(0xff76) & 0x0f) == 0x00,
           "FF76 n'expose pas la première étape duty forcée à zéro");
-    native.apu.tick(4);
+    // Le premier échantillon attend la période (4 cycles) et deux tops de
+    // 1 MHz (SameSuite, channel_1_delay).
+    native.apu.tick(4 + 7);
+    check((native.bus.read(0xff76) & 0x0f) == 0x00,
+          "FF76 avance avant les deux tops qui suivent le déclenchement");
+    native.apu.tick(1);
     check((native.bus.read(0xff76) & 0x0f) == 0x0f,
           "FF76 n'expose pas la sortie numérique après le premier clock duty");
     native.bus.write(0xff76, 0x00);

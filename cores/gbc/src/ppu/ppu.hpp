@@ -219,7 +219,7 @@ public:
     }
 
     void reset_for_boot_rom() noexcept {
-        lcdc_ = 0;
+        lcdc_ = 0; render_lcdc_ = 0;
         stat_enable_ = 0;
         scy_ = 0; scx_ = 0; ly_ = 0; lyc_ = 0;
         bgp_ = 0; obp0_ = 0; obp1_ = 0; wy_ = 0; wx_ = 0;
@@ -238,10 +238,24 @@ public:
         completed_frame.fill(0); working_frame_.fill(0);
     }
 
+    /**
+     * Un pixel sorti de la FIFO n'est coloré que trois points plus tard : les
+     * palettes et les bits 0 et 1 de LCDC, lus au rendu, sont ceux de ce
+     * moment-là. Mealybug Tearoom (m3_bgp_change, m3_window_timing) le mesure
+     * sur DMG comme sur CGB-D, sans que la durée du mode 3 change. Le bus en
+     * tient compte en validant ces écritures dès le premier point de leur
+     * M-cycle (MemoryBus::write_render_register_mcycle) ; les autres bits de
+     * LCDC, lus par le fetcher ou qui allument l'écran, gardent leur instant.
+     */
+    void preview_lcdc_render_bits(int value) noexcept {
+        render_lcdc_ = (render_lcdc_ & ~3) | (value & 3);
+    }
+
     void write_lcdc(int value) noexcept {
         const bool was_enabled = lcd_enabled();
         const bool window_was_enabled = (lcdc_ & 0x20) != 0;
         lcdc_ = byte(value);
+        render_lcdc_ = lcdc_;
         if (gbc::is_cgb_hardware(hardware_mode_) && window_was_enabled && (lcdc_ & 0x20) == 0) {
             window_y_condition_ = false;
         }
@@ -414,7 +428,7 @@ public:
     /** `tagged_frames` vaut false pour un état au format 10 (images en i32). */
     void load(BinaryReader& in, bool tagged_frames = true) {
         if (in.i32() != 72) throw SaveStateError("État instantané corrompu (PPU)");
-        lcdc_ = in.i32(); stat_enable_ = in.i32(); scy_ = in.i32(); scx_ = in.i32();
+        lcdc_ = in.i32(); render_lcdc_ = lcdc_; stat_enable_ = in.i32(); scy_ = in.i32(); scx_ = in.i32();
         ly_ = in.i32(); lyc_ = in.i32(); bgp_ = in.i32(); obp0_ = in.i32(); obp1_ = in.i32();
         wy_ = in.i32(); wx_ = in.i32(); mode_ = in.i32(); reported_mode_ = in.i32();
         reported_mode_target_ = in.i32(); reported_mode_delay_ = in.i32();
@@ -688,7 +702,12 @@ private:
             update_lyc_compare();
             window_line_ = 0;
             if (wy_ == 0) window_y_condition_ = true;
-            frame_mode2_delay_ = true;
+            // Sur DMG, la source mode 2 de la ligne 0 n'arrive qu'au point 4
+            // (Mooneye, intr_1_2_timing-GS, vérifié sur DMG, MGB et SGB, qui
+            // échoue sur CGB). Sur CGB, elle arrive au point 0 : quatre points
+            // après celle des autres lignes, tirée quatre points avant leur
+            // début. Mealybug Tearoom compense exactement ces quatre points.
+            frame_mode2_delay_ = hardware_mode_ == gbc::HardwareMode::dmg;
             set_mode(mode_oam);
         } else if (ly_ < height) {
             if (ly_ == wy_) window_y_condition_ = true;
@@ -1195,7 +1214,7 @@ private:
             return;
         }
 
-        const int color = (lcdc_ & 1) != 0 ? pixel.color : 0;
+        const int color = (render_lcdc_ & 1) != 0 ? pixel.color : 0;
         bg_color_line_[static_cast<std::size_t>(x)] = color;
         bg_priority_line_[static_cast<std::size_t>(x)] = false;
         const int shade = (bgp_ >> (color * 2)) & 3;
@@ -1264,7 +1283,7 @@ private:
     }
 
     void render_object_dmg(int base, int x, const ObjPixel& object) noexcept {
-        if ((lcdc_ & 2) == 0 || object.color == 0) return;
+        if ((render_lcdc_ & 2) == 0 || object.color == 0) return;
         if (object.behind_background && bg_color_line_[static_cast<std::size_t>(x)] != 0) return;
         const int palette = object.palette != 0 ? obp1_ : obp0_;
         const int shade = (palette >> (object.color * 2)) & 3;
@@ -1277,9 +1296,9 @@ private:
     }
 
     void render_object_cgb(int base, int x, const ObjPixel& object) noexcept {
-        if ((lcdc_ & 2) == 0 || object.color == 0) return;
+        if ((render_lcdc_ & 2) == 0 || object.color == 0) return;
         const bool bg_visible = bg_color_line_[static_cast<std::size_t>(x)] != 0;
-        if (bg_visible && (lcdc_ & 1) != 0 &&
+        if (bg_visible && (render_lcdc_ & 1) != 0 &&
             (bg_priority_line_[static_cast<std::size_t>(x)] || object.behind_background)) {
             return;
         }
@@ -1405,6 +1424,9 @@ private:
     InterruptController& interrupts_;
     gbc::HardwareMode hardware_mode_{gbc::HardwareMode::dmg};
     int lcdc_{0x91};
+    // Bits 0 et 1 de LCDC tels que le rendu les voit ; égal à lcdc_ entre
+    // deux instructions (voir preview_lcdc_render_bits).
+    int render_lcdc_{0x91};
     int stat_enable_{};
     int scy_{};
     int scx_{};

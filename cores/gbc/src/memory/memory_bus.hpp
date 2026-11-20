@@ -49,6 +49,10 @@ public:
     void write_mcycle(int address, int value) override {
         const int addr = word(address);
         const bool blocked_before = oam_dma_active_ && !dma_accessible(addr, oam_dma_source_);
+        if (render_register(addr)) {
+            write_render_register_mcycle(addr, byte(value), blocked_before);
+            return;
+        }
         tick_mcycle();
         const bool blocked_after = oam_dma_active_ && !dma_accessible(addr, oam_dma_source_);
         if (blocked_before || blocked_after) return;
@@ -56,6 +60,43 @@ public:
         // se comporte comme une écriture seule.
         if (in_oam_range(addr)) ppu_.corrupt_oam(Ppu::OamCorruption::write);
         write_internal(addr, byte(value));
+    }
+
+    /**
+     * Registres lus au rendu : un pixel n'est coloré que trois points après sa
+     * sortie de la FIFO (voir Ppu::preview_lcdc_render_bits), si bien qu'une
+     * écriture touche déjà les pixels sortis pendant les trois points qui la
+     * précèdent. Le bus la valide donc dès le premier point de son M-cycle,
+     * sans rien retarder : c'est le cas en vitesse simple, celui que mesurent
+     * Mealybug Tearoom et AGE. En double vitesse, un M-cycle ne dure que deux
+     * points ; l'écriture y est validée au premier, faute de mesure.
+     */
+    [[nodiscard]] static bool render_register(int address) noexcept {
+        return address == 0xff40 || (address >= 0xff47 && address <= 0xff49) ||
+            address == 0xff69 || address == 0xff6b;
+    }
+
+    void write_render_register_mcycle(int address, int value, bool blocked_before) {
+        const int cpu_cycles_per_dot = 1 << speed_.peripheral_shift();
+        while (cpu_blocked()) tick_cpu_clock(4, false);
+        tick_cpu_clock(cpu_cycles_per_dot, false);
+        const bool blocked_early = blocked_before ||
+            (oam_dma_active_ && !dma_accessible(address, oam_dma_source_));
+        if (!blocked_early) {
+            // LCDC : seuls ses bits lus au rendu sont avancés ; l'allumage de
+            // l'écran et les bits du fetcher sont écrits en fin de M-cycle.
+            if (address == 0xff40) ppu_.preview_lcdc_render_bits(value);
+            else write_internal(address, value);
+        }
+        tick_cpu_clock(4 - cpu_cycles_per_dot, false);
+        while (cpu_blocked()) tick_cpu_clock(4, false);
+        if (address != 0xff40) return;
+        const bool blocked_after = oam_dma_active_ && !dma_accessible(address, oam_dma_source_);
+        if (blocked_before || blocked_after) {
+            ppu_.preview_lcdc_render_bits(ppu_.lcdc());
+            return;
+        }
+        write_internal(address, value);
     }
 
     void idu_mcycle(int value) override {
