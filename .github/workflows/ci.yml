@@ -20,7 +20,7 @@ jobs:
       - name: Fetch public GBA test ROMs
         run: cores/gba/tests/fetch_test_roms.sh "$RUNNER_TEMP/gba-test-roms"
       - name: Fetch public GB/GBC test ROMs
-        run: cores/gb/tests/fetch_test_roms.sh "$RUNNER_TEMP/gb-test-roms"
+        run: cores/gbc/tests/fetch_test_roms.sh "$RUNNER_TEMP/gb-test-roms"
       - name: Configure CMake
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
@@ -39,9 +39,10 @@ jobs:
           build/package_consumer/ravenemu_package_consumer
       - name: Verify Libretro libraries
         run: |
-          test -f build/libretro/ravenemu_gb_libretro.so
           test -f build/libretro/ravenemu_gbc_libretro.so
           test -f build/libretro/ravenemu_gba_libretro.so
+          # Game Boy: RavenGBC, not a core of its own any more.
+          test ! -e build/libretro/ravenemu_gb_libretro.so
           # Only the Libretro interface may leave a core.
           for core in build/libretro/*_libretro.so; do
             extra=$(nm -D --defined-only "$core" | awk '{print $3}' | grep -v '^retro_' || true)
@@ -74,7 +75,7 @@ jobs:
       - name: Fetch public GBA test ROMs
         run: cores/gba/tests/fetch_test_roms.sh "$RUNNER_TEMP/gba-test-roms"
       - name: Fetch public GB/GBC test ROMs
-        run: cores/gb/tests/fetch_test_roms.sh "$RUNNER_TEMP/gb-test-roms"
+        run: cores/gbc/tests/fetch_test_roms.sh "$RUNNER_TEMP/gb-test-roms"
       - name: Configure CMake
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
@@ -182,7 +183,7 @@ jobs:
       - name: Verify Libretro libraries
         run: |
           nm="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
-          for system in gb gbc gba; do
+          for system in gbc gba; do
             core="build/libretro/ravenemu_${system}_libretro.so"
             test -f "$core"
             extra=$("$nm" -D --defined-only "$core" | awk '{print $3}' | grep -v '^retro_' || true)

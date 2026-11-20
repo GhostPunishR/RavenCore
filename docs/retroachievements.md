@@ -52,12 +52,12 @@ Limites :
 
 ## Vérification
 
-- `gb_raven_core` :
+- `gbc_raven_core` :
   - bornes de chaque région, et lecture par blocs égale aux lectures d'un octet, y compris à cheval sur deux régions ;
   - registres d'E/S égaux à ce qu'une ROM de test en recopie par le CPU ;
   - banque paginée choisie par un MBC5, première fenêtre commutée par un MBC1 en mode 1.
-- `gb_cartridge_mbc` : pour chaque contrôleur et chaque banque choisie, la copie d'une fenêtre est, octet pour octet, la lecture du CPU.
-- `libretro_smoke_gb`, `libretro_smoke_gbc` et `libretro_smoke_gba` :
+- `gbc_cartridge_mbc` : pour chaque contrôleur et chaque banque choisie, la copie d'une fenêtre est, octet pour octet, la lecture du CPU.
+- `libretro_smoke_gb` et `libretro_smoke_gbc` (RavenGBC, un jeu Game Boy puis la Game Boy Color), `libretro_smoke_gba` :
   - carte déclarée aux adresses de la console, en descripteurs que RetroArch accepte ;
   - copie qui suit chaque image, un changement de banque, un reset et un chargement d'état.
 - Vérifié en local avec `rc_libretro`, le code de rcheevos qui relie un cœur Libretro aux succès dans RetroArch, compilé hors du dépôt. Pas encore essayé en jeu dans RetroArch, ni testé par RetroAchievements.

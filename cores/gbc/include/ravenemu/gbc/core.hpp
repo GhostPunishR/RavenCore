@@ -1,9 +1,11 @@
 #pragma once
 #include <ravenemu/core.hpp>
+#include <ravenemu/gbc/hardware_mode.hpp>
 
 namespace ravenemu::gbc {
-/** Cœur GBC public. L'identité persistée reste GAME_BOY tant que GB/GBC partagent
- * le contrat de bibliothèque, mais la cible et les composants CGB sont compilés
- * séparément afin de poursuivre l'extraction sans duplication. */
-[[nodiscard]] std::unique_ptr<Core> make_core(std::span<const std::uint8_t> boot_rom = {});
+/** Fabrique GB/GBC explicite. Le mode automatique conserve le contrat JNI. */
+[[nodiscard]] std::unique_ptr<Core> make_core(
+    HardwareModel model = HardwareModel::automatic,
+    std::span<const std::uint8_t> boot_rom = {}
+);
 }

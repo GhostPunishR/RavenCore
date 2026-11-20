@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Packs the three Libretro cores of a build for one platform, with their
+# Packs the Libretro cores of a build (RavenGBC, RavenGBA) for one platform, with their
 # RetroArch information files: cores/ and info/ at the root of the archive.
 #   libretro/package.sh BUILD_DIR PLATFORM NAME
 # PLATFORM is linux-*, windows-*, macos-* or android-*; the archive is
@@ -22,9 +22,11 @@ case "$platform" in
         done ;;
     *) echo "Unknown platform: $platform" >&2; exit 1 ;;
 esac
+# RavenGBC (Game Boy Color and Game Boy) and RavenGBA, each with its information file.
 count=$(find "$stage/cores" -type f | wc -l)
-if [ "$count" -ne 3 ]; then
-    echo "Expected 3 cores for $platform, found $count" >&2; exit 1
+infos=$(find "$stage/info" -type f | wc -l)
+if [ "$count" -ne 2 ] || [ "$infos" -ne 2 ]; then
+    echo "Expected 2 cores and 2 information files for $platform, found $count and $infos" >&2; exit 1
 fi
 case "$platform" in
     linux-*) tar -C "$stage" -czf "$name.tar.gz" cores info ;;

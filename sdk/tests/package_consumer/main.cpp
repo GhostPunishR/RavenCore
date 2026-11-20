@@ -1,9 +1,8 @@
 // Inclut chaque en-tête public installé et appelle les deux interfaces.
 #include <ravenemu/bridge.h>
 #include <ravenemu/core.hpp>
-#include <ravenemu/gb/core.hpp>
-#include <ravenemu/gba/core.hpp>
 #include <ravenemu/gbc/core.hpp>
+#include <ravenemu/gba/core.hpp>
 #include <ravenemu/sdk.hpp>
 
 #include <cstdio>

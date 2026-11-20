@@ -15,9 +15,9 @@
 #include <string>
 #include <vector>
 
-#if defined(RAVENEMU_LIBRETRO_GB)
-#define OPTION(name) "ravenemu_gb_" name
-#elif defined(RAVENEMU_LIBRETRO_GBC)
+// One scenario per build: RavenGBC set to the Game Boy (SMOKE_GB), RavenGBC as
+// it comes, a Game Boy Color (SMOKE_GBC), and a GBA game on RavenGBA (SMOKE_GBA).
+#if defined(SMOKE_GB) || defined(SMOKE_GBC)
 #define OPTION(name) "ravenemu_gbc_" name
 #else
 #define OPTION(name) "ravenemu_gba_" name
@@ -239,6 +239,13 @@ std::int16_t input_state(unsigned port, unsigned device, unsigned, unsigned id) 
     if (device == RETRO_DEVICE_JOYPAD && id < held_buttons.size() && held_buttons[id]) return 1;
     return 0;
 }
+// The user's settings start over; the Game Boy scenario keeps its Game Boy.
+void reset_options() {
+    option_values.clear();
+#if defined(SMOKE_GB)
+    option_values["ravenemu_gbc_hardware"] = "gb";
+#endif
+}
 // Mélange d'un canal sur deux images, comme le cœur : (a × wa + b × wb) / 8, arrondi.
 std::uint32_t blend(std::uint32_t a, std::uint32_t b, unsigned wa, unsigned wb) {
     std::uint32_t result = 0;
@@ -249,6 +256,7 @@ std::uint32_t blend(std::uint32_t a, std::uint32_t b, unsigned wa, unsigned wb) 
 }
 
 int main() {
+    reset_options();
     retro_set_environment(environment);
     retro_set_video_refresh(video);
     retro_set_audio_sample_batch(audio);
@@ -265,14 +273,14 @@ int main() {
         return 1;
     }
 
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(SMOKE_GBA)
     auto rom = ravenemu::testing::minimal_gba_rom();
     const char marker[] = "EEPROM_V";
     std::copy_n(marker, 8, rom.begin() + 0x100);
     constexpr unsigned expected_width = 240, expected_height = 160;
 #else
     auto rom = ravenemu::testing::minimal_game_boy_rom();
-#if defined(RAVENEMU_LIBRETRO_GBC)
+#if defined(SMOKE_GBC)
     rom[0x143] = 0x80;
 #endif
     constexpr unsigned expected_width = 160, expected_height = 144;
@@ -287,7 +295,7 @@ int main() {
     }
     retro_system_av_info av{};
     retro_get_system_av_info(&av);
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(SMOKE_GBA)
     constexpr unsigned expected_descriptors = 10;
 #else
     constexpr unsigned expected_descriptors = 8;
@@ -302,14 +310,14 @@ int main() {
         std::cerr << "Invalid Libretro AV metadata\n";
         return 1;
     }
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(SMOKE_GBA)
     auto* battery = static_cast<std::uint8_t*>(retro_get_memory_data(RETRO_MEMORY_SAVE_RAM));
     if (!battery || retro_get_memory_size(RETRO_MEMORY_SAVE_RAM) != 8192) return 1;
     battery[8184] = 0x5a; // Frontend import before the first frame.
 #endif
     retro_run();
     retro_run();
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(SMOKE_GBA)
     if (retro_get_memory_data(RETRO_MEMORY_SAVE_RAM) != battery || battery[8184] != 0x5a) return 1;
 #endif
     if (video_frames != 2 || duped_frames != 0 || last_width != expected_width || last_height != expected_height) {
@@ -345,7 +353,7 @@ int main() {
         std::cerr << "Memory descriptor RetroArch would reject\n";
         return 1;
     }
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(SMOKE_GBA)
     const auto region_length = [](std::size_t start) {
         for (const auto& descriptor : memory_map)
             if (descriptor.start == start) return descriptor.len;
@@ -360,7 +368,7 @@ int main() {
     // Les deux fenêtres de ROM, VRAM, WRAM, OAM (0x80 puis 0x20 octets),
     // registres d'E/S, HRAM, et sur GBC les banques 2 à 7 de la WRAM (0x4000
     // puis 0x2000 octets).
-#if defined(RAVENEMU_LIBRETRO_GBC)
+#if defined(SMOKE_GBC)
     constexpr std::size_t expected_regions = 10;
 #else
     constexpr std::size_t expected_regions = 8;
@@ -375,7 +383,7 @@ int main() {
 
     // Codes de triche du menu : appliqués dès l'image suivante ; un code refusé
     // dit pourquoi, et n'empêche pas les autres.
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(SMOKE_GBA)
     const char* cheat = "33000100 0042";          // Codebreaker : [03000100] = 42
     const char* refused = "9A123456 7890";        // Codebreaker chiffré
     constexpr std::size_t cheat_address = 0x0300'0100;
@@ -443,7 +451,7 @@ int main() {
         std::cerr << "State still present after unload\n";
         return 1;
     }
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(SMOKE_GBA)
     // Options déclarées avec « auto » par défaut, appliquées au chargement ;
     // la lumière du capteur solaire part de 50 %.
     if (declared_options.size() != 8 ||
@@ -482,7 +490,7 @@ int main() {
         std::cerr << "GBA RTC option ignored\n";
         return 1;
     }
-    option_values.clear();
+    reset_options();
 
     // Le choix auto doit instancier la RTC avant d'exposer SAVE_RAM au frontend.
     auto rtc_hack = ravenemu::testing::pokemon_rtc_gba_rom();
@@ -502,7 +510,7 @@ int main() {
     retro_unload_game();
     option_values["ravenemu_gba_rtc"] = "disabled";
     if (!retro_load_game(&rtc_game) || retro_get_memory_size(RETRO_MEMORY_SAVE_RAM) != 131072) return 1;
-    retro_unload_game(); option_values.clear();
+    retro_unload_game(); reset_options();
     auto original_pokemon = ravenemu::testing::pokemon_rtc_gba_rom(false);
     rtc_game.data = original_pokemon.data(); rtc_game.size = original_pokemon.size();
     if (!retro_load_game(&rtc_game) || retro_get_memory_size(RETRO_MEMORY_SAVE_RAM) != 131072) return 1;
@@ -517,18 +525,14 @@ int main() {
             rumble_rom[index * 4U + byte] = static_cast<std::uint8_t>(motor_on[index] >> (byte * 8U));
     std::copy_n("V49E", 4, rumble_rom.begin() + 0xac);
 #else
-#if defined(RAVENEMU_LIBRETRO_GB)
-    const char* video_option = "ravenemu_gb_palette";
+#if defined(SMOKE_GB)
+    const char* video_option = "ravenemu_gbc_palette";
     const char* video_choices = "; dmg|pocket";
 #else
     const char* video_option = "ravenemu_gbc_color_correction";
     const char* video_choices = "; disabled|enabled";
 #endif
-#if defined(RAVENEMU_LIBRETRO_GB)
-    constexpr std::size_t option_count = 5;
-#else
-    constexpr std::size_t option_count = 7;
-#endif
+    constexpr std::size_t option_count = 8;
     if (declared_options.size() != option_count ||
         declared_options[video_option].find(video_choices) == std::string::npos) {
         std::cerr << "Game Boy core options not declared\n";
@@ -553,7 +557,7 @@ int main() {
         std::cerr << "Rumble motor left running after unload\n";
         return 1;
     }
-#if !defined(RAVENEMU_LIBRETRO_GBA)
+#if !defined(SMOKE_GBA)
     // MBC5+RAM+BATTERY program: enable RAM, store $77 at $A000, loop. The
     // write must reach SAVE_RAM, which the frontend persists.
     auto battery_rom = ravenemu::testing::minimal_game_boy_rom();
@@ -758,7 +762,7 @@ int main() {
 #endif
     // Un compteur en mémoire de travail : la copie suit chaque image, garde son
     // adresse et repart de l'état rechargé ou du reset.
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(SMOKE_GBA)
     auto counter_rom = ravenemu::testing::minimal_gba_rom();
     const std::uint32_t count_loop[]{0xe3a00403U, 0xe5d01000U, 0xe2811001U, 0xe5c01000U, 0xeafffffbU};
     for (std::size_t index = 0; index < std::size(count_loop); ++index)
@@ -806,10 +810,10 @@ int main() {
     broken_game.size = broken.size();
     const auto errors_before = error_logs;
     if (retro_load_game(&broken_game) || error_logs != errors_before + 1 ||
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(SMOKE_GBA)
         last_message.find("RavenGBA") != 0 || last_message.find("trop courte") == std::string::npos
 #else
-        last_message.find("RavenGB") != 0 || last_message.find("trop petite") == std::string::npos
+        last_message.find("RavenGBC") != 0 || last_message.find("trop petite") == std::string::npos
 #endif
     ) {
         std::cerr << "Refused game not reported: " << last_message << "\n";
@@ -817,13 +821,13 @@ int main() {
     }
 
     // Options d'image, changées en cours de jeu.
-#if defined(RAVENEMU_LIBRETRO_GB)
+#if defined(SMOKE_GB)
     auto plain = ravenemu::testing::minimal_game_boy_rom();
     const auto green = pixel_after(plain, 3);
     constexpr std::uint32_t greens[]{0xe0f8d0, 0x88c070, 0x346856, 0x081820};
     constexpr std::uint32_t greys[]{0xececec, 0xa6a6a6, 0x565656, 0x141414};
     const auto shade = std::find(std::begin(greens), std::end(greens), green) - std::begin(greens);
-    option_values["ravenemu_gb_palette"] = "pocket";
+    option_values["ravenemu_gbc_palette"] = "pocket";
     options_updated = true;
     retro_run();
     if (shade == 4 || first_pixel != greys[shade]) {
@@ -833,7 +837,7 @@ int main() {
     retro_unload_game();
 #else
     // Fond rouge pur ; corrigé : environ 28 % de gris en plus, puis gamma 1,15.
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(SMOKE_GBA)
     const char* correction = "ravenemu_gba_color_correction";
     auto red = ravenemu::testing::minimal_gba_rom();
     const std::uint32_t backdrop[]{0xe3a00405U, 0xe3a0101fU, 0xe1c010b0U, 0xe3a00301U,
@@ -863,11 +867,11 @@ int main() {
     }
     retro_unload_game();
 #endif
-    option_values.clear();
+    reset_options();
 
     // Un jeu qui change de fond à chaque image (scintillement) et range la
     // croix en mémoire ; sur Game Boy, il range aussi le registre B du démarrage.
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(SMOKE_GBA)
     auto flicker = ravenemu::testing::minimal_gba_rom();
     // DISPCNT = 0, puis à chaque VBlank : palette[0] ^= 7FFF, KEYINPUT -> [03000000].
     const std::uint32_t flicker_code[]{
@@ -930,14 +934,14 @@ int main() {
                   << mixed << ' ' << ghost_start << ' ' << first_pixel << "\n";
         return 1;
     }
-#if !defined(RAVENEMU_LIBRETRO_GBA)
+#if !defined(SMOKE_GBA)
     // B au démarrage : 0 sur Game Boy et Game Boy Color, 1 sur Game Boy Advance.
     if (!mapped(0xc001) || *mapped(0xc001) != 0) {
         std::cerr << "Unexpected B register at boot\n";
         return 1;
     }
 #endif
-#if defined(RAVENEMU_LIBRETRO_GBC)
+#if defined(SMOKE_GBC)
     retro_unload_game();
     option_values["ravenemu_gbc_hardware"] = "gba";
     static_cast<void>(pixel_after(flicker, 2));
@@ -947,11 +951,43 @@ int main() {
     }
     option_values.erase("ravenemu_gbc_hardware");
 #endif
-#if !defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(SMOKE_GB)
+    // Le core Game Boy Color lit aussi les jeux Game Boy. Par défaut, il est
+    // une Game Boy Color pour tous. « Selon le jeu » met un jeu Game Boy sur
+    // la Game Boy, sans les banques 2 à 7 de la WRAM de la GBC dans la carte
+    // mémoire, et un jeu Game Boy Color sur la GBC (ou sur la GBA, où B vaut 1
+    // au démarrage) ; les autres choix imposent leur console à tous les jeux,
+    // et la Game Boy refuse un jeu réservé à la GBC.
+    {
+        auto color = flicker, color_only = flicker;
+        color[0x143] = 0x80;
+        color_only[0x143] = 0xc0;
+        enum Console { refused, game_boy, game_boy_color, game_boy_advance };
+        const auto runs_on = [](std::vector<std::uint8_t>& rom, const char* hardware) {
+            retro_unload_game();
+            if (hardware) option_values["ravenemu_gbc_hardware"] = hardware;
+            else option_values.erase("ravenemu_gbc_hardware");
+            if (pixel_after(rom, 2) == 0xffffffffU) return refused;
+            if (mapped(0xc001) && *mapped(0xc001) == 1) return game_boy_advance;
+            return mapped(0x10000) ? game_boy_color : game_boy;
+        };
+        if (runs_on(flicker, nullptr) != game_boy_color || runs_on(color, nullptr) != game_boy_color ||
+            runs_on(flicker, "auto") != game_boy || runs_on(color, "auto") != game_boy_color ||
+            runs_on(color_only, "auto") != game_boy_color || runs_on(flicker, "auto_gba") != game_boy ||
+            runs_on(color, "auto_gba") != game_boy_advance || runs_on(flicker, "gbc") != game_boy_color ||
+            runs_on(flicker, "gba") != game_boy_advance || runs_on(color, "gb") != game_boy ||
+            runs_on(color_only, "gb") != refused) {
+            std::cerr << "Game Boy or Game Boy Color hardware not chosen per game\n";
+            return 1;
+        }
+        option_values["ravenemu_gbc_hardware"] = "gb";
+    }
+#endif
+#if !defined(SMOKE_GBA)
     // Boot ROM du dossier système : la nôtre range 42 en C010, puis rend la
     // main au jeu en 0100. Désactivée par l'option, elle n'est plus lue.
     {
-#if defined(RAVENEMU_LIBRETRO_GB)
+#if defined(SMOKE_GB)
         std::vector<std::uint8_t> boot(0x100);
         const char* boot_file = "dmg_boot.bin";
 #else
@@ -963,7 +999,7 @@ int main() {
         std::copy(std::begin(start), std::end(start), boot.begin());
         std::copy(std::begin(leave), std::end(leave), boot.begin() + 0xfc);
         const auto directory = std::filesystem::temp_directory_path() /
-                               ("ravenemu_smoke_" + std::string(system.library_name));
+                               (std::string("ravenemu_smoke_") + SMOKE_SCENARIO);
         std::filesystem::create_directories(directory);
         std::ofstream(directory / boot_file, std::ios::binary)
             .write(reinterpret_cast<const char*>(boot.data()), static_cast<std::streamsize>(boot.size()));
@@ -1001,7 +1037,7 @@ int main() {
         auto swi_rom = ravenemu::testing::minimal_gba_rom();
         put(swi_rom, 0, {0xef0d0000U, 0xeafffffeU});                              // SWI 0x0D ; B .
         const auto directory = std::filesystem::temp_directory_path() /
-                               ("ravenemu_smoke_" + std::string(system.library_name));
+                               (std::string("ravenemu_smoke_") + SMOKE_SCENARIO);
         std::filesystem::create_directories(directory);
         std::ofstream(directory / "gba_bios.bin", std::ios::binary)
             .write(reinterpret_cast<const char*>(bios.data()), static_cast<std::streamsize>(bios.size()));
@@ -1029,13 +1065,13 @@ int main() {
     }
 #endif
     retro_unload_game();
-    option_values.clear();
+    reset_options();
 
     // Deux joueurs reliés par câble (sous-système « link ») : images côte à
     // côte, une manette et une sauvegarde chacun. Le joueur 1 envoie un mot
     // par le port série et reçoit celui du joueur 2, qui a une sauvegarde.
     {
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(SMOKE_GBA)
         // Mode multijoueur : RCNT = 0, SIOCNT = 2003h, SIOMLT_SEND, puis le
         // parent lance le transfert, l'attend et range SIOMULTI1 en 03000000.
         const auto program = [](std::initializer_list<std::uint32_t> words) {
@@ -1068,7 +1104,7 @@ int main() {
         const std::uint8_t answer[]{0x3e, 0x99, 0xe0, 0x01, 0x3e, 0x80, 0xe0, 0x02, 0x18, 0xfe};
         std::copy(std::begin(send), std::end(send), first_rom.begin() + 0x100);
         std::copy(std::begin(answer), std::end(answer), second_rom.begin() + 0x100);
-#if defined(RAVENEMU_LIBRETRO_GBC)
+#if defined(SMOKE_GBC)
         first_rom[0x143] = second_rom[0x143] = 0x80;
 #endif
         second_rom[0x147] = 0x1b;  // MBC5+RAM+BATTERY, 8 Kio
@@ -1129,7 +1165,7 @@ int main() {
     options_version = 2;
     declared_options.clear();
     retro_set_environment(environment);
-#if defined(RAVENEMU_LIBRETRO_GBA)
+#if defined(SMOKE_GBA)
     const auto& light = declared_v2["ravenemu_gba_solar_light"];
     const auto& bios_option = declared_v2["ravenemu_gba_bios"];
     if (declared_v2.size() != 8 || !declared_options.empty() || light.default_value != "50" ||
@@ -1139,19 +1175,17 @@ int main() {
         std::cerr << "Options v2 not declared\n";
         return 1;
     }
-#elif defined(RAVENEMU_LIBRETRO_GB)
-    const auto& palette = declared_v2["ravenemu_gb_palette"];
-    if (declared_v2.size() != 5 || !declared_options.empty() || palette.default_value != "dmg" ||
-        palette.category != "video" || palette.values.size() != 3 || palette.desc != "Palette") {
-        std::cerr << "Options v2 not declared\n";
-        return 1;
-    }
 #else
+    const auto& palette = declared_v2["ravenemu_gbc_palette"];
     const auto& lcd = declared_v2["ravenemu_gbc_color_correction"];
     const auto& dmg_colors = declared_v2["ravenemu_gbc_dmg_colors"];
-    if (declared_v2.size() != 7 || !declared_options.empty() || lcd.default_value != "disabled" ||
-        lcd.category != "video" || lcd.values.size() != 2 || dmg_colors.default_value != "auto" ||
-        dmg_colors.category != "video" || dmg_colors.values.size() != 14) {
+    const auto& hardware = declared_v2["ravenemu_gbc_hardware"];
+    if (declared_v2.size() != 8 || !declared_options.empty() || palette.default_value != "dmg" ||
+        palette.category != "video" || palette.values.size() != 3 || palette.desc != "Palette" ||
+        lcd.default_value != "disabled" || lcd.category != "video" || lcd.values.size() != 2 ||
+        dmg_colors.default_value != "auto" || dmg_colors.category != "video" || dmg_colors.values.size() != 14 ||
+        hardware.default_value != "gbc" || hardware.category != "system" ||
+        hardware.values != std::vector<std::string>{"gbc", "gba", "auto", "auto_gba", "gb"}) {
         std::cerr << "Options v2 not declared\n";
         return 1;
     }
@@ -1165,7 +1199,7 @@ int main() {
         std::cerr << "Blending or input options v2 not declared\n";
         return 1;
     }
-#if !defined(RAVENEMU_LIBRETRO_GBA)
+#if !defined(SMOKE_GBA)
     if (declared_v2[OPTION("boot_rom")].category != "system" || declared_v2[OPTION("boot_rom")].default_value != "enabled") {
         std::cerr << "Boot ROM option v2 not declared\n";
         return 1;

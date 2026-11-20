@@ -1,9 +1,7 @@
 #include <libretro.h>
 #include <ravenemu/core.hpp>
-#if defined(RAVENEMU_LIBRETRO_GB)
-#include <ravenemu/gb/core.hpp>
-#elif defined(RAVENEMU_LIBRETRO_GBC)
-#include <ravenemu/gb/core.hpp>
+#if defined(RAVENEMU_LIBRETRO_GBC)
+#include <ravenemu/gbc/core.hpp>
 #elif defined(RAVENEMU_LIBRETRO_GBA)
 #else
 #error "Choose exactly one Libretro core"
@@ -112,17 +110,12 @@ std::vector<std::uint8_t> achievement_ram;
 // without the GBC banks, a smaller save chip...
 std::array<std::size_t, achievement_regions.size()> achievement_sizes{};
 
-#if defined(RAVENEMU_LIBRETRO_GB)
-constexpr const char* label = "RavenGB";
-constexpr const char* name = "RavenGB";
-constexpr const char* extensions = "gb|sgb";
-constexpr unsigned width = 160, height = 144;
-constexpr double fps = 4'194'304.0 / 70'224.0;
-#define RAVENEMU_OPTION(name) "ravenemu_gb_" name
-#elif defined(RAVENEMU_LIBRETRO_GBC)
+#if defined(RAVENEMU_LIBRETRO_GBC)
+// The Game Boy Color core, which runs the Game Boy's games too, one engine:
+// the console a game runs on is chosen when it loads (see hardware_for).
 constexpr const char* label = "RavenGBC";
 constexpr const char* name = "RavenGBC";
-constexpr const char* extensions = "gbc|gb";
+constexpr const char* extensions = "gb|gbc|sgb";
 constexpr unsigned width = 160, height = 144;
 constexpr double fps = 4'194'304.0 / 70'224.0;
 #define RAVENEMU_OPTION(name) "ravenemu_gbc_" name
@@ -145,7 +138,7 @@ constexpr unsigned max_cheats = 1024;
 // teintes, comme la palette « Pocket » de RavenEmu Android).
 using Shades = std::array<std::uint32_t, 4>;
 constexpr Shades dmg_shades{0x00e0f8d0, 0x0088c070, 0x00346856, 0x00081820};
-#if defined(RAVENEMU_LIBRETRO_GB)
+#if defined(RAVENEMU_LIBRETRO_GBC)
 constexpr Shades pocket_shades{0x00ececec, 0x00a6a6a6, 0x00565656, 0x00141414};
 constexpr Shades gray_shades{0x00ffffff, 0x00aaaaaa, 0x00555555, 0x00000000};
 #endif
@@ -281,13 +274,9 @@ struct OptionSpec {
     const char* category;
     std::vector<OptionChoice> choices;
 };
-#if !defined(RAVENEMU_LIBRETRO_GB)
-OptionSpec lcd_option(const char* key) {
-    return {key, "Correction des couleurs LCD",
-            "Adoucit les couleurs vives pour imiter l'écran réfléchissant de la console.", "video",
-            {{"disabled", "Désactivée"}, {"enabled", "Activée"}}};
+OptionSpec lcd_option(const char* key, const char* info) {
+    return {key, "Correction des couleurs LCD", info, "video", {{"disabled", "Désactivée"}, {"enabled", "Activée"}}};
 }
-#endif
 const std::vector<OptionSpec> option_specs{
     {RAVENEMU_OPTION("frame_blending"), "Mélange d'images",
      "Atténue le scintillement des jeux qui alternent deux images, comme le faisait l'écran de la console.", "video",
@@ -316,25 +305,30 @@ const std::vector<OptionSpec> option_specs{
 #endif
 #if defined(RAVENEMU_LIBRETRO_GBC)
     {"ravenemu_gbc_hardware", "Console émulée",
-     "Appliquée au chargement du jeu. Game Boy Advance : les jeux qui la reconnaissent débloquent leurs bonus "
-     "(Zelda Oracle, Shantae…).", "system",
-     {{"gbc", "Game Boy Color"}, {"gba", "Game Boy Advance"}}},
-#endif
-#if defined(RAVENEMU_LIBRETRO_GB)
-    {"ravenemu_gb_palette", "Palette", "Teintes des jeux Game Boy.", "video",
+     "Appliquée au chargement du jeu. Game Boy Color : les jeux Game Boy y prennent des couleurs, comme sur la "
+     "console. Game Boy Advance : de même, et les jeux qui la reconnaissent débloquent leurs bonus (Zelda Oracle, "
+     "Shantae…). Selon le jeu : un jeu Game Boy sur la Game Boy, un jeu Game Boy Color sur la Game Boy Color, ou "
+     "sur la Game Boy Advance. Game Boy : les jeux réservés à la Game Boy Color sont refusés.", "system",
+     {{"gbc", "Game Boy Color"}, {"gba", "Game Boy Advance"},
+      {"auto", "Selon le jeu : Game Boy ou Game Boy Color"}, {"auto_gba", "Selon le jeu : Game Boy ou Game Boy Advance"},
+      {"gb", "Game Boy"}}},
+    {"ravenemu_gbc_palette", "Palette", "Teintes des jeux sur la Game Boy.", "video",
      {{"dmg", "Vert (Game Boy)"}, {"pocket", "Gris (Game Boy Pocket)"}, {"gray", "Gris neutre"}}},
-#elif defined(RAVENEMU_LIBRETRO_GBC)
-    lcd_option("ravenemu_gbc_color_correction"),
+    lcd_option("ravenemu_gbc_color_correction",
+               "Game Boy Color et Advance : adoucit les couleurs vives pour imiter l'écran réfléchissant de la "
+               "console."),
     {"ravenemu_gbc_dmg_colors", "Couleurs des jeux Game Boy",
-     "Sans boot ROM. Comme sur la GBC : celles que sa boot ROM choisit d'après le titre du jeu (Pokémon Rouge "
-     "en rouge…). Les autres choix sont ceux des touches tenues pendant son logo.", "video",
+     "Sur la Game Boy Color ou Advance, sans boot ROM. Comme sur la GBC : celles que sa boot ROM choisit d'après "
+     "le titre du jeu (Pokémon Rouge en rouge…). Les autres choix sont ceux des touches tenues pendant son logo.",
+     "video",
      {{"auto", "Comme sur la GBC"}, {"grayscale", "Gris"}, {"up", "Haut : brun"}, {"a_up", "A + Haut : rouge"},
       {"b_up", "B + Haut : sépia"}, {"left", "Gauche : bleu"}, {"a_left", "A + Gauche : bleu-violet"},
       {"b_left", "B + Gauche : gris"}, {"down", "Bas : pastel"}, {"a_down", "A + Bas : jaune et rouge"},
       {"b_down", "B + Bas : jaune et brun"}, {"right", "Droite : vert et rouge"},
       {"a_right", "A + Droite : vert et bleu"}, {"b_right", "B + Droite : négatif"}}},
 #else
-    lcd_option("ravenemu_gba_color_correction"),
+    lcd_option("ravenemu_gba_color_correction",
+               "Adoucit les couleurs vives pour imiter l'écran réfléchissant de la console."),
     // For games whose cartridge detection fails: the SAVE_RAM size must not
     // change while the frontend holds it, so both apply when a game loads.
     {"ravenemu_gba_save_type", "Type de sauvegarde",
@@ -410,11 +404,11 @@ bool option_is(const char* key, std::string_view value) {
 }
 // Image and input options: read when a game loads, and again whenever they change.
 void read_live_options() {
-#if defined(RAVENEMU_LIBRETRO_GB)
-    shades = option_is("ravenemu_gb_palette", "pocket") ? pocket_shades
-           : option_is("ravenemu_gb_palette", "gray")   ? gray_shades
+#if defined(RAVENEMU_LIBRETRO_GBC)
+    // The palette for the games on the Game Boy, the correction for those in color.
+    shades = option_is("ravenemu_gbc_palette", "pocket") ? pocket_shades
+           : option_is("ravenemu_gbc_palette", "gray")   ? gray_shades
                                                         : dmg_shades;
-#elif defined(RAVENEMU_LIBRETRO_GBC)
     lcd_correction = option_is("ravenemu_gbc_color_correction", "enabled");
 #else
     lcd_correction = option_is("ravenemu_gba_color_correction", "enabled");
@@ -440,8 +434,9 @@ void apply_solar_option(ravenemu::Core& machine) {
 }
 #endif
 #if defined(RAVENEMU_LIBRETRO_GBC)
-// Couleurs des jeux Game Boy : sans effet sur un jeu GBC, appliquées tout de
-// suite. Les valeurs de l'option suivent l'ordre de GbcCompatibilityColors.
+// Couleurs des jeux Game Boy sur la Game Boy Color : sans effet sur un jeu GBC
+// ni sur la Game Boy, appliquées tout de suite. Les valeurs de l'option suivent
+// l'ordre de GbcCompatibilityColors.
 void apply_dmg_colors(ravenemu::Core& machine) {
     constexpr std::array<std::string_view, 14> values{"auto", "grayscale", "up", "a_up", "b_up", "left", "a_left",
                                                       "b_left", "down", "a_down", "b_down", "right", "a_right",
@@ -519,10 +514,8 @@ void apply_options(ravenemu::Core& machine) {
     else if (option_is("ravenemu_gba_rtc", "disabled")) rtc = false;
     machine.set_gba_forced_rtc(rtc);
     apply_solar_option(machine);
-#elif defined(RAVENEMU_LIBRETRO_GBC)
-    apply_dmg_colors(machine);
 #else
-    static_cast<void>(machine);
+    apply_dmg_colors(machine);
 #endif
 }
 // The image options, the sensors and the solar light change at any time during the game.
@@ -534,10 +527,8 @@ void update_options() {
     for (auto& player : players) {
 #if defined(RAVENEMU_LIBRETRO_GBA)
         apply_solar_option(*player.core);
-#elif defined(RAVENEMU_LIBRETRO_GBC)
-        apply_dmg_colors(*player.core);
 #else
-        static_cast<void>(player);
+        apply_dmg_colors(*player.core);
 #endif
     }
 }
@@ -575,24 +566,36 @@ std::vector<std::uint8_t> read_boot_rom(std::initializer_list<const char*> files
     return read_system_file(files, sizes, "boot ROM");
 }
 #endif
-#if defined(RAVENEMU_LIBRETRO_GB)
-std::unique_ptr<ravenemu::Core> new_core() {
-    return ravenemu::gb::make_core(ravenemu::gb::HardwareModel::dmg,
-                                   read_boot_rom({"dmg_boot.bin", "gb_bios.bin"}, {0x100}));
+#if defined(RAVENEMU_LIBRETRO_GBC)
+// La console du jeu : la Game Boy Color, comme son nom, sauf choix contraire.
+// « Selon le jeu » lit l'en-tête comme RavenCore : 0x80 ou 0xC0 en 0x143, le
+// jeu connaît la Game Boy Color.
+ravenemu::gbc::HardwareModel hardware_for(std::span<const std::uint8_t> rom) {
+    using ravenemu::gbc::HardwareModel;
+    const auto flag = rom.size() > 0x143 ? rom[0x143] : 0;
+    const bool color = flag == 0x80 || flag == 0xc0;
+    const char* value = option("ravenemu_gbc_hardware");
+    const std::string_view choice = value ? value : "gbc";
+    if (choice == "gb") return HardwareModel::dmg;
+    if (choice == "gba") return HardwareModel::agb;
+    if (choice == "auto") return color ? HardwareModel::cgb : HardwareModel::dmg;
+    if (choice == "auto_gba") return color ? HardwareModel::agb : HardwareModel::dmg;
+    return HardwareModel::cgb;
 }
-#elif defined(RAVENEMU_LIBRETRO_GBC)
-// La boot ROM de la GBA ne diffère de celle de la GBC que par ce qu'elle
-// laisse dans B : chacune a son fichier.
-std::unique_ptr<ravenemu::Core> new_core() {
-    const bool agb = option_is("ravenemu_gbc_hardware", "gba");
-    auto boot = agb ? read_boot_rom({"agb_boot.bin"}, {0x800, 0x900})
-                    : read_boot_rom({"cgb_boot.bin", "gbc_bios.bin"}, {0x800, 0x900});
-    return ravenemu::gb::make_core(agb ? ravenemu::gb::HardwareModel::agb : ravenemu::gb::HardwareModel::cgb, boot);
+// Chaque console a sa boot ROM ; celle de la GBA ne diffère de celle de la
+// GBC que par ce qu'elle laisse dans B.
+std::unique_ptr<ravenemu::Core> new_core(std::span<const std::uint8_t> rom) {
+    using ravenemu::gbc::HardwareModel;
+    const auto hardware = hardware_for(rom);
+    auto boot = hardware == HardwareModel::dmg ? read_boot_rom({"dmg_boot.bin", "gb_bios.bin"}, {0x100})
+              : hardware == HardwareModel::agb ? read_boot_rom({"agb_boot.bin"}, {0x800, 0x900})
+                                               : read_boot_rom({"cgb_boot.bin", "gbc_bios.bin"}, {0x800, 0x900});
+    return ravenemu::gbc::make_core(hardware, boot);
 }
 #else
 // Le vrai BIOS, si l'option le demande et que gba_bios.bin est là ; sinon le
 // BIOS réécrit de RavenCore, et un message dit pourquoi.
-std::unique_ptr<ravenemu::Core> new_core() {
+std::unique_ptr<ravenemu::Core> new_core(std::span<const std::uint8_t>) {
     auto machine = ravenemu::make_gba_core(std::nullopt);
     const bool skip_intro = option_is("ravenemu_gba_bios", "skip_intro");
     if (!skip_intro && !option_is("ravenemu_gba_bios", "enabled")) return machine;
@@ -944,7 +947,7 @@ bool load_players(std::span<const retro_game_info> games) {
             auto& player = players[index];
             const auto* bytes = static_cast<const std::uint8_t*>(games[index].data);
             player.rom.assign(bytes, bytes + games[index].size);
-            player.core = new_core();
+            player.core = new_core(player.rom);
             apply_options(*player.core);
             player.core->load_rom(player.rom, {});
             player.native_frame.resize(player.core->video_spec().pixel_count());

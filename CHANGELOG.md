@@ -2,6 +2,19 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.16.0 - 2026-11-20
+
+La Game Boy Color et la Game Boy ne forment plus qu'**un seul cœur**, **RavenGBC** : comme la console, il lit aussi les jeux Game Boy. Le moteur était déjà commun ; le cœur Libretro RavenGB et l'ancienne façade disparaissent, et le moteur prend le nom de la Game Boy Color. Ce qu'un jeu voit ne change pas, ni le format des états ; l'API C ne change pas. Le cœur Libretro RavenGB, ses clés d'options et l'en-tête C++ `ravenemu/gb/` sont retirés : c'est la raison de la version mineure.
+
+### Modifié
+
+- **Libretro : RavenGBC pour la Game Boy Color et la Game Boy.** `ravenemu_gbc_libretro` ouvre les `.gbc`, `.gb` et `.sgb` ; `ravenemu_gb_libretro` n'existe plus. L'option **Console émulée** (`ravenemu_gbc_hardware`) garde ses valeurs `gbc` (par défaut, comme avant : un jeu Game Boy prend des couleurs) et `gba`, et en gagne trois : `auto` (un jeu Game Boy sur la Game Boy, un jeu Game Boy Color, 0x80 ou 0xC0 en 0x143, sur la GBC), `auto_gba` (de même, la GBC sur une GBA) et `gb` (la Game Boy pour tous, qui refuse un jeu réservé à la GBC, comme RavenGB). La boot ROM lue est celle de la console émulée.
+  - Les réglages de RavenGBC enregistrés par RetroArch restent valables. Ceux de RavenGB passent sur RavenGBC : `ravenemu_gbc_palette` (teintes des jeux sur la Game Boy), et les options communes sous `ravenemu_gbc_*` ; les réglages enregistrés sous `ravenemu_gb_*` ne sont pas repris. Pour retrouver RavenGB, choisir **Game Boy** ou **Selon le jeu**.
+  - Les sauvegardes de cartouche et le format des états ne changent pas. Comme avant, le moteur refuse un état pris sur une autre console (Game Boy ou Game Boy Color) que celle émulée.
+- **Moteur.** `cores/gb` devient `cores/gbc`, et l'ancienne façade `cores/gbc` y est repliée : KEY1 et double vitesse (`src/speed`), port infrarouge (`src/infrared`), tests du matériel CGB (`gbc_color_hardware`). La cible `gb_raven_core` devient `gbc_raven_core`, les en-têtes `ravenemu/gb/` deviennent `ravenemu/gbc/` et le namespace `ravenemu::gb` devient `ravenemu::gbc` ; `gbc_hardware` est retirée. `ravenemu::gbc::make_core(ravenemu::gbc::HardwareModel::cgb)` crée la Game Boy Color, `dmg` la Game Boy, `agb` la GBC d'une GBA, et `automatic` (par défaut) choisit d'après l'en-tête : l'ancien `gbc::make_core()` sans argument, toujours en GBC, demande désormais `HardwareModel::cgb`. Les tests du moteur prennent le préfixe `gbc_`. `RavenCore::ravencore` regroupe `gbc_raven_core` et `gba_raven_core`.
+- **API C et façade C++.** Inchangées : `RAVENEMU_GB`, `RAVENEMU_GBC`, `RAVENEMU_GBC_ON_GBA` et `sdk::System` choisissent la console du même moteur. Version mineure : un projet qui consomme le paquet CMake demande `find_package(RavenCore 0.16)`.
+- Tests : le test de fumée Libretro joue trois scénarios sur deux cœurs (RavenGBC réglé en Game Boy, RavenGBC tel quel en Game Boy Color, RavenGBA). Nouveau cas : la console choisie pour chaque jeu et chaque valeur de **Console émulée**, jeu réservé à la GBC refusé par la Game Boy ; il échoue si RavenGBC ne suit plus l'option.
+
 ## 0.15.4 - 2026-11-14
 
 Cette version apporte des corrections issues d'une relecture du Game Boy, du GBA, de Libretro et de l'API C. Aucune ne change ce qu'un jeu voit : images, son et format des états restent les mêmes. L'API C ne change pas, seul son en-tête est précisé. Elles ferment des écritures hors limites ou des débordements que seuls un état modifié, une ROM hostile ou un partenaire réseau anormal pouvaient atteindre.
