@@ -349,7 +349,7 @@ void period_zero_envelope_test() {
     apu.write(0xff12, 0x18); // volume 1, addition, période 0 = pas d'enveloppe
     apu.write(0xff13, 0xff);
     apu.write(0xff14, 0x87);
-    apu.tick(4); // quitte la première étape forcée à zéro
+    apu.tick(4 + 8); // quitte la première étape forcée à zéro (période et deux tops de 1 MHz)
     for (int edge = 0; edge < 8 * 64; ++edge) apu.clock_divider_falling_edge();
     check((apu.read_pcm12() & 0x0f) == 1,
           "une période d'enveloppe nulle a fait bouger le volume");
@@ -422,7 +422,7 @@ void trigger_envelope_delay_and_zombie_test() {
     delayed.write(0xff12, 0x19); // volume 1, addition, période 1
     delayed.write(0xff13, 0xff);
     delayed.write(0xff14, 0x87);
-    delayed.tick(4);
+    delayed.tick(4 + 8); // période et deux tops de 1 MHz après le déclenchement
     delayed.clock_divider_falling_edge(); // étape 7 : premier clock envelope
     check((delayed.read_pcm12() & 0x0f) == 1,
           "trigger juste avant l'envelope n'a pas ajouté un au timer rechargé");
@@ -435,7 +435,7 @@ void trigger_envelope_delay_and_zombie_test() {
     zombie.write(0xff12, 0x18);
     zombie.write(0xff13, 0xff);
     zombie.write(0xff14, 0x87);
-    zombie.tick(4);
+    zombie.tick(4 + 8);
     zombie.write(0xff12, 0x08);
     check((zombie.read_pcm12() & 0x0f) == 2,
           "cas zombie commun $V8->$08 n'a pas incrémenté le volume actif");
@@ -521,9 +521,91 @@ void first_duty_step_and_idle_clock_test() {
     apu.write(0xff14, 0x87);
     check((apu.read_pcm12() & 0x0f) == 0,
           "première étape duty après power-on non forcée à zéro");
-    apu.tick(4);
+    apu.tick(4 + 7);
+    check((apu.read_pcm12() & 0x0f) == 0,
+          "premier échantillon avant les deux tops qui suivent le déclenchement");
+    apu.tick(1);
     check((apu.read_pcm12() & 0x0f) == 0x0f,
           "compteur duty a avancé avant le premier trigger ou n'a pas démarré après");
+}
+
+/**
+ * Redéclenché en marche, un canal carré ne repart pas de zéro : le prochain
+ * échantillon est celui que l'ancien aurait joué, une période et un seul top
+ * de 1 MHz plus tard (SameSuite, channel_1_restart). Au premier déclenchement,
+ * il en faut deux (channel_1_delay).
+ */
+void square_restart_delay_test() {
+    Apu apu(gbc::HardwareMode::cgb_native);
+    apu.write(0xff11, 0x00); // duty 12,5 % : seule la position 7 est haute
+    apu.write(0xff12, 0xf0);
+    apu.write(0xff13, 0xff); // période de 4 cycles
+    apu.write(0xff14, 0x87);
+    apu.tick(4 + 8 + 5 * 4); // position 6
+    check((apu.read_pcm12() & 0x0f) == 0, "canal carré déjà en position 7");
+    apu.write(0xff14, 0x87); // redéclenchement en marche
+    apu.tick(4 + 3);
+    check((apu.read_pcm12() & 0x0f) == 0, "redéclenchement plus court qu'une période et un top");
+    apu.tick(1);
+    check((apu.read_pcm12() & 0x0f) == 0x0f,
+          "redéclenchement : position remise à zéro ou délai de deux tops");
+}
+
+/**
+ * Arrêté (ici par son DAC), un canal carré fige sa position dans le cycle ;
+ * redéclenché ensuite, il repart de là, avec le délai complet d'un départ
+ * (SameSuite, channel_1_stop_restart).
+ */
+void square_stop_keeps_phase_test() {
+    Apu apu(gbc::HardwareMode::cgb_native);
+    apu.write(0xff11, 0x00); // duty 12,5 % : seule la position 7 est haute
+    apu.write(0xff12, 0xf0);
+    apu.write(0xff13, 0xff); // période de 4 cycles
+    apu.write(0xff14, 0x87);
+    apu.tick(4 + 8 + 5 * 4); // position 6
+    apu.write(0xff12, 0x00); // DAC coupé : le canal s'arrête
+    apu.tick(100);
+    apu.write(0xff12, 0xf0);
+    apu.write(0xff14, 0x87);
+    apu.tick(4 + 7);
+    check((apu.read_pcm12() & 0x0f) == 0, "canal arrêté : position avancée ou délai d'un seul top");
+    apu.tick(1);
+    check((apu.read_pcm12() & 0x0f) == 0x0f, "canal arrêté : position perdue au redéclenchement");
+}
+
+/** Un nouveau rapport cyclique n'agit qu'à l'échantillon suivant (channel_1_duty_delay). */
+void square_duty_change_waits_for_next_sample_test() {
+    Apu apu(gbc::HardwareMode::cgb_native);
+    apu.write(0xff11, 0xc0); // duty 75 % : positions 1 à 6 hautes
+    apu.write(0xff12, 0xf0);
+    apu.write(0xff13, 0xff);
+    apu.write(0xff14, 0x87);
+    apu.tick(4 + 8); // position 1
+    check((apu.read_pcm12() & 0x0f) == 0x0f, "position 1 du duty 75 % basse");
+    apu.write(0xff11, 0x00); // duty 12,5 % : position 1 basse
+    check((apu.read_pcm12() & 0x0f) == 0x0f, "rapport cyclique changé au milieu d'un échantillon");
+    apu.tick(4);
+    check((apu.read_pcm12() & 0x0f) == 0, "nouveau rapport cyclique ignoré à l'échantillon suivant");
+}
+
+/**
+ * Allumé pendant que le bit de DIV qui le cadence vaut 1, l'APU saute le
+ * premier front qui suit, et ce front ne compte pas pour la longueur
+ * (SameSuite, div_write_trigger_10).
+ */
+void power_on_with_divider_high_skips_first_edge_test() {
+    Apu apu(gbc::HardwareMode::cgb_native);
+    apu.write(0xff26, 0x00);
+    apu.set_divider_signal(true);
+    apu.write(0xff26, 0x80);
+    apu.write(0xff11, 0xbe); // longueur 2
+    apu.write(0xff12, 0xbe);
+    apu.write(0xff14, 0xc1); // déclenchement, longueur active : un cadencement de plus
+    check((apu.read(0xff26) & 1) != 0, "canal éteint au déclenchement");
+    apu.clock_divider_falling_edge(); // front sauté
+    check((apu.read(0xff26) & 1) != 0, "front sauté après la mise sous tension compté");
+    apu.clock_divider_falling_edge(); // pas 0 : longueur
+    check((apu.read(0xff26) & 1) == 0, "longueur 2 non écoulée au premier pas de longueur");
 }
 
 void apu_state_mid_wave_access_test() {
@@ -725,6 +807,10 @@ int main() {
     noise_shift_disconnect_test();
     dac_polarity_and_disconnect_test();
     first_duty_step_and_idle_clock_test();
+    square_restart_delay_test();
+    square_stop_keeps_phase_test();
+    square_duty_change_waits_for_next_sample_test();
+    power_on_with_divider_high_skips_first_edge_test();
     apu_state_mid_wave_access_test();
     apu_state_layout_rejection_test();
     deferred_ticks_match_single_dots_test();

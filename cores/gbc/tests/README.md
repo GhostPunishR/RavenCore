@@ -129,7 +129,7 @@ RGB888 ; `memory_before` liste l'état intermédiaire exigé par
 
 ## Suites publiques exécutées par la CI
 
-`public-test-roms.json` fige 200 tests issus de l'archive
+`public-test-roms.json` fige 256 tests issus de l'archive
 [game-boy-test-roms v7.0](https://github.com/c-sp/game-boy-test-roms/releases/tag/v7.0)
 de Christoph Sprenger (SHA-256
 `b9a9d7a1075aa35a3d07c07c34974048672d8520dca9e07a50178f5860c3832c`), avec le
@@ -155,18 +155,27 @@ ASan/UBSan les exécutent tous.
 | Blargg `mem_timing-2`, `dmg_sound`, `cgb_sound`, `oam_bug` (ROMs séparées) | 20 DMG + 13 CGB | Résultat en `$A000` précédé de `$80` |
 | Blargg `halt_bug`, `interrupt_time` (CGB) et `oam_bug` combiné (DMG) | 2 DMG + 2 CGB | Capture de référence de game-boy-test-roms |
 | dmg-acid2 (DMG et compatibilité CGB), cgb-acid2 (MIT) | 1 DMG + 2 CGB | Capture de référence |
+| SameSuite (X11), canaux APU, DMA, interruptions et palettes | 47 CGB | Signature de registres |
+| Mealybug Tearoom Tests (MIT) | 1 DMG + 2 CGB | Capture de référence (DMG blob, CGB-D) |
+| AGE test roms (MIT) | 3 DMG + 3 CGB | Signature de registres ou capture de référence |
 
 La ROM séparée `oam_bug/7-timing_effect` est remplacée par la ROM combinée
 `oam_bug.gb` : son texte, écrit en `$A004` sans borne, dépasse les 8 Kio de
 RAM de cartouche et déborde sur son propre programme en WRAM. La ROM combinée
 exécute le même test et sa capture a été vérifiée sur console.
 
-Les autres suites de l'archive sont plus exigeantes et ne sont pas encore
-exécutées par la CI. Mesure avant les corrections de cette campagne, pour
-orienter les suivantes : AGE (CGB 2/27, DMG 3/11), gbmicrotest (304/513),
-Mealybug Tearoom (CGB 0/27, DMG 1/24), SameSuite (CGB 8/70), scribbltests
-(CGB 3/5, DMG 4/5), TurtleTests (2/2), Bully (0/2), mbc3-tester (0/2),
-Strikethrough (0/2, 7 pixels) et cgb-acid-hell (0/1, 2 pixels).
+Les autres tests de l'archive sont plus exigeants et ne sont pas encore
+exécutés par la CI. Mesure de la 0.17.0, avec entre parenthèses celle de la
+0.16.0 : SameSuite (47/76, contre 22), Mealybug Tearoom (CGB 2/27, contre 0 ;
+DMG 1/24), AGE (CGB 3/34, contre 2 ; DMG 3/14), gbmicrotest (304/513).
+Les tests qui passent rejoignent la CI. Sept tests SameSuite visent d'autres
+révisions que la CGB-E (suffixes `-cgb0B`, `-cgb0`, `-cgbB`, `-cgb0BC`, `-A`)
+et ne sont pas attendus. Plusieurs tests Mealybug Tearoom affichent le glyphe
+« ® » que la boot ROM laisse en VRAM ; RavenCore l'y recopie depuis la 0.17.0,
+ce qui rapproche neuf d'entre eux de l'attendu. Mesure plus ancienne,
+pour les suites non remesurées : scribbltests (CGB 3/5, DMG 4/5), TurtleTests
+(2/2), Bully (0/2), mbc3-tester (0/2), Strikethrough (0/2, 7 pixels) et
+cgb-acid-hell (0/1, 2 pixels).
 
 ## Profil Mooneye de référence
 

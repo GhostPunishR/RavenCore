@@ -237,9 +237,10 @@ public:
         if (state.size() > (2U << 20U)) throw SaveStateError("État instantané trop volumineux");
         BinaryReader in(state);
         if (in.u32() != 0x52564e53U) throw SaveStateError("Ce fichier n'est pas un état RavenEmu");
-        // Le format 10 ne diffère que par ses images PPU en i32 : il reste lisible.
+        // Les formats 10 (images PPU en i32) et 11 (APU en disposition 1)
+        // restent lisibles.
         const auto version = in.u16();
-        if (version != 10 && version != state_version) throw SaveStateError("Version d'état non prise en charge");
+        if (version < 10 || version > state_version) throw SaveStateError("Version d'état non prise en charge");
         if (in.u8() != static_cast<std::uint8_t>(Console::game_boy)) throw SaveStateError("État issu d'une autre console");
         std::array<std::uint8_t, 32> hash{}; in.raw(hash);
         if (hash != rom_hash_) throw SaveStateError("État issu d'une autre ROM");
@@ -261,7 +262,7 @@ public:
     void set_clock_epoch(std::optional<std::int64_t> epoch) noexcept override { clock_override_ = epoch; }
 
 private:
-    static constexpr std::uint16_t state_version = 11;
+    static constexpr std::uint16_t state_version = 12;
 
     [[nodiscard]] std::int64_t current_epoch() const noexcept {
         if (clock_override_) return *clock_override_;

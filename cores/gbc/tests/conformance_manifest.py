@@ -818,6 +818,11 @@ def make_self_test_rom() -> bytes:
     rom = bytearray(0x8000)
     rom[0x0100:0x0103] = bytes((0xC3, 0x50, 0x01))
     cursor = 0x0150
+    # La boot ROM laisse son logo à l'écran ; éteindre le fond (LCDC = $80)
+    # donne l'image uniforme que les tests d'image attendent.
+    background_off = bytes((0x3E, 0x80, 0xE0, 0x40))
+    rom[cursor : cursor + len(background_off)] = background_off
+    cursor += len(background_off)
     marker = bytes((0x3E, 0x42, 0xEA, 0x00, 0xC0))
     rom[cursor : cursor + len(marker)] = marker
     cursor += len(marker)

@@ -49,6 +49,10 @@ public:
     void write_mcycle(int address, int value) override {
         const int addr = word(address);
         const bool blocked_before = oam_dma_active_ && !dma_accessible(addr, oam_dma_source_);
+        if (render_register(addr)) {
+            write_render_register_mcycle(addr, byte(value), blocked_before);
+            return;
+        }
         tick_mcycle();
         const bool blocked_after = oam_dma_active_ && !dma_accessible(addr, oam_dma_source_);
         if (blocked_before || blocked_after) return;
@@ -56,6 +60,43 @@ public:
         // se comporte comme une écriture seule.
         if (in_oam_range(addr)) ppu_.corrupt_oam(Ppu::OamCorruption::write);
         write_internal(addr, byte(value));
+    }
+
+    /**
+     * Registres lus au rendu : un pixel n'est coloré que trois points après sa
+     * sortie de la FIFO (voir Ppu::preview_lcdc_render_bits), si bien qu'une
+     * écriture touche déjà les pixels sortis pendant les trois points qui la
+     * précèdent. Le bus la valide donc dès le premier point de son M-cycle,
+     * sans rien retarder : c'est le cas en vitesse simple, celui que mesurent
+     * Mealybug Tearoom et AGE. En double vitesse, un M-cycle ne dure que deux
+     * points ; l'écriture y est validée au premier, faute de mesure.
+     */
+    [[nodiscard]] static bool render_register(int address) noexcept {
+        return address == 0xff40 || (address >= 0xff47 && address <= 0xff49) ||
+            address == 0xff69 || address == 0xff6b;
+    }
+
+    void write_render_register_mcycle(int address, int value, bool blocked_before) {
+        const int cpu_cycles_per_dot = 1 << speed_.peripheral_shift();
+        while (cpu_blocked()) tick_cpu_clock(4, false);
+        tick_cpu_clock(cpu_cycles_per_dot, false);
+        const bool blocked_early = blocked_before ||
+            (oam_dma_active_ && !dma_accessible(address, oam_dma_source_));
+        if (!blocked_early) {
+            // LCDC : seuls ses bits lus au rendu sont avancés ; l'allumage de
+            // l'écran et les bits du fetcher sont écrits en fin de M-cycle.
+            if (address == 0xff40) ppu_.preview_lcdc_render_bits(value);
+            else write_internal(address, value);
+        }
+        tick_cpu_clock(4 - cpu_cycles_per_dot, false);
+        while (cpu_blocked()) tick_cpu_clock(4, false);
+        if (address != 0xff40) return;
+        const bool blocked_after = oam_dma_active_ && !dma_accessible(address, oam_dma_source_);
+        if (blocked_before || blocked_after) {
+            ppu_.preview_lcdc_render_bits(ppu_.lcdc());
+            return;
+        }
+        write_internal(address, value);
     }
 
     void idu_mcycle(int value) override {
@@ -203,8 +244,7 @@ public:
             (hdma_active_ && hdma_length_ == 0) ||
             hdma_block_bytes_remaining_ > hdma_length_ ||
             (!hdma_active_ && hdma_block_bytes_remaining_ != 0) ||
-            (hdma_active_ && !hdma_hblank_ && hdma_block_bytes_remaining_ == 0) ||
-            (hdma_active_ && hdma_hblank_ && !ppu_.lcd_enabled())) {
+            (hdma_active_ && !hdma_hblank_ && hdma_block_bytes_remaining_ == 0)) {
             throw SaveStateError("État instantané corrompu (DMA)");
         }
         if (oam_dma_active_) ppu_.restore_oam_dma_bus(oam_dma_index_);
@@ -456,7 +496,10 @@ private:
         case 0xff75: if (gbc::is_cgb_hardware(hardware_mode_)) ff75_ = value & 0x70; break;
         case 0xffff: interrupts_.write_enable(value); break;
         default:
-            if (address >= 0xff10 && address <= 0xff3f) apu_.write(address, value);
+            if (address >= 0xff10 && address <= 0xff3f) {
+                if (address == 0xff26) apu_.set_divider_signal(timer_.apu_divider_signal(speed_.double_speed()));
+                apu_.write(address, value);
+            }
             else if (address >= 0xff80 && address <= 0xfffe) hram[static_cast<std::size_t>(address - 0xff80)] = static_cast<std::uint8_t>(value);
             break;
         }
@@ -550,18 +593,26 @@ private:
         if (hdma_active_) {
             if (hdma_hblank_ && (value & 0x80) == 0) {
                 // Seul bit 7=0 arrête un HBlank DMA. Une écriture avec bit 7
-                // à 1 ne recharge ni son adresse ni sa longueur.
+                // à 1 ne recharge ni son adresse ni sa longueur. L'arrêt écrit
+                // la longueur : FF55 relit $80 après $00 (SameSuite,
+                // hdma_lcd_off et hdma_mode0).
                 hdma_active_ = false;
+                hdma_length_ = ((value & 0x7f) + 1) * 16;
                 hdma_block_bytes_remaining_ = 0;
                 hdma_dot_accum_ = 0;
             }
             return;
         }
-        const bool hblank = (value & 0x80) != 0 && ppu_.lcd_enabled();
+        const bool hblank = (value & 0x80) != 0;
         hdma_length_ = ((value & 0x7f) + 1) * 16;
         hdma_hblank_ = hblank;
         hdma_active_ = true;
-        hdma_block_bytes_remaining_ = hblank ? 0 : std::min(16, hdma_length_);
+        // Lancé pendant un H-Blank, ou écran éteint, un HBlank DMA copie
+        // aussitôt un bloc, puis attend le H-Blank suivant ; écran éteint, il
+        // n'en vient pas, et le transfert en reste là (SameSuite, hdma_mode0,
+        // hdma_lcd_off, gdma_addr_mask).
+        const bool copy_now = !hblank || !ppu_.lcd_enabled() || ppu_.mode() == Ppu::mode_hblank;
+        hdma_block_bytes_remaining_ = copy_now ? std::min(16, hdma_length_) : 0;
         hdma_dot_accum_ = 0;
     }
 
