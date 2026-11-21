@@ -14,6 +14,10 @@ Cette version corrige l'instant où le fetcher du fond de la Game Boy et de la G
 - Tests : avance d'une seule tuile du fetcher, ligne de tuile et SCY sur Game Boy et sur GBC, instant de validation de SCY et du bit 6 de LCDC ; chacun échoue sans son correctif.
 - Performances : inchangées (−0,1 % d'instructions sur `cgb-acid2`).
 
+### Modifié
+
+- **Cœur GB/GBC : un fichier par composant.** Le PPU (1 553 lignes en un fichier), l'APU et le bus mémoire sont découpés par composant : fetcher du fond, fetcher des objets, rendu, RAM couleur, séquencement des lignes, bus vidéo, états instantanés ; canaux carrés, d'onde et de bruit ; DMA OAM et HDMA, devenus des classes. Le comportement ne change pas : les états instantanés internes, pris à des instants arbitraires, les images et le son de 54 exécutions, ainsi que les 688 mesures des suites publiques, sont identiques octet pour octet avant et après. Les performances aussi (±0,005 % d'instructions). La carte des fichiers est dans le [guide de contribution](CONTRIBUTING.md).
+
 ### Reste à faire
 
 - **Mealybug Tearoom et AGE.** Pour les bits 3 et 4 de LCDC (carte et données du fond) et pour SCX, l'instant d'écriture qui rapproche Mealybug Tearoom de l'attendu éloigne AGE `m3-bg-lcdc` et `m3-bg-scx`, et inversement : RavenCore garde le sien en attendant un modèle qui satisfasse les deux. Les changements de WX en cours de ligne (`m3_wx_4_change`, `m3_wx_5_change`) comptent environ 200 pixels faux de plus, et AGE `m3-bg-scx` sur GBC 56 de plus : ils sont à reprendre avec le démarrage de la window. Restent aussi les objets au bord gauche de l'écran et, sur Game Boy, la ligne 0.

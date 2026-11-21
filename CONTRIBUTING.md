@@ -40,6 +40,18 @@ Les tests GB/GBC disposent aussi d'un [runner de conformité](cores/gbc/tests/RE
 
 Conservez la séparation entre la logique matérielle et les frontends. Les dossiers `cores/` ne doivent pas dépendre d'Android, de JNI ou de RetroArch.
 
+### Cœur GB/GBC : un fichier par composant
+
+Le cœur GB/GBC est fait d'en-têtes, un dossier par composant matériel de `cores/gbc/src/` (`cpu/`, `ppu/`, `apu/`, `memory/`, `timer/`, `cartridge/`…). Un composant qui en regroupe plusieurs a un fichier pour chacun :
+
+| Composant | Fichiers |
+| --- | --- |
+| PPU | `ppu.hpp` (état et accès simples), `line_timing.hpp` (lignes, modes, STAT, LYC), `video_bus.hpp` (accès du CPU à la VRAM, à l'OAM et à la RAM couleur), `oam_port.hpp` (scan du mode 2, DMA OAM, `oam_corruption.hpp`), `pixel_transfer.hpp` (mode 3), `background_fetcher.hpp`, `object_fetcher.hpp`, `pixel_fifo.hpp`, `pixel_renderer.hpp`, `color_ram.hpp`, `cgb_color.hpp`, `compatibility_palettes.hpp`, `ppu_state.hpp` et `frame_codec.hpp` (états instantanés) |
+| APU | `apu.hpp` (registres, séquenceur, mixeur), `square_channel.hpp`, `wave_channel.hpp`, `noise_channel.hpp`, `sampling.hpp` |
+| Bus mémoire | `memory_bus.hpp` (carte mémoire et registres d'E/S), `oam_dma.hpp`, `hdma.hpp`, `bus.hpp` (interface vue par le CPU) |
+
+La classe `Ppu` garde l'état et déclare toutes ses fonctions ; chaque fichier de composant définit les siennes (`inline`), et `ppu.hpp` les inclut à sa fin. Placez une nouvelle fonction dans le fichier de son composant. L'ordre des champs des états instantanés est fixé par les fonctions `save` et `load` : un refactor ne doit pas le changer.
+
 ## Règles de contribution
 
 1. Écrivez du C++20 lisible, cohérent avec le module modifié et sans nouvelle dépendance injustifiée.
