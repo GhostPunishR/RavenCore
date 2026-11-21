@@ -42,13 +42,16 @@ if(BUILD_TESTING)
     target_link_libraries(gbc_timer_edge_tests PRIVATE gbc_raven_core)
     add_test(NAME gbc_timer_edges COMMAND gbc_timer_edge_tests)
 
-    add_executable(gbc_ppu_pipeline_tests tests/ppu_pipeline_test.cpp)
-    target_include_directories(gbc_ppu_pipeline_tests PRIVATE
-        ${CMAKE_CURRENT_LIST_DIR}/src
-        ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support
-    )
-    target_link_libraries(gbc_ppu_pipeline_tests PRIVATE gbc_raven_core)
-    add_test(NAME gbc_ppu_pipeline COMMAND gbc_ppu_pipeline_tests)
+    # Tests du PPU, un fichier par composant (aides : tests/ppu_test_support.hpp).
+    foreach(component ppu_fetcher ppu_object ppu_line_timing ppu_video_bus ppu_state post_boot)
+        add_executable(gbc_${component}_tests tests/${component}_test.cpp)
+        target_include_directories(gbc_${component}_tests PRIVATE
+            ${CMAKE_CURRENT_LIST_DIR}/src
+            ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support
+        )
+        target_link_libraries(gbc_${component}_tests PRIVATE gbc_raven_core)
+        add_test(NAME gbc_${component} COMMAND gbc_${component}_tests)
+    endforeach()
 
     add_executable(gbc_cartridge_mbc_tests tests/cartridge_mbc_test.cpp)
     target_include_directories(gbc_cartridge_mbc_tests PRIVATE

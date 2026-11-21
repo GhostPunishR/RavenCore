@@ -48,6 +48,7 @@ public:
             joypad.write(mode == gbc::HardwareMode::dmg ? 0x00 : 0x30);
             apu.initialize_hle_post_boot();
             ppu.initialize_hle_post_boot();
+            if (mode == gbc::HardwareMode::dmg) ppu.initialize_dmg_post_boot_phase();
             install_post_boot_logo(ppu, *cartridge, mode);
             if (mode == gbc::HardwareMode::cgb_compatibility) {
                 ppu.initialize_hle_compatibility_palettes();

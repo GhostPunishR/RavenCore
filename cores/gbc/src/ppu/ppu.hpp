@@ -76,6 +76,24 @@ public:
     static constexpr CompatibilityPalettes grayscale_palettes =
         compatibility::palettes_of(compatibility::manual_choices[5].entry, compatibility::manual_choices[5].flags);
 
+    /**
+     * Position du PPU que laisse la boot ROM du DMG à l'entrée en $0100 : encore
+     * en V-Blank, à 60 points de la fin de la ligne 153 (LY lit déjà 0). La
+     * ligne 0 commence donc 60 points après. GBMicrotest la mesure sur DMG :
+     * poweron_stat, poweron_ly, poweron_oam et poweron_vram, qui lisent STAT,
+     * LY, l'OAM et la VRAM à chaque M-cycle après le démarrage.
+     */
+    static constexpr int dmg_post_boot_dots_to_line_0 = 60;
+
+    void initialize_dmg_post_boot_phase() noexcept {
+        ly_ = 153;
+        line_dot_ = 456 - dmg_post_boot_dots_to_line_0;
+        mode_ = mode_vblank; reported_mode_ = mode_vblank; reported_mode_target_ = mode_vblank;
+        reported_mode_delay_ = 0;
+        window_y_condition_ = false;
+        update_lyc_compare();
+    }
+
     void reset_for_boot_rom() noexcept {
         lcdc_ = 0; render_lcdc_ = 0;
         stat_enable_ = 0;
@@ -155,6 +173,9 @@ public:
     void write_lcdc(int value) noexcept;
     [[nodiscard]] int read_stat() const noexcept;
     void write_stat(int value) noexcept;
+    /** Écriture du CPU : `glitch` vient de stat_write_glitch_armed() au début de son M-cycle. */
+    void write_stat(int value, bool glitch) noexcept;
+    [[nodiscard]] bool stat_write_glitch_armed() const noexcept;
     void write_lyc(int value) noexcept;
     void tick(int cycles);
 
@@ -224,6 +245,7 @@ private:
     void set_mode(int mode) noexcept;
     void check_stat() noexcept;
     [[nodiscard]] bool mode2_stat_condition() const noexcept;
+    [[nodiscard]] bool hblank_signal() const noexcept;
     void update_lyc_compare() noexcept;
     [[nodiscard]] int visible_ly() const noexcept;
 
