@@ -50,14 +50,36 @@ inline int Ppu::read_stat() const noexcept {
         (lcd_enabled() ? reported_mode_ : 0);
 }
 
-inline void Ppu::write_stat(int value) noexcept {
-    // Sur DMG, le bus interne présente brièvement tous les bits de source
-    // à 1 lors d'une écriture STAT. Cela peut créer un front d'IRQ en
-    // modes 0/1/2 (ou avec LY=LYC), mais pas sur CGB.
-    if (hardware_mode_ == gbc::HardwareMode::dmg && lcd_enabled() && !stat_line_ &&
-        (mode_ != mode_transfer || lyc_equal_)) {
-        interrupts_.request(Interrupt::stat);
-    }
+/**
+ * Fausse interruption du DMG à l'écriture de STAT : pendant l'écriture, le
+ * bus interne présente un instant les sources H-Blank, V-Blank et LY=LYC à 1.
+ * Elle part en H-Blank, en V-Blank ou si LY=LYC, jamais en mode 2 ni en
+ * mode 3, d'après l'état du PPU au début du M-cycle d'écriture : la console
+ * ne la produit pas sur le point qui ouvre le H-Blank, mais encore sur celui
+ * qui ouvre le mode 2 de la ligne suivante (GBMicrotest,
+ * stat_write_glitch_l0, l1, l143 et l154, mesurés sur DMG). Le CGB n'a pas
+ * ce défaut.
+ */
+inline bool Ppu::stat_write_glitch_armed() const noexcept {
+    return hardware_mode_ == gbc::HardwareMode::dmg && lcd_enabled() && !stat_line_ &&
+        (hblank_signal() || mode_ == mode_vblank || lyc_equal_);
+}
+
+/**
+ * Source H-Blank de STAT. Le mode 0 partiel qui ouvre la première ligne après
+ * l'allumage de l'écran (avant son mode 3, point 76) ne la lève pas : STAT lit
+ * bien le mode 0, mais l'interruption attend la fin du mode 3 de cette ligne
+ * (GBMicrotest, int_hblank_nops, int_hblank_incs et int_hblank_halt, sur
+ * DMG). La GBC suit la même règle, faute de mesure contraire.
+ */
+inline bool Ppu::hblank_signal() const noexcept {
+    return mode_ == mode_hblank && !(lcd_startup_line_ && line_dot_ <= 76);
+}
+
+inline void Ppu::write_stat(int value) noexcept { write_stat(value, stat_write_glitch_armed()); }
+
+inline void Ppu::write_stat(int value, bool glitch) noexcept {
+    if (glitch) interrupts_.request(Interrupt::stat);
     stat_enable_ = value & 0x78;
     check_stat();
 }
@@ -191,7 +213,7 @@ inline void Ppu::set_mode(int mode) noexcept {
 
 inline void Ppu::check_stat() noexcept {
     if (!lcd_enabled()) return;
-    const bool line = ((stat_enable_ & 8) != 0 && mode_ == mode_hblank) ||
+    const bool line = ((stat_enable_ & 8) != 0 && hblank_signal()) ||
         ((stat_enable_ & 0x10) != 0 && mode_ == mode_vblank) ||
         ((stat_enable_ & 0x20) != 0 && mode2_stat_condition()) ||
         ((stat_enable_ & 0x40) != 0 && lyc_equal_);

@@ -190,6 +190,56 @@ void dmg_stat_write_glitch_test() {
           "glitch d'écriture STAT DMG appliqué à tort au CGB");
 }
 
+/**
+ * Fausse interruption du DMG à l'écriture de STAT (GBMicrotest,
+ * stat_write_glitch) : elle suit l'état du PPU au début du M-cycle
+ * d'écriture, et part en H-Blank ou en V-Blank, jamais en mode 2 ni en mode 3.
+ * LYC hors de portée, pour isoler la source de mode.
+ */
+void dmg_stat_write_glitch_phase_test() {
+    const auto glitch_at = [](int line, int start_dot) {
+        auto image = std::make_shared<const std::vector<std::uint8_t>>(ravenemu::testing::minimal_game_boy_rom());
+        Machine machine(image, [] { return std::int64_t{0}; }, gbc::HardwareMode::dmg);
+        machine.bus.write(0xff45, 0x90);
+        machine.bus.write(0xff41, 0x00);
+        while (!(machine.ppu.ly() == line && machine.ppu.line_dot() == start_dot)) machine.bus.tick_mcycle();
+        machine.interrupts.flags = 0;
+        machine.bus.write_mcycle(0xff41, 0x00);
+        return (machine.interrupts.flags & interrupt_mask(Interrupt::stat)) != 0;
+    };
+    check(!glitch_at(10, 248), "DMG : STAT écrit sur le point qui ouvre le H-Blank a levé l'interruption");
+    check(glitch_at(10, 256), "DMG : STAT écrit en H-Blank sans interruption");
+    check(glitch_at(10, 452), "DMG : STAT écrit au dernier M-cycle du H-Blank sans interruption");
+    check(!glitch_at(11, 4), "DMG : STAT écrit en mode 2 a levé l'interruption");
+    check(!glitch_at(11, 100), "DMG : STAT écrit en mode 3 a levé l'interruption");
+    check(glitch_at(150, 100), "DMG : STAT écrit en V-Blank sans interruption");
+}
+
+/**
+ * Le mode 0 partiel qui ouvre la première ligne après l'allumage de l'écran
+ * ne lève pas l'interruption H-Blank : elle attend la fin du mode 3 de cette
+ * ligne (GBMicrotest, int_hblank_nops et int_hblank_incs).
+ */
+void startup_line_hblank_interrupt_test() {
+    for (const auto mode : {gbc::HardwareMode::dmg, gbc::HardwareMode::cgb_native}) {
+        InterruptController interrupts;
+        Ppu ppu(interrupts, mode);
+        ppu.write_lcdc(0x11);
+        ppu.write_stat(0x08);
+        ppu.write_lyc(0x90);
+        interrupts.flags = 0;
+        ppu.write_lcdc(0x91);
+        check((interrupts.flags & interrupt_mask(Interrupt::stat)) == 0,
+              "interruption H-Blank levée dès l'allumage de l'écran");
+        while (ppu.mode() != Ppu::mode_transfer) ppu.tick(1);
+        check((interrupts.flags & interrupt_mask(Interrupt::stat)) == 0,
+              "interruption H-Blank levée pendant le mode 0 de démarrage");
+        while (ppu.mode() == Ppu::mode_transfer) ppu.tick(1);
+        check((interrupts.flags & interrupt_mask(Interrupt::stat)) != 0,
+              "interruption H-Blank absente à la fin du mode 3 de la première ligne");
+    }
+}
+
 } // namespace ravenemu::cgb::testing
 
 int main() {
@@ -201,5 +251,7 @@ int main() {
     lcd_off_lyc_latch_test();
     ly_153_quirk_test();
     dmg_stat_write_glitch_test();
+    dmg_stat_write_glitch_phase_test();
+    startup_line_hblank_interrupt_test();
     return 0;
 }

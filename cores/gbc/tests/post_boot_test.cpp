@@ -35,10 +35,31 @@ void post_boot_logo_test() {
     }
 }
 
+/**
+ * Sans boot ROM, le PPU du DMG reprend où la boot ROM le laisse : en V-Blank,
+ * ligne 153, à 60 points de la ligne 0 (GBMicrotest, poweron_stat et
+ * poweron_ly). La GBC garde le début de la ligne 0, faute de mesure.
+ */
+void dmg_post_boot_ppu_phase_test() {
+    auto image = std::make_shared<const std::vector<std::uint8_t>>(ravenemu::testing::minimal_game_boy_rom());
+    Machine dmg(image, [] { return std::int64_t{0}; }, gbc::HardwareMode::dmg);
+    check(dmg.ppu.mode() == Ppu::mode_vblank && dmg.ppu.ly() == 0 && dmg.ppu.line_dot() == 396,
+          "DMG : PPU pas en fin de ligne 153 à l'entrée en $0100");
+    check((dmg.ppu.read_stat() & 0x07) == 0x05, "DMG : STAT ne lit pas V-Blank et LY=LYC au démarrage");
+    for (int mcycle = 0; mcycle < 15; ++mcycle) dmg.bus.tick_mcycle();
+    check(dmg.ppu.ly() == 0 && dmg.ppu.line_dot() == 0 && dmg.ppu.mode() == Ppu::mode_oam,
+          "DMG : la ligne 0 ne commence pas 60 points après $0100");
+
+    Machine cgb(image, [] { return std::int64_t{0}; }, gbc::HardwareMode::cgb_compatibility);
+    check(cgb.ppu.ly() == 0 && cgb.ppu.line_dot() == 0 && cgb.ppu.mode() == Ppu::mode_oam,
+          "GBC : position du PPU au démarrage modifiée sans mesure");
+}
+
 } // namespace ravenemu::cgb::testing
 
 int main() {
     using namespace ravenemu::cgb::testing;
     post_boot_logo_test();
+    dmg_post_boot_ppu_phase_test();
     return 0;
 }

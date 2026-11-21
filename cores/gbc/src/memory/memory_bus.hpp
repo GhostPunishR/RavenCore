@@ -55,9 +55,15 @@ public:
             write_render_register_mcycle(addr, byte(value), blocked_before);
             return;
         }
+        // La fausse interruption du DMG suit l'état du PPU au début du M-cycle.
+        const bool stat_glitch = addr == 0xff41 && ppu_.stat_write_glitch_armed();
         tick_mcycle();
         const bool blocked_after = oam_dma_.active() && !dma_accessible(addr, oam_dma_.source());
         if (blocked_before || blocked_after) return;
+        if (addr == 0xff41) {
+            ppu_.write_stat(byte(value), stat_glitch);
+            return;
+        }
         // Une écriture accompagnée d'une décrémentation (LD [HL-],A, PUSH)
         // se comporte comme une écriture seule.
         if (in_oam_range(addr)) ppu_.corrupt_oam(Ppu::OamCorruption::write);

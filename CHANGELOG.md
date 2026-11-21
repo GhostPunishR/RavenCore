@@ -2,6 +2,23 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.17.3 - 2026-11-21
+
+Cette version corrige trois comportements de la Game Boy (DMG) que mesure GBMicrotest, une suite vérifiée sur console : 353 de ses 513 tests passent, contre 304. L'API, Libretro, le GBA et le format des états ne changent pas ; la GBC ne change que pour l'interruption H-Blank de la ligne d'allumage.
+
+### Corrigé
+
+- **Fausse interruption à l'écriture de STAT.** Sur DMG, écrire STAT lève une interruption en H-Blank, en V-Blank ou si LY=LYC, d'après l'état du PPU au début du M-cycle d'écriture. RavenCore la levait aussi en mode 2, et d'après la fin du M-cycle : un jeu qui configurait STAT pendant le scan OAM recevait une interruption de trop dès EI (GBMicrotest `stat_write_glitch`, `hblank_int_scx`).
+- **Interruption H-Blank après l'allumage de l'écran.** La première ligne après l'allumage commence par un mode 0 partiel : STAT y lit bien le mode 0, mais l'interruption H-Blank n'arrive qu'à la fin du mode 3 de cette ligne. RavenCore la levait dès l'allumage (`int_hblank_nops`, `int_hblank_halt`). La GBC suit la même règle, faute de mesure contraire ; SameSuite et AGE n'en changent pas.
+- **Position du PPU au démarrage sans boot ROM (DMG).** À l'entrée en $0100, la boot ROM laisse le PPU en V-Blank, à 60 points de la fin de la ligne 153 ; RavenCore le plaçait au début de la ligne 0. LY, STAT, l'OAM et la VRAM lus dans les premières lignes d'un jeu donnent désormais la valeur de la console au M-cycle près (`poweron_ly`, `poweron_stat`, `poweron_oam`, `poweron_vram`). La GBC garde sa position, faute de mesure.
+- Tests : phase de la fausse interruption STAT, interruption H-Blank de la ligne d'allumage et position du PPU au démarrage ; chacun échoue sans son correctif. Les tests du PPU, 1 686 lignes, sont découpés par composant (`ppu_fetcher`, `ppu_object`, `ppu_line_timing`, `ppu_video_bus`, `ppu_state`, `post_boot`), selon la règle d'AGENTS.md.
+- Performances : inchangées.
+
+### Reste à faire
+
+- **Interruption H-Blank, à deux points près.** Sur la console, elle arrive deux points plus tard que dans RavenCore : `hblank_int_scx`, `int_hblank_halt` et `int_hblank_incs` l'indiquent, comme les fins de mode 3 de `poweron_stat`. La retarder de deux points casse Mooneye (`intr_2_0_timing`, `hblank_ly_scx_timing-GS`) : l'écart vient d'ailleurs, sans doute de l'instant où le CPU échantillonne les interruptions dans un M-cycle. Avec la position mesurée du PPU au démarrage, quatre tests qui passaient échouent : `hblank_int_scx1_nops_a`, `scx2`, `scx5` et `scx6`. Ils encadrent l'interruption juste après le démarrage, avec leurs pendants `_nops_b`, qui passent désormais pour SCX 3, 4 et 7.
+- **GBMicrotest.** Restent aussi la ligne 153 et LYC, les interruptions de V-Blank et de mode 2 lues dans IF, l'allumage de l'écran et la window (`win*_b`).
+
 ## 0.17.2 - 2026-11-21
 
 Cette version corrige l'instant où le fetcher du fond de la Game Boy et de la Game Boy Color lit ses registres et la VRAM pendant le mode 3. Sur l'ensemble des tests Mealybug Tearoom et des tests AGE du mode 3, qui changent ces registres en cours de ligne, les pixels faux passent de 127 242 à 80 543 (−37 %) ; AGE `m3-bg-lcdc` passe sur Game Boy et rejoint la CI (261 ROMs). L'API, Libretro, le GBA et le format des états ne changent pas.
