@@ -1,5 +1,9 @@
 #pragma once
 
+#include "apu/noise_channel.hpp"
+#include "apu/sampling.hpp"
+#include "apu/square_channel.hpp"
+#include "apu/wave_channel.hpp"
 #include "support/bits.hpp"
 #include <ravenemu/gbc/hardware_mode.hpp>
 
@@ -309,335 +313,6 @@ public:
     }
 
 private:
-    struct Square {
-        static constexpr int trigger_delay_cycles = 8;
-        static constexpr int restart_delay_cycles = 4;
-        static constexpr int max_timer = 2048 * 4 + trigger_delay_cycles + 3;
-
-        explicit Square(bool sweep) : has_sweep(sweep) {}
-        bool has_sweep{};
-        bool enabled{};
-        bool dac_enabled{};
-        int duty{};
-        // Rapport cyclique de l'échantillon en cours, pris à son début.
-        int sample_duty{};
-        int length{};
-        bool length_enabled{};
-        int envelope_initial{};
-        bool envelope_add{};
-        int envelope_period{};
-        int volume{};
-        int envelope_timer{};
-        int frequency{};
-        int timer{2048 * 4};
-        int duty_position{};
-        int sweep_period{};
-        bool sweep_negate{};
-        int sweep_shift{};
-        int sweep_timer{};
-        bool sweep_enabled{};
-        int shadow_frequency{};
-        bool sweep_negate_used{};
-        int accumulator{};
-        bool timer_running{};
-        bool force_first_step_zero{true};
-
-        [[nodiscard]] int output() const noexcept {
-            return enabled && dac_enabled && !force_first_step_zero &&
-                duty_table[static_cast<std::size_t>(sample_duty)][static_cast<std::size_t>(duty_position)] == 1
-                ? volume : 0;
-        }
-        [[nodiscard]] int dac_output() const noexcept { return dac_enabled ? 15 - output() * 2 : 0; }
-        void step(int cycles) noexcept {
-            // Arrêté (longueur écoulée, DAC coupé, balayage hors limites), le
-            // canal fige son minuteur et sa position dans le cycle.
-            if (!timer_running || !enabled) {
-                accumulator += dac_output() * cycles;
-                return;
-            }
-            int remaining = cycles;
-            while (remaining > 0) {
-                const int slice = std::min(timer, remaining);
-                accumulator += dac_output() * slice; timer -= slice; remaining -= slice;
-                if (timer <= 0) {
-                    timer = (2048 - frequency) * 4;
-                    duty_position = (duty_position + 1) & 7;
-                    // Un nouveau rapport cyclique n'agit qu'à l'échantillon
-                    // suivant (SameSuite, channel_1_duty_delay).
-                    sample_duty = duty;
-                    force_first_step_zero = false;
-                }
-            }
-        }
-        double drain_average() noexcept {
-            const double average = static_cast<double>(accumulator) / cycles_per_sample;
-            accumulator = 0; return average;
-        }
-        void clock_length() noexcept { if (length_enabled && length > 0 && --length == 0) enabled = false; }
-        /**
-         * Cadence l'enveloppe de volume, à 64 Hz.
-         *
-         * Deux règles distinctes, et c'est leur confusion qui coûte cher :
-         *
-         * - le **compteur** traite une période nulle comme une période de
-         *   huit ; c'est ce qui fixe l'instant du prochain top si le jeu
-         *   réécrit NRx2 avec une période non nulle sans redéclencher ;
-         * - le **volume**, lui, ne bouge que si la période est non nulle. Une
-         *   période nulle veut dire « pas d'enveloppe » : le volume programmé
-         *   est tenu tant que le canal joue.
-         *
-         * Ne garder que la première règle fait perdre un cran de volume toutes
-         * les huit périodes à *tout* son de volume fixe, soit une extinction
-         * complète en moins de deux secondes. C'est le cas le plus courant de
-         * la musique Game Boy, qui tient ses notes à volume constant : les
-         * tenues et les basses disparaissaient en cours de morceau.
-         */
-        void clock_envelope() noexcept {
-            if (--envelope_timer > 0) return;
-            envelope_timer = envelope_period != 0 ? envelope_period : 8;
-            if (envelope_period == 0) return;
-            volume = envelope_add ? std::min(15, volume + 1) : std::max(0, volume - 1);
-        }
-        int next_sweep_frequency() noexcept {
-            const int delta = shadow_frequency >> sweep_shift;
-            const int next = sweep_negate ? shadow_frequency - delta : shadow_frequency + delta;
-            if (sweep_negate) sweep_negate_used = true;
-            if (next > 2047) enabled = false;
-            return next;
-        }
-        void clock_sweep() noexcept {
-            if (!has_sweep || !sweep_enabled) return;
-            if (--sweep_timer <= 0) {
-                sweep_timer = sweep_period != 0 ? sweep_period : 8;
-                if (sweep_period != 0) {
-                    const int next = next_sweep_frequency();
-                    if (next <= 2047 && sweep_shift != 0) {
-                        shadow_frequency = next; frequency = next; static_cast<void>(next_sweep_frequency());
-                    }
-                }
-            }
-        }
-        void trigger(bool shorten_zero_length_reload, bool delay_envelope_clock) noexcept {
-            const bool playing = enabled && timer_running;
-            enabled = dac_enabled;
-            if (length == 0) {
-                length = 64;
-                if (shorten_zero_length_reload) --length;
-            }
-            // Le premier échantillon arrive une période et deux tops de 1 MHz
-            // après le déclenchement ; un seul top si le canal jouait encore.
-            // La position dans le cycle de service ne revient pas à zéro, même
-            // après un arrêt : seule l'extinction de l'APU (NR52) l'efface
-            // (SameSuite, channel_1_delay, channel_1_restart et
-            // channel_1_stop_restart).
-            timer = ((2048 - frequency) * 4 +
-                     (playing ? restart_delay_cycles : trigger_delay_cycles)) | (timer & 3);
-            timer_running = true;
-            volume = envelope_initial;
-            envelope_timer = (envelope_period != 0 ? envelope_period : 8) +
-                (delay_envelope_clock ? 1 : 0);
-            if (has_sweep) {
-                shadow_frequency = frequency; sweep_timer = sweep_period != 0 ? sweep_period : 8;
-                sweep_enabled = sweep_period != 0 || sweep_shift != 0;
-                sweep_negate_used = false;
-                if (sweep_shift != 0) static_cast<void>(next_sweep_frequency());
-            }
-        }
-        void reset() noexcept {
-            enabled = false; dac_enabled = false; duty = 0; sample_duty = 0; length = 0; length_enabled = false;
-            envelope_initial = 0; envelope_add = false; envelope_period = 0; volume = 0;
-            envelope_timer = 0; frequency = 0; duty_position = 0; sweep_period = 0;
-            sweep_negate = false; sweep_shift = 0; sweep_timer = 0; sweep_enabled = false;
-            shadow_frequency = 0; sweep_negate_used = false;
-            timer = 2048 * 4; accumulator = 0; timer_running = false;
-            force_first_step_zero = true;
-        }
-        void save(BinaryWriter& out) const {
-            out.boolean(enabled); out.boolean(dac_enabled); out.i32(duty); out.i32(length);
-            out.boolean(length_enabled); out.i32(envelope_initial); out.boolean(envelope_add);
-            out.i32(envelope_period); out.i32(volume); out.i32(envelope_timer);
-            out.i32(frequency); out.i32(timer); out.i32(duty_position); out.i32(sweep_period);
-            out.boolean(sweep_negate); out.i32(sweep_shift); out.i32(sweep_timer);
-            out.boolean(sweep_enabled); out.i32(shadow_frequency); out.boolean(sweep_negate_used);
-            out.i32(accumulator); out.boolean(timer_running); out.boolean(force_first_step_zero);
-        }
-        void load(BinaryReader& in) {
-            enabled = in.boolean(); dac_enabled = in.boolean(); duty = in.bounded_i32(0, 3); length = in.bounded_i32(0, 64);
-            length_enabled = in.boolean(); envelope_initial = in.bounded_i32(0, 15); envelope_add = in.boolean();
-            envelope_period = in.bounded_i32(0, 7); volume = in.bounded_i32(0, 15); envelope_timer = in.bounded_i32(0, 9);
-            frequency = in.bounded_i32(0, 2047); timer = in.bounded_i32(1, max_timer); duty_position = in.bounded_i32(0, 7); sweep_period = in.bounded_i32(0, 7);
-            sweep_negate = in.boolean(); sweep_shift = in.bounded_i32(0, 7); sweep_timer = in.bounded_i32(0, 8);
-            sweep_enabled = in.boolean(); shadow_frequency = in.bounded_i32(0, 2047);
-            sweep_negate_used = in.boolean(); accumulator = in.bounded_i32(-1920, 1920);
-            timer_running = in.boolean(); force_first_step_zero = in.boolean();
-        }
-    };
-
-    struct Wave {
-        // Le déclenchement retarde la première lecture d'échantillon de trois
-        // tops du canal (6 cycles) au-delà de la période : sans ce délai, la
-        // wave RAM lue ou écrite canal actif l'était un octet trop tôt
-        // (Blargg, dmg_sound et cgb_sound 09 et 12).
-        static constexpr int trigger_delay_cycles = 6;
-        static constexpr int max_timer = 2048 * 2 + trigger_delay_cycles;
-
-        std::array<std::uint8_t, 16> ram{};
-        bool enabled{};
-        bool dac_enabled{};
-        int length{};
-        bool length_enabled{};
-        int volume_code{};
-        int frequency{};
-        int timer{2048 * 2};
-        int position{};
-        int sample_buffer{};
-        int ram_access_cycles{};
-        int accumulator{};
-
-        [[nodiscard]] int output() const noexcept {
-            if (!enabled || !dac_enabled) return 0;
-            if (volume_code == 0) return 0;
-            if (volume_code == 1) return sample_buffer;
-            return volume_code == 2 ? sample_buffer >> 1 : sample_buffer >> 2;
-        }
-        [[nodiscard]] int dac_output() const noexcept { return dac_enabled ? 15 - output() * 2 : 0; }
-        void step(int cycles) noexcept {
-            int remaining = cycles;
-            while (remaining > 0) {
-                const int slice = std::min(timer, remaining);
-                ram_access_cycles = std::max(0, ram_access_cycles - slice);
-                accumulator += dac_output() * slice; timer -= slice; remaining -= slice;
-                if (timer <= 0) {
-                    timer = (2048 - frequency) * 2; position = (position + 1) & 31;
-                    const int value = ram[static_cast<std::size_t>(position >> 1)];
-                    sample_buffer = (position & 1) == 0 ? value >> 4 : value & 0x0f;
-                    ram_access_cycles = 2;
-                }
-            }
-        }
-        double drain_average() noexcept {
-            const double average = static_cast<double>(accumulator) / cycles_per_sample;
-            accumulator = 0; return average;
-        }
-        void clock_length() noexcept { if (length_enabled && length > 0 && --length == 0) enabled = false; }
-        void trigger(bool shorten_zero_length_reload, bool /* delay_envelope_clock */) noexcept {
-            enabled = dac_enabled;
-            if (length == 0) {
-                length = 256;
-                if (shorten_zero_length_reload) --length;
-            }
-            timer = (2048 - frequency) * 2 + trigger_delay_cycles; position = 0; ram_access_cycles = 0;
-        }
-        void reset() noexcept {
-            enabled = false; dac_enabled = false; length = 0; length_enabled = false;
-            volume_code = 0; frequency = 0; timer = 2048 * 2;
-            position = 0; sample_buffer = 0; ram_access_cycles = 0; accumulator = 0;
-        }
-        void save(BinaryWriter& out) const {
-            out.raw(ram); out.boolean(enabled); out.boolean(dac_enabled); out.i32(length);
-            out.boolean(length_enabled); out.i32(volume_code); out.i32(frequency);
-            out.i32(timer); out.i32(position); out.i32(sample_buffer); out.i32(ram_access_cycles);
-            out.i32(accumulator);
-        }
-        void load(BinaryReader& in) {
-            in.raw(ram); enabled = in.boolean(); dac_enabled = in.boolean(); length = in.bounded_i32(0, 256);
-            length_enabled = in.boolean(); volume_code = in.bounded_i32(0, 3); frequency = in.bounded_i32(0, 2047);
-            timer = in.bounded_i32(1, max_timer); position = in.bounded_i32(0, 31); sample_buffer = in.bounded_i32(0, 15);
-            ram_access_cycles = in.bounded_i32(0, 2); accumulator = in.bounded_i32(-1920, 1920);
-        }
-    };
-
-    struct Noise {
-        static constexpr int trigger_delay_cycles = 4;
-        static constexpr int restart_delay_cycles = 8;
-        static constexpr int max_timer = (112 << 15) + restart_delay_cycles;
-
-        bool enabled{};
-        bool dac_enabled{};
-        int length{};
-        bool length_enabled{};
-        int envelope_initial{};
-        bool envelope_add{};
-        int envelope_period{};
-        int volume{};
-        int envelope_timer{};
-        int divisor_code{};
-        bool width_mode7{};
-        int clock_shift{};
-        int lfsr{0x7fff};
-        int timer{8};
-        int accumulator{};
-
-        [[nodiscard]] int period() const noexcept { return divisors[static_cast<std::size_t>(divisor_code)] << clock_shift; }
-        [[nodiscard]] int output() const noexcept { return enabled && dac_enabled && (lfsr & 1) == 0 ? volume : 0; }
-        [[nodiscard]] int dac_output() const noexcept { return dac_enabled ? 15 - output() * 2 : 0; }
-        void step(int cycles) noexcept {
-            int remaining = cycles;
-            while (remaining > 0) {
-                const int slice = std::min(timer, remaining);
-                accumulator += dac_output() * slice; timer -= slice; remaining -= slice;
-                if (timer <= 0) {
-                    timer += period();
-                    // Les valeurs 14 et 15 déconnectent l'horloge du LFSR :
-                    // le timer interne avance, mais aucun nouveau bit n'est produit.
-                    if (clock_shift < 14) {
-                        const int feedback = (lfsr ^ (lfsr >> 1)) & 1;
-                        lfsr = (lfsr >> 1) | (feedback << 14);
-                        if (width_mode7) lfsr = (lfsr & ~(1 << 6)) | (feedback << 6);
-                    }
-                }
-            }
-        }
-        double drain_average() noexcept {
-            const double average = static_cast<double>(accumulator) / cycles_per_sample;
-            accumulator = 0; return average;
-        }
-        void clock_length() noexcept { if (length_enabled && length > 0 && --length == 0) enabled = false; }
-        /** Même règle que pour les canaux carrés : période nulle, volume tenu. */
-        void clock_envelope() noexcept {
-            if (--envelope_timer > 0) return;
-            envelope_timer = envelope_period != 0 ? envelope_period : 8;
-            if (envelope_period == 0) return;
-            volume = envelope_add ? std::min(15, volume + 1) : std::max(0, volume - 1);
-        }
-        void trigger(bool shorten_zero_length_reload, bool delay_envelope_clock) noexcept {
-            const bool enabled_before_trigger = enabled;
-            enabled = dac_enabled;
-            if (length == 0) {
-                length = 64;
-                if (shorten_zero_length_reload) --length;
-            }
-            // Le premier pas du LFSR arrive une période et un M-cycle après un
-            // départ, et deux M-cycles si le canal jouait encore (SameSuite,
-            // channel_4_lfsr, channel_4_lfsr_restart, channel_4_lfsr_7_15).
-            timer = period() + (enabled_before_trigger ? restart_delay_cycles : trigger_delay_cycles);
-            volume = envelope_initial;
-            envelope_timer = (envelope_period != 0 ? envelope_period : 8) +
-                (delay_envelope_clock ? 1 : 0);
-            lfsr = 0x7fff;
-        }
-        void reset() noexcept {
-            enabled = false; dac_enabled = false; length = 0; length_enabled = false;
-            envelope_initial = 0; envelope_add = false; envelope_period = 0; volume = 0;
-            envelope_timer = 0; divisor_code = 0; width_mode7 = false; clock_shift = 0;
-            lfsr = 0x7fff; timer = 8; accumulator = 0;
-        }
-        void save(BinaryWriter& out) const {
-            out.boolean(enabled); out.boolean(dac_enabled); out.i32(length); out.boolean(length_enabled);
-            out.i32(envelope_initial); out.boolean(envelope_add); out.i32(envelope_period);
-            out.i32(volume); out.i32(envelope_timer); out.i32(divisor_code);
-            out.boolean(width_mode7); out.i32(clock_shift); out.i32(lfsr); out.i32(timer);
-            out.i32(accumulator);
-        }
-        void load(BinaryReader& in) {
-            enabled = in.boolean(); dac_enabled = in.boolean(); length = in.bounded_i32(0, 64); length_enabled = in.boolean();
-            envelope_initial = in.bounded_i32(0, 15); envelope_add = in.boolean(); envelope_period = in.bounded_i32(0, 7);
-            volume = in.bounded_i32(0, 15); envelope_timer = in.bounded_i32(0, 9); divisor_code = in.bounded_i32(0, 7);
-            width_mode7 = in.boolean(); clock_shift = in.bounded_i32(0, 15); lfsr = in.bounded_i32(0, 32767); timer = in.bounded_i32(1, max_timer);
-            accumulator = in.bounded_i32(-1920, 1920);
-        }
-    };
-
     [[nodiscard]] int read_wave_ram(int requested_index) const noexcept {
         if (!wave_.enabled) {
             return wave_.ram[static_cast<std::size_t>(requested_index & 0x0f)];
@@ -848,7 +523,7 @@ private:
     bool skip_next_divider_edge_{};
     // Non sauvegardé : le bus le donne juste avant chaque écriture de NR52.
     bool divider_signal_high_{};
-    static constexpr int cycles_per_sample = 128;
+    static constexpr int cycles_per_sample = apu_cycles_per_sample;
     static constexpr int max_pending_cycles = 1 << 16;
     static constexpr std::size_t ring_capacity = 8192;
     static constexpr int mix_gain = 64;
@@ -870,11 +545,6 @@ private:
      * lentement le continu : la CGB prend donc le facteur du DMG.
      */
     static constexpr double charge_factor = 0.9946383125332977;
-    inline static constexpr std::array<std::array<int, 8>, 4> duty_table{{
-        {{0, 0, 0, 0, 0, 0, 0, 1}}, {{1, 0, 0, 0, 0, 0, 0, 1}},
-        {{1, 0, 0, 0, 0, 1, 1, 1}}, {{0, 1, 1, 1, 1, 1, 1, 0}},
-    }};
-    inline static constexpr std::array<int, 8> divisors{{8, 16, 32, 48, 64, 80, 96, 112}};
     inline static constexpr std::array<int, 48> read_masks{{
         0x80, 0x3f, 0x00, 0xff, 0xbf, 0xff, 0x3f, 0x00, 0xff, 0xbf,
         0x7f, 0xff, 0x9f, 0xff, 0xbf, 0xff, 0xff, 0x00, 0x00, 0xbf,
@@ -883,10 +553,10 @@ private:
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     }};
 
-    Square square1_{true};
-    Square square2_{false};
-    Wave wave_{};
-    Noise noise_{};
+    SquareChannel square1_{true};
+    SquareChannel square2_{false};
+    WaveChannel wave_{};
+    NoiseChannel noise_{};
     gbc::HardwareMode hardware_mode_{gbc::HardwareMode::dmg};
     bool power_on_{true};
     int nr50_{0x77};

@@ -1,4 +1,5 @@
 #include "ppu/ppu.hpp"
+#include <algorithm>
 #include <array>
 #include "check.hpp"
 #include "machine/machine.hpp"
@@ -517,6 +518,115 @@ void render_register_write_phase_test() {
         for (int column = x + 1; column < x + 4; ++column) {
             check(pixel(column) != pixel(x), "écriture de palette pas encore visible trois points avant la fin du M-cycle");
         }
+    }
+}
+
+/**
+ * PPU nu, BG seul (LCDC $91, SCX = SCY = 0) : la tuile 0 a sa ligne 0 en
+ * couleur 0 et toutes les autres en couleur 3, la tuile 1 est en couleur 3.
+ * `change` est appelé une fois, ligne `line`, quand le mode 3 a sorti
+ * `x` pixels ; la fonction rend la couleur affichée au milieu de la tuile
+ * `column`.
+ */
+template <typename Change>
+std::int32_t fetcher_probe(gbc::HardwareMode mode, int line, int x, int column, Change change) {
+    InterruptController interrupts;
+    Ppu ppu(interrupts, mode);
+    ppu.write_lcdc(0x11);
+    ppu.set_bgp(0xe4);
+    ppu.write_bcps(0x80);
+    for (const int color : {0x0000, 0x001f, 0x03e0, 0x7c00}) {
+        ppu.write_bcpd(color & 0xff);
+        ppu.write_bcpd(color >> 8);
+    }
+    for (int offset = 2; offset < 32; ++offset) ppu.vram[static_cast<std::size_t>(offset)] = 0xff;
+    ppu.write_lcdc(0x91);
+    while (!(ppu.ly() == line && ppu.mode() == Ppu::mode_transfer && ppu.transfer_x() >= x)) ppu.tick(1);
+    change(ppu);
+    while (ppu.ly() != Ppu::height) ppu.tick(1);
+    return ppu.completed_frame[static_cast<std::size_t>(line * Ppu::width + column * 8 + 3)];
+}
+
+/**
+ * Le fetcher ne pousse une tuile que dans une FIFO BG vide (Pan Docs, Pixel
+ * FIFO) : il lit l'index de la tuile 7 (pixels 56 à 63) après la sortie du
+ * pixel 50, et non pendant celle de la tuile 5. Mealybug Tearoom
+ * (m3_lcdc_bg_map_change, m3_scy_change) le mesure.
+ */
+void fetcher_single_tile_lookahead_test() {
+    for (const auto mode : {gbc::HardwareMode::dmg, gbc::HardwareMode::cgb_native}) {
+        const auto poke_tile_7 = [](Ppu& ppu) { ppu.vram[0x1800 + 32 + 7] = 1; };
+        const auto untouched = fetcher_probe(mode, 8, 0, 7, [](Ppu&) {});
+        const auto at_48 = fetcher_probe(mode, 8, 48, 7, poke_tile_7);
+        const auto at_52 = fetcher_probe(mode, 8, 52, 7, poke_tile_7);
+        check(at_48 != untouched, "index de la tuile 7 lu avant la sortie du pixel 48");
+        check(at_52 == untouched, "index de la tuile 7 lu après la sortie du pixel 52");
+    }
+}
+
+/**
+ * Ligne de tuile et SCY (Mealybug Tearoom, m3_scy_change) : sur DMG, chaque
+ * lecture de donnée recalcule la ligne avec le SCY du moment ; sur CGB, elle
+ * reste celle de la lecture de l'index. Tuile 6 : index lu entre les pixels
+ * 42 et 43, octet bas entre 44 et 45, octet haut entre 46 et 47.
+ */
+void fetcher_scy_tile_row_test() {
+    const auto scy_1 = [](Ppu& ppu) { ppu.set_scy(1); };
+    const auto dmg = [&](int x) { return fetcher_probe(gbc::HardwareMode::dmg, 8, x, 6, scy_1); };
+    check(dmg(44) == 3, "DMG : octets de la tuile lus sans le SCY écrit après son index");
+    check(dmg(46) == 2, "DMG : octet haut lu sans le SCY écrit après l'octet bas");
+    check(dmg(48) == 0, "DMG : SCY écrit après la tuile a changé sa ligne");
+    const auto cgb = [&](int x) { return fetcher_probe(gbc::HardwareMode::cgb_native, 8, x, 6, scy_1); };
+    const auto cgb_row_0 = fetcher_probe(gbc::HardwareMode::cgb_native, 8, 0, 6, [](Ppu&) {});
+    const auto cgb_row_1 = cgb(0);
+    check(cgb_row_0 != cgb_row_1, "CGB : sonde de couleur sans contraste");
+    check(cgb(42) == cgb_row_1 && cgb(44) == cgb_row_0, "CGB : ligne de tuile non fixée à la lecture de l'index");
+}
+
+/**
+ * Écritures de SCY et de LCDC.6 par le CPU en mode 3 : comme les palettes,
+ * elles sont validées dès le premier point du M-cycle (MemoryBus::
+ * render_register), ce que Mealybug Tearoom mesure (m3_scy_change,
+ * m3_lcdc_win_map_change). La tuile 0 a sa ligne 0 en couleur 0, les autres
+ * en couleur 3 ; la tuile 1 est en couleur 3. Ligne 8, la sortie se fait à un
+ * pixel par point : `start` est le pixel où commence le M-cycle d'écriture.
+ */
+void fetcher_register_write_phase_test() {
+    const auto run = [](gbc::HardwareMode mode, int wx, int start, int address, int value) {
+        auto image = std::make_shared<const std::vector<std::uint8_t>>(ravenemu::testing::minimal_game_boy_rom());
+        Machine machine(image, [] { return std::int64_t{0}; }, mode);
+        auto& vram = machine.ppu.vram;
+        for (int offset = 0; offset < 32; ++offset) vram[static_cast<std::size_t>(offset)] = offset < 2 ? 0 : 0xff;
+        std::fill(vram.begin() + 0x1800, vram.begin() + 0x1c00, std::uint8_t{0});
+        std::fill(vram.begin() + 0x1c00, vram.begin() + 0x2000, std::uint8_t{1});
+        machine.bus.write(0xff47, 0xe4);
+        machine.bus.write(0xff4a, 0);
+        machine.bus.write(0xff4b, wx);
+        machine.bus.write(0xff40, wx <= 166 ? 0xb1 : 0x91);
+        while (!(machine.ppu.ly() == 8 && machine.ppu.mode() == Ppu::mode_transfer &&
+                 machine.ppu.transfer_x() >= start - 3)) {
+            machine.bus.tick_mcycle();
+        }
+        check(machine.ppu.transfer_x() == start, "phase du M-cycle d'écriture inattendue");
+        machine.bus.write_mcycle(address, value);
+        while (machine.ppu.ly() != Ppu::height) machine.bus.tick_mcycle();
+        std::array<std::int32_t, 3> tiles{};
+        for (std::size_t index = 0; index < tiles.size(); ++index) {
+            tiles[index] = machine.ppu.completed_frame[static_cast<std::size_t>(8 * Ppu::width + (4 + 2 * index) * 8 + 3)];
+        }
+        return tiles; // tuiles 4, 6 et 8
+    };
+    // DMG : octet bas de la tuile 6 lu avant la validation (point 45), octet
+    // haut après : couleur 2. Validée en fin de M-cycle, l'écriture la manque.
+    check(run(gbc::HardwareMode::dmg, 255, 44, 0xff42, 1)[1] == 2,
+          "DMG : SCY écrit pas encore visible au premier point du M-cycle");
+    // CGB : l'index de la tuile 6, qui fixe sa ligne, est lu après le point 41.
+    const auto cgb = run(gbc::HardwareMode::cgb_compatibility, 255, 40, 0xff42, 1);
+    check(cgb[0] != cgb[2] && cgb[1] == cgb[2], "CGB : SCY écrit pas encore visible au premier point du M-cycle");
+    for (const auto mode : {gbc::HardwareMode::dmg, gbc::HardwareMode::cgb_compatibility}) {
+        const auto window = run(mode, 8, 42, 0xff40, 0xf1);
+        check(window[0] != window[2] && window[1] == window[2],
+              "carte de la window (LCDC.6) pas encore changée au premier point du M-cycle");
     }
 }
 
@@ -1546,6 +1656,9 @@ int main() {
     line0_mode2_stat_test();
     post_boot_logo_test();
     render_register_write_phase_test();
+    fetcher_single_tile_lookahead_test();
+    fetcher_scy_tile_row_test();
+    fetcher_register_write_phase_test();
     mode2_stat_lead_test();
     video_bus_lock_boundary_test();
     dmg_lcd_startup_bus_gate_test();

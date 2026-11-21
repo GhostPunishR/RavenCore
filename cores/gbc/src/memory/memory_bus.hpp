@@ -1,6 +1,8 @@
 #pragma once
 
 #include "memory/bus.hpp"
+#include "memory/hdma.hpp"
+#include "memory/oam_dma.hpp"
 #include "cartridge/cartridge.hpp"
 #include "apu/apu.hpp"
 #include "ppu/ppu.hpp"
@@ -48,13 +50,13 @@ public:
 
     void write_mcycle(int address, int value) override {
         const int addr = word(address);
-        const bool blocked_before = oam_dma_active_ && !dma_accessible(addr, oam_dma_source_);
+        const bool blocked_before = oam_dma_.active() && !dma_accessible(addr, oam_dma_.source());
         if (render_register(addr)) {
             write_render_register_mcycle(addr, byte(value), blocked_before);
             return;
         }
         tick_mcycle();
-        const bool blocked_after = oam_dma_active_ && !dma_accessible(addr, oam_dma_source_);
+        const bool blocked_after = oam_dma_.active() && !dma_accessible(addr, oam_dma_.source());
         if (blocked_before || blocked_after) return;
         // Une écriture accompagnée d'une décrémentation (LD [HL-],A, PUSH)
         // se comporte comme une écriture seule.
@@ -70,9 +72,12 @@ public:
      * sans rien retarder : c'est le cas en vitesse simple, celui que mesurent
      * Mealybug Tearoom et AGE. En double vitesse, un M-cycle ne dure que deux
      * points ; l'écriture y est validée au premier, faute de mesure.
+     *
+     * SCY, lu par le fetcher, suit le même instant : Mealybug Tearoom,
+     * m3_scy_change, le mesure sur DMG comme sur CGB-D.
      */
     [[nodiscard]] static bool render_register(int address) noexcept {
-        return address == 0xff40 || (address >= 0xff47 && address <= 0xff49) ||
+        return address == 0xff40 || address == 0xff42 || (address >= 0xff47 && address <= 0xff49) ||
             address == 0xff69 || address == 0xff6b;
     }
 
@@ -81,7 +86,7 @@ public:
         while (cpu_blocked()) tick_cpu_clock(4, false);
         tick_cpu_clock(cpu_cycles_per_dot, false);
         const bool blocked_early = blocked_before ||
-            (oam_dma_active_ && !dma_accessible(address, oam_dma_source_));
+            (oam_dma_.active() && !dma_accessible(address, oam_dma_.source()));
         if (!blocked_early) {
             // LCDC : seuls ses bits lus au rendu sont avancés ; l'allumage de
             // l'écran et les bits du fetcher sont écrits en fin de M-cycle.
@@ -91,7 +96,7 @@ public:
         tick_cpu_clock(4 - cpu_cycles_per_dot, false);
         while (cpu_blocked()) tick_cpu_clock(4, false);
         if (address != 0xff40) return;
-        const bool blocked_after = oam_dma_active_ && !dma_accessible(address, oam_dma_source_);
+        const bool blocked_after = oam_dma_.active() && !dma_accessible(address, oam_dma_.source());
         if (blocked_before || blocked_after) {
             ppu_.preview_lcdc_render_bits(ppu_.lcdc());
             return;
@@ -116,7 +121,7 @@ public:
     }
     bool stop_wake_requested() override { return joypad_.take_stop_wake(); }
     [[nodiscard]] bool cpu_blocked() const noexcept override {
-        return hdma_block_bytes_remaining_ > 0 || (hdma_active_ && !hdma_hblank_);
+        return hdma_.cpu_blocked();
     }
 
     void tick_mcycle() override {
@@ -133,7 +138,7 @@ public:
     void tick_halted_mcycle() override {
         // Un GDMA reste maître du bus. En revanche un HBlank DMA est suspendu
         // tant que HALT n'a pas été quitté.
-        while (hdma_active_ && !hdma_hblank_) tick_cpu_clock(4, false);
+        while (hdma_.general_transfer_active()) tick_cpu_clock(4, false);
         tick_cpu_clock(4, true);
     }
 
@@ -171,33 +176,17 @@ public:
         tick_hdma(peripheral_cycles);
     }
 
-    [[nodiscard]] bool dma_active() const noexcept { return oam_dma_active_; }
+    [[nodiscard]] bool dma_active() const noexcept { return oam_dma_.active(); }
 
-    void notify_hblank() noexcept {
-        if (!hdma_active_ || !hdma_hblank_ || hdma_block_bytes_remaining_ > 0) return;
-        hdma_block_bytes_remaining_ = std::min(16, hdma_length_);
-        hdma_dot_accum_ = 0;
-    }
+    void notify_hblank() noexcept { hdma_.notify_hblank(); }
 
     void save(BinaryWriter& out) const {
         out.raw(wram);
         out.raw(hram);
         out.i32(19);
-        out.i32(dma_register_);
-        out.i32(oam_dma_active_ ? 1 : 0);
-        out.i32(oam_dma_source_);
-        out.i32(oam_dma_index_);
-        out.i32(oam_dma_cycle_accum_);
-        out.i32(oam_dma_pending_ ? 1 : 0);
-        out.i32(oam_dma_startup_cycles_);
+        oam_dma_.save(out);
         out.i32(svbk_);
-        out.i32(hdma_source_);
-        out.i32(hdma_destination_);
-        out.i32(hdma_length_);
-        out.i32(hdma_hblank_ ? 1 : 0);
-        out.i32(hdma_active_ ? 1 : 0);
-        out.i32(hdma_block_bytes_remaining_);
-        out.i32(hdma_dot_accum_);
+        hdma_.save(out);
         out.i32(ff72_);
         out.i32(ff73_);
         out.i32(ff74_);
@@ -210,45 +199,18 @@ public:
         in.raw(wram);
         in.raw(hram);
         if (in.i32() != 19) throw SaveStateError("État instantané corrompu (bus/DMA)");
-        const auto bounded = [&in](int minimum, int maximum) {
-            const int value = in.i32();
-            if (value < minimum || value > maximum) {
-                throw SaveStateError("État instantané corrompu (DMA)");
-            }
-            return value;
-        };
-        dma_register_ = bounded(0, 0xff);
-        oam_dma_active_ = bounded(0, 1) != 0;
-        oam_dma_source_ = bounded(0, 0xff00);
-        oam_dma_index_ = bounded(0, 0xa0);
-        oam_dma_cycle_accum_ = bounded(0, 3);
-        oam_dma_pending_ = bounded(0, 1) != 0;
-        oam_dma_startup_cycles_ = bounded(0, 4);
+        const auto bounded = [&in](int minimum, int maximum) { return OamDma::bounded(in, minimum, maximum); };
+        oam_dma_.load(in);
         svbk_ = bounded(0, 7);
-        hdma_source_ = bounded(0, 0xffff);
-        hdma_destination_ = bounded(0, 0x2000);
-        hdma_length_ = bounded(0, 0x800);
-        hdma_hblank_ = bounded(0, 1) != 0;
-        hdma_active_ = bounded(0, 1) != 0;
-        hdma_block_bytes_remaining_ = bounded(0, 16);
-        hdma_dot_accum_ = bounded(0, 1);
+        hdma_.load(in);
         ff72_ = bounded(0, 0xff);
         ff73_ = bounded(0, 0xff);
         ff74_ = bounded(0, 0xff);
         ff75_ = bounded(0, 0x70) & 0x70;
-        if ((oam_dma_active_ && !oam_dma_pending_ && oam_dma_source_ != dma_source_from_register()) ||
-            (oam_dma_active_ && oam_dma_index_ >= 0xa0) ||
-            (!oam_dma_pending_ && oam_dma_startup_cycles_ != 0) ||
-            // Une destination en fin de banque (0x2000) reste valide pendant un
-            // transfert : relancé sans la réécrire, il s'arrête au premier octet.
-            (hdma_active_ && hdma_length_ == 0) ||
-            hdma_block_bytes_remaining_ > hdma_length_ ||
-            (!hdma_active_ && hdma_block_bytes_remaining_ != 0) ||
-            (hdma_active_ && !hdma_hblank_ && hdma_block_bytes_remaining_ == 0)) {
+        if (!oam_dma_.consistent(hardware_mode_) || !hdma_.consistent()) {
             throw SaveStateError("État instantané corrompu (DMA)");
         }
-        if (oam_dma_active_) ppu_.restore_oam_dma_bus(oam_dma_index_);
-        else ppu_.end_oam_dma();
+        oam_dma_.restore_ppu_port(ppu_);
         elapsed_dots_ = 0; // compteur de budget hôte, pas un registre matériel
         infrared_.load(in);
         boot_rom_.load(in);
@@ -302,8 +264,8 @@ private:
             apu_.tick(1);
             // Les deux DMA, sortis au plus tôt quand ils ne transfèrent rien :
             // l'appel coûtait autant que le reste du point.
-            if (oam_dma_pending_ || oam_dma_active_) tick_oam_dma(cpu_cycles_per_dot);
-            if (hdma_active_ && (!pause_hblank_hdma || !hdma_hblank_)) tick_hdma(1);
+            if (oam_dma_.busy()) tick_oam_dma(cpu_cycles_per_dot);
+            if (hdma_.active() && (!pause_hblank_hdma || !hdma_.hblank_mode())) tick_hdma(1);
             // Les périphériques autonomes de cartouche suivent le temps
             // physique : un dot reste un dot même en double vitesse CGB.
             if (cartridge_.clocked()) cartridge_.tick(1);
@@ -318,7 +280,7 @@ private:
     }
 
     [[nodiscard]] bool dma_accessible(int address) const noexcept {
-        return dma_accessible(address, oam_dma_source_);
+        return dma_accessible(address, oam_dma_.source());
     }
 
     [[nodiscard]] bool dma_accessible(int address, int source) const noexcept {
@@ -350,9 +312,9 @@ private:
 
     [[nodiscard]] int read_mcycle_corrupting(int address, Ppu::OamCorruption corruption) {
         const int addr = word(address);
-        const bool blocked_before = oam_dma_active_ && !dma_accessible(addr, oam_dma_source_);
+        const bool blocked_before = oam_dma_.active() && !dma_accessible(addr, oam_dma_.source());
         tick_mcycle();
-        const bool blocked_after = oam_dma_active_ && !dma_accessible(addr, oam_dma_source_);
+        const bool blocked_after = oam_dma_.active() && !dma_accessible(addr, oam_dma_.source());
         if (blocked_before || blocked_after) return 0xff;
         if (in_oam_range(addr)) ppu_.corrupt_oam(corruption);
         return read_internal(addr);
@@ -394,7 +356,7 @@ public:
         case 0xff43: return ppu_.scx();
         case 0xff44: return ppu_.ly();
         case 0xff45: return ppu_.lyc();
-        case 0xff46: return dma_register_;
+        case 0xff46: return oam_dma_.read_register();
         case 0xff47: return ppu_.bgp();
         case 0xff48: return ppu_.obp0();
         case 0xff49: return ppu_.obp1();
@@ -404,7 +366,7 @@ public:
         case 0xff4f: return ppu_.read_vram_bank();
         case 0xff50: return 0xff;
         case 0xff51: case 0xff52: case 0xff53: case 0xff54: return 0xff;
-        case 0xff55: return read_hdma_status();
+        case 0xff55: return gbc::cgb_features_enabled(hardware_mode_) ? hdma_.read_status() : 0xff;
         case 0xff56: return gbc::cgb_features_enabled(hardware_mode_) ? infrared_.read() : 0xff;
         case 0xff68: return gbc::is_cgb_hardware(hardware_mode_) ? ppu_.read_bcps() : 0xff;
         case 0xff69: return gbc::cgb_features_enabled(hardware_mode_) ? ppu_.read_bcpd() : 0xff;
@@ -451,12 +413,7 @@ private:
         case 0xff40: {
             const bool was_enabled = ppu_.lcd_enabled();
             ppu_.write_lcdc(value);
-            if (was_enabled && !ppu_.lcd_enabled() && hdma_active_ && hdma_hblank_) {
-                // Sans HBlank futur, le matériel termine comme un GDMA.
-                hdma_hblank_ = false;
-                hdma_block_bytes_remaining_ = std::min(16, hdma_length_);
-                hdma_dot_accum_ = 0;
-            }
+            if (was_enabled && !ppu_.lcd_enabled()) hdma_.lcd_turned_off();
             break;
         }
         case 0xff41: ppu_.write_stat(value); break;
@@ -464,7 +421,7 @@ private:
         case 0xff43: ppu_.set_scx(value); break;
         case 0xff44: break;
         case 0xff45: ppu_.write_lyc(value); break;
-        case 0xff46: start_dma(value); break;
+        case 0xff46: oam_dma_.write_register(value); break;
         case 0xff47: ppu_.set_bgp(value); break;
         case 0xff48: ppu_.set_obp0(value); break;
         case 0xff49: ppu_.set_obp1(value); break;
@@ -478,11 +435,15 @@ private:
             if (was_mapped && !boot_rom_.mapped()) set_hardware_mode(post_boot_hardware_mode_);
             break;
         }
-        case 0xff51: if (gbc::cgb_features_enabled(hardware_mode_)) hdma_source_ = (hdma_source_ & 0x00f0) | (value << 8); break;
-        case 0xff52: if (gbc::cgb_features_enabled(hardware_mode_)) hdma_source_ = (hdma_source_ & 0xff00) | (value & 0xf0); break;
-        case 0xff53: if (gbc::cgb_features_enabled(hardware_mode_)) hdma_destination_ = (hdma_destination_ & 0x00f0) | ((value & 0x1f) << 8); break;
-        case 0xff54: if (gbc::cgb_features_enabled(hardware_mode_)) hdma_destination_ = (hdma_destination_ & 0x1f00) | (value & 0xf0); break;
-        case 0xff55: if (gbc::cgb_features_enabled(hardware_mode_)) start_hdma(value); break;
+        case 0xff51: if (gbc::cgb_features_enabled(hardware_mode_)) hdma_.write_source_high(value); break;
+        case 0xff52: if (gbc::cgb_features_enabled(hardware_mode_)) hdma_.write_source_low(value); break;
+        case 0xff53: if (gbc::cgb_features_enabled(hardware_mode_)) hdma_.write_destination_high(value); break;
+        case 0xff54: if (gbc::cgb_features_enabled(hardware_mode_)) hdma_.write_destination_low(value); break;
+        case 0xff55:
+            if (gbc::cgb_features_enabled(hardware_mode_)) {
+                hdma_.write_control(value, !ppu_.lcd_enabled() || ppu_.mode() == Ppu::mode_hblank);
+            }
+            break;
         case 0xff56: if (gbc::cgb_features_enabled(hardware_mode_)) infrared_.write(value); break;
         case 0xff68: if (gbc::cgb_features_enabled(hardware_mode_)) ppu_.write_bcps(value); break;
         case 0xff69: if (gbc::cgb_features_enabled(hardware_mode_)) ppu_.write_bcpd(value); break;
@@ -513,63 +474,8 @@ private:
         }
     }
 
-    void start_dma(int high) noexcept {
-        dma_register_ = byte(high);
-        // Le nouveau transfert ne remplace le moteur courant qu'après le
-        // M-cycle de démarrage. Lors d'un restart, l'ancien DMA continue donc
-        // pendant cette fenêtre, comme sur le bus physique.
-        oam_dma_pending_ = true;
-        oam_dma_startup_cycles_ = 4;
-    }
-
     void tick_oam_dma(int cpu_cycles) noexcept {
-        if (cpu_cycles <= 0) return;
-        for (int cycle = 0; cycle < cpu_cycles; ++cycle) {
-            if (oam_dma_pending_) {
-                if (oam_dma_startup_cycles_ > 0) {
-                    tick_active_oam_dma(1);
-                    --oam_dma_startup_cycles_;
-                    continue;
-                }
-                activate_pending_oam_dma();
-            }
-            tick_active_oam_dma(1);
-        }
-    }
-
-    void activate_pending_oam_dma() noexcept {
-        oam_dma_pending_ = false;
-        oam_dma_source_ = dma_source_from_register();
-        oam_dma_index_ = 0;
-        oam_dma_cycle_accum_ = 0;
-        oam_dma_startup_cycles_ = 0;
-        oam_dma_active_ = true;
-        ppu_.begin_oam_dma();
-    }
-
-    [[nodiscard]] int dma_source_from_register() const noexcept {
-        // Sur les DMG, E0-FF reboucle sur C0-DF (la ligne A13 n'atteint pas
-        // le mux source du DMA). Le CGB ne possède pas ce miroir.
-        const int high = hardware_mode_ == gbc::HardwareMode::dmg && dma_register_ >= 0xe0
-            ? dma_register_ & 0xdf : dma_register_;
-        return high << 8;
-    }
-
-    void tick_active_oam_dma(int cpu_cycles) noexcept {
-        if (!oam_dma_active_ || cpu_cycles <= 0) return;
-        oam_dma_cycle_accum_ += cpu_cycles;
-        while (oam_dma_active_ && oam_dma_cycle_accum_ >= 4) {
-            oam_dma_cycle_accum_ -= 4;
-            const int source = oam_dma_source_ + oam_dma_index_;
-            ppu_.write_oam_dma_byte(oam_dma_index_, read_for_oam_dma(source));
-            ++oam_dma_index_;
-            if (oam_dma_index_ >= 0xa0) {
-                oam_dma_active_ = false;
-                oam_dma_cycle_accum_ = 0;
-                oam_dma_startup_cycles_ = 0;
-                ppu_.end_oam_dma();
-            }
-        }
+        oam_dma_.tick(cpu_cycles, hardware_mode_, ppu_, [this](int address) { return read_for_oam_dma(address); });
     }
 
     [[nodiscard]] int read_for_oam_dma(int address) const {
@@ -582,70 +488,8 @@ private:
         return wram[static_cast<std::size_t>(wram_bank() * 0x1000 + address - 0xd000)];
     }
 
-    [[nodiscard]] int read_hdma_status() const noexcept {
-        if (!gbc::cgb_features_enabled(hardware_mode_)) return 0xff;
-        if (hdma_length_ <= 0) return 0xff;
-        const int remaining = ((hdma_length_ + 15) / 16 - 1) & 0x7f;
-        return hdma_active_ ? remaining : 0x80 | remaining;
-    }
-
-    void start_hdma(int value) noexcept {
-        if (hdma_active_) {
-            if (hdma_hblank_ && (value & 0x80) == 0) {
-                // Seul bit 7=0 arrête un HBlank DMA. Une écriture avec bit 7
-                // à 1 ne recharge ni son adresse ni sa longueur. L'arrêt écrit
-                // la longueur : FF55 relit $80 après $00 (SameSuite,
-                // hdma_lcd_off et hdma_mode0).
-                hdma_active_ = false;
-                hdma_length_ = ((value & 0x7f) + 1) * 16;
-                hdma_block_bytes_remaining_ = 0;
-                hdma_dot_accum_ = 0;
-            }
-            return;
-        }
-        const bool hblank = (value & 0x80) != 0;
-        hdma_length_ = ((value & 0x7f) + 1) * 16;
-        hdma_hblank_ = hblank;
-        hdma_active_ = true;
-        // Lancé pendant un H-Blank, ou écran éteint, un HBlank DMA copie
-        // aussitôt un bloc, puis attend le H-Blank suivant ; écran éteint, il
-        // n'en vient pas, et le transfert en reste là (SameSuite, hdma_mode0,
-        // hdma_lcd_off, gdma_addr_mask).
-        const bool copy_now = !hblank || !ppu_.lcd_enabled() || ppu_.mode() == Ppu::mode_hblank;
-        hdma_block_bytes_remaining_ = copy_now ? std::min(16, hdma_length_) : 0;
-        hdma_dot_accum_ = 0;
-    }
-
     void tick_hdma(int peripheral_cycles) noexcept {
-        if (!hdma_active_ || hdma_block_bytes_remaining_ <= 0 || peripheral_cycles <= 0) return;
-        hdma_dot_accum_ += peripheral_cycles;
-        while (hdma_active_ && hdma_block_bytes_remaining_ > 0 && hdma_dot_accum_ >= 2) {
-            hdma_dot_accum_ -= 2;
-            const bool destination_available = transfer_hdma_byte();
-            --hdma_block_bytes_remaining_;
-            --hdma_length_;
-            if (hdma_length_ <= 0 || !destination_available) {
-                hdma_length_ = std::max(0, hdma_length_);
-                hdma_active_ = false;
-                hdma_block_bytes_remaining_ = 0;
-                break;
-            }
-            if (hdma_block_bytes_remaining_ == 0 && !hdma_hblank_) {
-                hdma_block_bytes_remaining_ = std::min(16, hdma_length_);
-            }
-        }
-    }
-
-    [[nodiscard]] bool transfer_hdma_byte() noexcept {
-        // La destination couvre les 8 Kio d'une banque de VRAM. Un transfert
-        // relancé sans la réécrire après avoir atteint la fin écrivait hors du
-        // tableau (banque 1 : vram[0x4000]) et laissait un état invalide.
-        if (hdma_destination_ >= 0x2000) return false;
-        const int value = read_for_hdma(word(hdma_source_));
-        ppu_.vram[static_cast<std::size_t>(ppu_.vram_bank() * 0x2000 + hdma_destination_)] = static_cast<std::uint8_t>(value);
-        hdma_source_ = word(hdma_source_ + 1);
-        ++hdma_destination_;
-        return hdma_destination_ < 0x2000;
+        hdma_.tick(peripheral_cycles, ppu_, [this](int address) { return read_for_hdma(address); });
     }
 
     [[nodiscard]] int read_for_hdma(int address) const {
@@ -681,21 +525,8 @@ private:
 
     int svbk_{1};
 
-    int dma_register_{0xff};
-    bool oam_dma_active_{};
-    int oam_dma_source_{};
-    int oam_dma_index_{};
-    int oam_dma_cycle_accum_{};
-    bool oam_dma_pending_{};
-    int oam_dma_startup_cycles_{};
-
-    int hdma_source_{};
-    int hdma_destination_{};
-    int hdma_length_{};
-    bool hdma_hblank_{};
-    bool hdma_active_{};
-    int hdma_block_bytes_remaining_{};
-    int hdma_dot_accum_{};
+    OamDma oam_dma_;
+    Hdma hdma_;
     int ff72_{};
     int ff73_{};
     int ff74_{};
