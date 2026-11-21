@@ -50,7 +50,7 @@ Le cœur GB/GBC est fait d'en-têtes, un dossier par composant matériel de `cor
 | APU | `apu.hpp` (registres, séquenceur, mixeur), `square_channel.hpp`, `wave_channel.hpp`, `noise_channel.hpp`, `sampling.hpp` |
 | Bus mémoire | `memory_bus.hpp` (carte mémoire et registres d'E/S), `oam_dma.hpp`, `hdma.hpp`, `bus.hpp` (interface vue par le CPU) |
 
-La classe `Ppu` garde l'état et déclare toutes ses fonctions ; chaque fichier de composant définit les siennes (`inline`), et `ppu.hpp` les inclut à sa fin. Placez une nouvelle fonction dans le fichier de son composant. L'ordre des champs des états instantanés est fixé par les fonctions `save` et `load` : un refactor ne doit pas le changer.
+La classe `Ppu` garde l'état et déclare toutes ses fonctions ; chaque fichier de composant définit les siennes (`inline`), et `ppu.hpp` les inclut à sa fin. Placez une nouvelle fonction dans le fichier de son composant ; un fichier qui dépasse 800 lignes se découpe d'abord (voir [AGENTS.md](AGENTS.md)). L'ordre des champs des états instantanés est fixé par les fonctions `save` et `load` : un refactor ne doit pas le changer.
 
 ## Règles de contribution
 
