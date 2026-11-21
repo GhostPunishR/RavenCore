@@ -551,6 +551,63 @@ void square_restart_delay_test() {
           "redéclenchement : position remise à zéro ou délai de deux tops");
 }
 
+/**
+ * Arrêté (ici par son DAC), un canal carré fige sa position dans le cycle ;
+ * redéclenché ensuite, il repart de là, avec le délai complet d'un départ
+ * (SameSuite, channel_1_stop_restart).
+ */
+void square_stop_keeps_phase_test() {
+    Apu apu(gbc::HardwareMode::cgb_native);
+    apu.write(0xff11, 0x00); // duty 12,5 % : seule la position 7 est haute
+    apu.write(0xff12, 0xf0);
+    apu.write(0xff13, 0xff); // période de 4 cycles
+    apu.write(0xff14, 0x87);
+    apu.tick(4 + 8 + 5 * 4); // position 6
+    apu.write(0xff12, 0x00); // DAC coupé : le canal s'arrête
+    apu.tick(100);
+    apu.write(0xff12, 0xf0);
+    apu.write(0xff14, 0x87);
+    apu.tick(4 + 7);
+    check((apu.read_pcm12() & 0x0f) == 0, "canal arrêté : position avancée ou délai d'un seul top");
+    apu.tick(1);
+    check((apu.read_pcm12() & 0x0f) == 0x0f, "canal arrêté : position perdue au redéclenchement");
+}
+
+/** Un nouveau rapport cyclique n'agit qu'à l'échantillon suivant (channel_1_duty_delay). */
+void square_duty_change_waits_for_next_sample_test() {
+    Apu apu(gbc::HardwareMode::cgb_native);
+    apu.write(0xff11, 0xc0); // duty 75 % : positions 1 à 6 hautes
+    apu.write(0xff12, 0xf0);
+    apu.write(0xff13, 0xff);
+    apu.write(0xff14, 0x87);
+    apu.tick(4 + 8); // position 1
+    check((apu.read_pcm12() & 0x0f) == 0x0f, "position 1 du duty 75 % basse");
+    apu.write(0xff11, 0x00); // duty 12,5 % : position 1 basse
+    check((apu.read_pcm12() & 0x0f) == 0x0f, "rapport cyclique changé au milieu d'un échantillon");
+    apu.tick(4);
+    check((apu.read_pcm12() & 0x0f) == 0, "nouveau rapport cyclique ignoré à l'échantillon suivant");
+}
+
+/**
+ * Allumé pendant que le bit de DIV qui le cadence vaut 1, l'APU saute le
+ * premier front qui suit, et ce front ne compte pas pour la longueur
+ * (SameSuite, div_write_trigger_10).
+ */
+void power_on_with_divider_high_skips_first_edge_test() {
+    Apu apu(gbc::HardwareMode::cgb_native);
+    apu.write(0xff26, 0x00);
+    apu.set_divider_signal(true);
+    apu.write(0xff26, 0x80);
+    apu.write(0xff11, 0xbe); // longueur 2
+    apu.write(0xff12, 0xbe);
+    apu.write(0xff14, 0xc1); // déclenchement, longueur active : un cadencement de plus
+    check((apu.read(0xff26) & 1) != 0, "canal éteint au déclenchement");
+    apu.clock_divider_falling_edge(); // front sauté
+    check((apu.read(0xff26) & 1) != 0, "front sauté après la mise sous tension compté");
+    apu.clock_divider_falling_edge(); // pas 0 : longueur
+    check((apu.read(0xff26) & 1) == 0, "longueur 2 non écoulée au premier pas de longueur");
+}
+
 void apu_state_mid_wave_access_test() {
     Apu source(gbc::HardwareMode::dmg);
     source.write(0xff30, 0xab);
@@ -751,6 +808,9 @@ int main() {
     dac_polarity_and_disconnect_test();
     first_duty_step_and_idle_clock_test();
     square_restart_delay_test();
+    square_stop_keeps_phase_test();
+    square_duty_change_waits_for_next_sample_test();
+    power_on_with_divider_high_skips_first_edge_test();
     apu_state_mid_wave_access_test();
     apu_state_layout_rejection_test();
     deferred_ticks_match_single_dots_test();

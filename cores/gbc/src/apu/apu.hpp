@@ -52,8 +52,20 @@ public:
      */
     void clock_divider_falling_edge() noexcept {
         catch_up();
-        if (power_on_) clock_frame_sequencer();
+        if (!power_on_) return;
+        if (skip_next_divider_edge_) {
+            skip_next_divider_edge_ = false;
+            return;
+        }
+        clock_frame_sequencer();
     }
+
+    /**
+     * Niveau du bit de DIV qui cadence le séquenceur, vu par l'APU au moment
+     * où une écriture l'allume. Allumé pendant que ce bit vaut 1, l'APU saute
+     * le premier front qui suit (SameSuite, div_write_trigger_10).
+     */
+    void set_divider_signal(bool high) noexcept { divider_signal_high_ = high; }
 
     [[nodiscard]] std::size_t read_samples(std::span<std::int16_t> destination) noexcept {
         catch_up();
@@ -99,6 +111,7 @@ public:
         raw_registers_[0x14] = nr50_;
         raw_registers_[0x15] = nr51_;
         square1_.duty = 2;
+        square1_.sample_duty = 2;
         square1_.dac_enabled = true;
         square1_.enabled = true;
         square1_.envelope_initial = 15;
@@ -227,6 +240,7 @@ private:
                 // n'est pas remis à zéro, d'où le « modulo 8192 » de Blargg).
                 power_on_ = true;
                 frame_step_ = 0;
+                skip_next_divider_edge_ = divider_signal_high_;
             }
             break;
         }
@@ -235,18 +249,27 @@ private:
     }
 
 public:
-    void save(BinaryWriter& out) {
+    /**
+     * Disposition 1 : celle des états GB jusqu'au format 11. La 2 (format 12)
+     * ajoute le rapport cyclique de l'échantillon en cours des deux canaux
+     * carrés et le front du séquenceur à sauter.
+     */
+    void save(BinaryWriter& out, int layout = state_layout) {
         catch_up();
-        out.i32(state_layout);
+        out.i32(layout);
         out.boolean(power_on_); out.i32(nr50_); out.i32(nr51_);
         for (const int value : raw_registers_) out.i32(value);
         out.i32(frame_step_); out.i32(sample_timer_);
         out.f64(capacitor_left_); out.f64(capacitor_right_);
         square1_.save(out); square2_.save(out); wave_.save(out); noise_.save(out);
+        if (layout < 2) return;
+        out.i32(square1_.sample_duty); out.i32(square2_.sample_duty);
+        out.boolean(skip_next_divider_edge_);
     }
     void load(BinaryReader& in) {
         pending_cycles_ = 0;
-        if (in.i32() != state_layout) throw SaveStateError("État instantané corrompu (APU)");
+        const int layout = in.i32();
+        if (layout != 1 && layout != state_layout) throw SaveStateError("État instantané corrompu (APU)");
         power_on_ = in.boolean(); nr50_ = in.i32(); nr51_ = in.i32();
         for (auto& value : raw_registers_) value = in.i32();
         frame_step_ = in.i32(); sample_timer_ = in.i32();
@@ -265,6 +288,13 @@ public:
             throw SaveStateError("État instantané corrompu (filtre APU)");
         }
         square1_.load(in); square2_.load(in); wave_.load(in); noise_.load(in);
+        square1_.sample_duty = square1_.duty; square2_.sample_duty = square2_.duty;
+        skip_next_divider_edge_ = false;
+        if (layout >= 2) {
+            square1_.sample_duty = in.bounded_i32(0, 3); square2_.sample_duty = in.bounded_i32(0, 3);
+            skip_next_divider_edge_ = in.boolean();
+            if (skip_next_divider_edge_ && !power_on_) throw SaveStateError("État instantané corrompu (APU)");
+        }
         ring_read_ = 0; ring_write_ = 0; ring_count_ = 0;
         mixer_changed_mid_window_ = false;
     }
@@ -280,6 +310,8 @@ private:
         bool enabled{};
         bool dac_enabled{};
         int duty{};
+        // Rapport cyclique de l'échantillon en cours, pris à son début.
+        int sample_duty{};
         int length{};
         bool length_enabled{};
         int envelope_initial{};
@@ -303,12 +335,14 @@ private:
 
         [[nodiscard]] int output() const noexcept {
             return enabled && dac_enabled && !force_first_step_zero &&
-                duty_table[static_cast<std::size_t>(duty)][static_cast<std::size_t>(duty_position)] == 1
+                duty_table[static_cast<std::size_t>(sample_duty)][static_cast<std::size_t>(duty_position)] == 1
                 ? volume : 0;
         }
         [[nodiscard]] int dac_output() const noexcept { return dac_enabled ? 15 - output() * 2 : 0; }
         void step(int cycles) noexcept {
-            if (!timer_running) {
+            // Arrêté (longueur écoulée, DAC coupé, balayage hors limites), le
+            // canal fige son minuteur et sa position dans le cycle.
+            if (!timer_running || !enabled) {
                 accumulator += dac_output() * cycles;
                 return;
             }
@@ -319,6 +353,9 @@ private:
                 if (timer <= 0) {
                     timer = (2048 - frequency) * 4;
                     duty_position = (duty_position + 1) & 7;
+                    // Un nouveau rapport cyclique n'agit qu'à l'échantillon
+                    // suivant (SameSuite, channel_1_duty_delay).
+                    sample_duty = duty;
                     force_first_step_zero = false;
                 }
             }
@@ -372,17 +409,20 @@ private:
             }
         }
         void trigger(bool shorten_zero_length_reload, bool delay_envelope_clock) noexcept {
+            const bool playing = enabled && timer_running;
             enabled = dac_enabled;
             if (length == 0) {
                 length = 64;
                 if (shorten_zero_length_reload) --length;
             }
             // Le premier échantillon arrive une période et deux tops de 1 MHz
-            // après le déclenchement ; un seul top si le minuteur tournait
-            // déjà. La position dans le cycle de service ne revient pas à zéro
-            // (SameSuite, channel_1_delay et channel_1_restart).
+            // après le déclenchement ; un seul top si le canal jouait encore.
+            // La position dans le cycle de service ne revient pas à zéro, même
+            // après un arrêt : seule l'extinction de l'APU (NR52) l'efface
+            // (SameSuite, channel_1_delay, channel_1_restart et
+            // channel_1_stop_restart).
             timer = ((2048 - frequency) * 4 +
-                     (timer_running ? restart_delay_cycles : trigger_delay_cycles)) | (timer & 3);
+                     (playing ? restart_delay_cycles : trigger_delay_cycles)) | (timer & 3);
             timer_running = true;
             volume = envelope_initial;
             envelope_timer = (envelope_period != 0 ? envelope_period : 8) +
@@ -395,7 +435,7 @@ private:
             }
         }
         void reset() noexcept {
-            enabled = false; dac_enabled = false; duty = 0; length = 0; length_enabled = false;
+            enabled = false; dac_enabled = false; duty = 0; sample_duty = 0; length = 0; length_enabled = false;
             envelope_initial = 0; envelope_add = false; envelope_period = 0; volume = 0;
             envelope_timer = 0; frequency = 0; duty_position = 0; sweep_period = 0;
             sweep_negate = false; sweep_shift = 0; sweep_timer = 0; sweep_enabled = false;
@@ -603,7 +643,9 @@ private:
         const bool trigger = (value & 0x80) != 0;
         const bool was_length_enabled = channel.length_enabled;
         channel.length_enabled = (value & 0x40) != 0;
-        const bool extra_length_clock = (frame_step_ & 1) != 0;
+        // Le front sauté après une mise sous tension ne cadence pas la
+        // longueur : le prochain pas est alors de ceux qui ne la cadencent pas.
+        const bool extra_length_clock = (frame_step_ & 1) != 0 || skip_next_divider_edge_;
 
         // Activer le compteur pendant une phase où la prochaine étape ne le
         // cadence pas produit immédiatement un clock supplémentaire. Si la
@@ -774,6 +816,7 @@ private:
         const int wave_length = wave_.length;
         const int noise_length = noise_.length;
         power_on_ = false;
+        skip_next_divider_edge_ = false;
         square1_.reset(); square2_.reset(); wave_.reset(); noise_.reset();
         if (!gbc::is_cgb_hardware(hardware_mode_)) {
             square1_.length = square1_length;
@@ -784,7 +827,10 @@ private:
         nr50_ = 0; nr51_ = 0; raw_registers_.fill(0);
     }
 
-    static constexpr int state_layout = 1;
+    static constexpr int state_layout = 2;
+    bool skip_next_divider_edge_{};
+    // Non sauvegardé : le bus le donne juste avant chaque écriture de NR52.
+    bool divider_signal_high_{};
     static constexpr int cycles_per_sample = 128;
     static constexpr int max_pending_cycles = 1 << 16;
     static constexpr std::size_t ring_capacity = 8192;

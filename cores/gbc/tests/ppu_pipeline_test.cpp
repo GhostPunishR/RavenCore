@@ -1277,8 +1277,9 @@ void frame_encoding_save_state_test() {
 }
 
 /**
- * Un état complet au format 10 se recharge et se réécrit au format 11 sans
- * rien perdre d'autre que ses octets d'images.
+ * Les états complets aux formats 10 (images PPU en i32, APU en disposition 1)
+ * et 11 (APU en disposition 1) se rechargent, puis se réécrivent au format 12
+ * sans rien perdre d'autre que ces différences.
  */
 void legacy_core_state_loads_test() {
     for (auto mode : {gbc::HardwareMode::dmg, gbc::HardwareMode::cgb_native}) {
@@ -1287,26 +1288,41 @@ void legacy_core_state_loads_test() {
         auto core = gbc::make_core(); core->load_rom(rom, {});
         auto image = std::make_shared<const std::vector<std::uint8_t>>(rom);
         Machine reference(image, [] { return std::int64_t{0}; }, mode);
-        const auto ppu_v11 = snapshot(reference.ppu);
-        detail::BinaryWriter legacy_writer;
-        reference.ppu.save(legacy_writer, false);
-        const auto ppu_v10 = std::move(legacy_writer).take();
+        const auto ppu_current = snapshot(reference.ppu);
+        detail::BinaryWriter ppu_v10_writer;
+        reference.ppu.save(ppu_v10_writer, false);
+        const auto ppu_v10 = std::move(ppu_v10_writer).take();
+        detail::BinaryWriter apu_writer;
+        reference.apu.save(apu_writer);
+        const auto apu_current = std::move(apu_writer).take();
+        detail::BinaryWriter apu_v1_writer;
+        reference.apu.save(apu_v1_writer, 1);
+        const auto apu_v1 = std::move(apu_v1_writer).take();
 
         const auto state = core->save_state();
-        check(state[4] == 0 && state[5] == 11, "version d'état GB inattendue");
-        const auto found = std::search(state.begin(), state.end(), ppu_v11.begin(), ppu_v11.end());
-        check(found != state.end(), "PPU fixture not found in full state");
-        std::vector<std::uint8_t> legacy(state.begin(), found);
-        legacy.insert(legacy.end(), ppu_v10.begin(), ppu_v10.end());
-        legacy.insert(legacy.end(), found + static_cast<std::ptrdiff_t>(ppu_v11.size()), state.end());
-        legacy[5] = 10;
-
+        check(state[4] == 0 && state[5] == 12, "version d'état GB inattendue");
+        const auto replace = [](std::vector<std::uint8_t> bytes, const std::vector<std::uint8_t>& from,
+                                const std::vector<std::uint8_t>& to) {
+            const auto found = std::search(bytes.begin(), bytes.end(), from.begin(), from.end());
+            check(found != bytes.end(), "fixture introuvable dans l'état complet");
+            const auto offset = found - bytes.begin();
+            bytes.erase(bytes.begin() + offset, bytes.begin() + offset + static_cast<std::ptrdiff_t>(from.size()));
+            bytes.insert(bytes.begin() + offset, to.begin(), to.end());
+            return bytes;
+        };
+        auto v11 = replace(state, apu_current, apu_v1);
+        v11[5] = 11;
+        auto v10 = replace(v11, ppu_current, ppu_v10);
+        v10[5] = 10;
         std::vector<std::int32_t> frame(Ppu::frame_pixels);
-        core->run_frame(frame, true);
-        core->load_state(legacy);
-        check(core->save_state() == state, "état GB au format 10 mal relu");
-        legacy[5] = 12;
-        expect_failure<SaveStateError>([&] { core->load_state(legacy); }, "version d'état future acceptée");
+        for (const auto* legacy : {&v10, &v11}) {
+            core->run_frame(frame, true);
+            core->load_state(*legacy);
+            check(core->save_state() == state, "état GB d'un format antérieur mal relu");
+        }
+        auto future = state;
+        future[5] = 13;
+        expect_failure<SaveStateError>([&] { core->load_state(future); }, "version d'état future acceptée");
     }
 }
 

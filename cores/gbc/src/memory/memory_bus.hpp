@@ -497,7 +497,10 @@ private:
         case 0xff75: if (gbc::is_cgb_hardware(hardware_mode_)) ff75_ = value & 0x70; break;
         case 0xffff: interrupts_.write_enable(value); break;
         default:
-            if (address >= 0xff10 && address <= 0xff3f) apu_.write(address, value);
+            if (address >= 0xff10 && address <= 0xff3f) {
+                if (address == 0xff26) apu_.set_divider_signal(timer_.apu_divider_signal(speed_.double_speed()));
+                apu_.write(address, value);
+            }
             else if (address >= 0xff80 && address <= 0xfffe) hram[static_cast<std::size_t>(address - 0xff80)] = static_cast<std::uint8_t>(value);
             break;
         }
