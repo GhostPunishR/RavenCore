@@ -212,7 +212,16 @@ private:
         case 0xff19:
             square2_.frequency = (square2_.frequency & 0xff) | ((value & 7) << 8);
             write_channel_control(square2_, value); break;
-        case 0xff1a: wave_.dac_enabled = (value & 0x80) != 0; if (!wave_.dac_enabled) wave_.enabled = false; break;
+        case 0xff1a:
+            wave_.dac_enabled = (value & 0x80) != 0;
+            if (!wave_.dac_enabled) {
+                // Le DAC coupé arrête le canal et vide son tampon : redémarré,
+                // il sort 0 jusqu'à son premier échantillon, comme après la mise
+                // sous tension (SameSuite, channel_3_restart_stop_delay).
+                wave_.enabled = false;
+                wave_.sample_buffer = 0;
+            }
+            break;
         case 0xff1b: wave_.length = 256 - value; break;
         case 0xff1c: wave_.volume_code = (value >> 5) & 3; break;
         case 0xff1d: wave_.frequency = (wave_.frequency & 0x700) | value; break;
@@ -539,6 +548,10 @@ private:
     };
 
     struct Noise {
+        static constexpr int trigger_delay_cycles = 4;
+        static constexpr int restart_delay_cycles = 8;
+        static constexpr int max_timer = (112 << 15) + restart_delay_cycles;
+
         bool enabled{};
         bool dac_enabled{};
         int length{};
@@ -588,12 +601,16 @@ private:
             volume = envelope_add ? std::min(15, volume + 1) : std::max(0, volume - 1);
         }
         void trigger(bool shorten_zero_length_reload, bool delay_envelope_clock) noexcept {
+            const bool enabled_before_trigger = enabled;
             enabled = dac_enabled;
             if (length == 0) {
                 length = 64;
                 if (shorten_zero_length_reload) --length;
             }
-            timer = period();
+            // Le premier pas du LFSR arrive une période et un M-cycle après un
+            // départ, et deux M-cycles si le canal jouait encore (SameSuite,
+            // channel_4_lfsr, channel_4_lfsr_restart, channel_4_lfsr_7_15).
+            timer = period() + (enabled_before_trigger ? restart_delay_cycles : trigger_delay_cycles);
             volume = envelope_initial;
             envelope_timer = (envelope_period != 0 ? envelope_period : 8) +
                 (delay_envelope_clock ? 1 : 0);
@@ -616,7 +633,7 @@ private:
             enabled = in.boolean(); dac_enabled = in.boolean(); length = in.bounded_i32(0, 64); length_enabled = in.boolean();
             envelope_initial = in.bounded_i32(0, 15); envelope_add = in.boolean(); envelope_period = in.bounded_i32(0, 7);
             volume = in.bounded_i32(0, 15); envelope_timer = in.bounded_i32(0, 9); divisor_code = in.bounded_i32(0, 7);
-            width_mode7 = in.boolean(); clock_shift = in.bounded_i32(0, 15); lfsr = in.bounded_i32(0, 32767); timer = in.bounded_i32(1, 3670016);
+            width_mode7 = in.boolean(); clock_shift = in.bounded_i32(0, 15); lfsr = in.bounded_i32(0, 32767); timer = in.bounded_i32(1, max_timer);
             accumulator = in.bounded_i32(-1920, 1920);
         }
     };

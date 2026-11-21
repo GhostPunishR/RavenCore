@@ -157,7 +157,7 @@ Les tests de base n'utilisent aucune ROM. La CI exécute en plus des suites de t
 
 | Console | Suites | Documentation |
 | --- | --- | --- |
-| GB / GBC | Mooneye Test Suite, Blargg, dmg-acid2, cgb-acid2, SameSuite, Mealybug Tearoom, AGE (256 tests) | [Tests GB/GBC](cores/gbc/tests/README.md) |
+| GB / GBC | Mooneye Test Suite, Blargg, dmg-acid2, cgb-acid2, SameSuite, Mealybug Tearoom, AGE (260 tests) | [Tests GB/GBC](cores/gbc/tests/README.md) |
 | GBA | jsmolka/gba-tests, FuzzARM | [Tests GBA](cores/gba/tests/README.md) |
 
 Pour les lancer en local :
@@ -172,7 +172,7 @@ ctest --test-dir build --output-on-failure
 
 ## État et limites
 
-- **GB / GBC** : les 256 tests publics retenus passent, dont une partie de SameSuite, de Mealybug Tearoom et des AGE test roms. Ces suites plus exigeantes, comme gbmicrotest, échouent encore en partie ; le détail est dans [cores/gbc/tests/README.md](cores/gbc/tests/README.md). Cartouches non prises en charge : TAMA5, Game Boy Camera, M161 et cartouches non licenciées. Le Super Game Boy n'est pas émulé. En mode Game Boy Advance, seuls les registres de démarrage distinguent la console d'une GBC.
+- **GB / GBC** : les 260 tests publics retenus passent, dont une partie de SameSuite, de Mealybug Tearoom et des AGE test roms. Ces suites plus exigeantes, comme gbmicrotest, échouent encore en partie ; le détail est dans [cores/gbc/tests/README.md](cores/gbc/tests/README.md). Cartouches non prises en charge : TAMA5, Game Boy Camera, M161 et cartouches non licenciées. Le Super Game Boy n'est pas émulé. En mode Game Boy Advance, seuls les registres de démarrage distinguent la console d'une GBC.
 - **GBA** : expérimental. Les suites gba-tests et FuzzARM passent, mais le cœur n'a pas encore été essayé sur un large panel de jeux. Non émulés pour l'instant :
   - le mode UART et l'adaptateur sans fil ;
   - l'exception d'instruction indéfinie.
@@ -184,7 +184,7 @@ ctest --test-dir build --output-on-failure
 
 ## Versions
 
-Version actuelle : **0.17.0**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro pour Linux, Windows, macOS et Android. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
+Version actuelle : **0.17.1**. Chaque version est publiée sur la page des [releases](https://github.com/GhostPunishR/RavenCore/releases) avec les cœurs Libretro pour Linux, Windows, macOS et Android. Ses évolutions sont détaillées dans le [journal des modifications](CHANGELOG.md).
 
 Avant la 1.0, une version peut changer l'API ou le format des états ; le journal le signale à chaque fois.
 
