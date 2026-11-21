@@ -5542,6 +5542,70 @@
       "success": {
         "register_signature": true
       }
+    },
+    {
+      "id": "samesuite.apu.channel_3.channel_3_restart_stop_delay.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "same-suite/apu/channel_3/channel_3_restart_stop_delay.gb",
+        "sha256": "ee7fe7682191491450704121f88bbd92298cfe8aeeac980bf5c3187c110a54a4",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "X11 (SameSuite, Lior Halphon)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 120,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "samesuite.apu.channel_4.channel_4_lfsr_7_15.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "same-suite/apu/channel_4/channel_4_lfsr_7_15.gb",
+        "sha256": "734d8be70f25828fb968c1852cf7cc33185fed3222b2b8a8b650a9720e98a557",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "X11 (SameSuite, Lior Halphon)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 120,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "samesuite.apu.channel_4.channel_4_lfsr_restart.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "same-suite/apu/channel_4/channel_4_lfsr_restart.gb",
+        "sha256": "49d9e6c09ebde591ddb178ebd1b0bacefa70c7e7fd80311b9f91944cdd59581a",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "X11 (SameSuite, Lior Halphon)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 120,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "samesuite.apu.channel_4.channel_4_lfsr_restart_fast.cgb",
+      "category": "apu",
+      "hardware": "cgb",
+      "rom": {
+        "path": "same-suite/apu/channel_4/channel_4_lfsr_restart_fast.gb",
+        "sha256": "b7838d49ad08436cdcece65b35e786838298848bef523af9a7aa83347e2dc983",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "X11 (SameSuite, Lior Halphon)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 120,
+      "success": {
+        "register_signature": true
+      }
     }
   ]
 }

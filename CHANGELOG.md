@@ -2,6 +2,20 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.17.1 - 2026-11-21
+
+Cette version poursuit le rapprochement du son de la Game Boy et de la Game Boy Color avec celui de la console : SameSuite passe de 47 à 51 tests sur 76. L'API, Libretro, le GBA et le format des états ne changent pas ; les 4 tests rejoignent la CI (260 ROMs).
+
+### Corrigé
+
+- **Son : départ du canal de bruit.** Après son déclenchement, le premier pas du LFSR arrive une période et un M-cycle plus tard ; deux M-cycles si le canal jouait encore. RavenCore le faisait arriver dès la fin de la première période : toute la suite pseudo-aléatoire avait un pas d'avance (SameSuite, `channel_4_lfsr_restart`, `channel_4_lfsr_restart_fast`, `channel_4_lfsr_7_15` ; `channel_4_lfsr`, `lfsr15` et `lfsr_15_7` passent toujours).
+- **Son : canal 3 arrêté par son DAC.** Couper le DAC (NR30) vide le tampon d'échantillon : redémarré, le canal sort 0 jusqu'à son premier échantillon, au lieu de rejouer le dernier (`channel_3_restart_stop_delay`).
+- Tests : délais de départ et de redéclenchement du bruit, et tampon du canal 3 vidé par son DAC ; chacun échoue sans son correctif. Le test qui compte quinze pas du LFSR tient compte du délai de départ.
+
+### Reste à faire
+
+- **SameSuite.** Le « zombie mode » (écritures NRx2 pendant qu'un canal joue) suit sur CGB-E une règle que ni Pan Docs ni les seize mesures de `channel_1_nrx2_glitch` ne permettent d'établir sûrement ; RavenCore garde son seul cas commun. Restent aussi l'alignement 1 MHz en double vitesse, le balayage du canal 1 et les délais du bruit selon sa fréquence (`channel_4_delay`, `channel_4_freq_change`, `channel_4_frequency_alignment`).
+
 ## 0.17.0 - 2026-11-21
 
 Cette version rapproche le son et l'image de la Game Boy et de la Game Boy Color de ceux de la console, d'après deux suites de test publiques plus exigeantes que celles de la CI : SameSuite (47 tests sur 76 passent, contre 22) et Mealybug Tearoom (2 tests CGB sur 27, contre 0). L'API, Libretro et le GBA ne changent pas. **Le format des états GB passe à 12** : il garde le rapport cyclique de l'échantillon en cours des canaux carrés et un front du séquenceur audio à sauter ; les états aux formats 10 et 11 restent lisibles, un état au format 12 ne se recharge pas dans une version antérieure. C'est la raison de la version mineure : un projet qui consomme le paquet CMake demande `find_package(RavenCore 0.17)`. Les 56 tests de ces suites et des AGE test roms qui passent rejoignent la CI.

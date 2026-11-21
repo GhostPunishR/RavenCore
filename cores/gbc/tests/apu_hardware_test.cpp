@@ -487,12 +487,59 @@ void noise_shift_disconnect_test() {
         apu.write(0xff21, 0xf0);
         apu.write(0xff22, shift << 4); // diviseur 8
         apu.write(0xff23, 0x80);
-        apu.tick((8 << shift) * 15);
+        apu.tick((8 << shift) * 15 + 4); // quinze périodes après le délai de départ
         return apu.read_pcm34() & 0xf0;
     };
     check(run(13) == 0xf0, "précondition LFSR : quinze clocks n'ont pas atteint un bit bas nul");
     check(run(14) == 0x00, "NR43 shift 14 a cadencé le LFSR alors que son horloge est coupée");
     check(run(15) == 0x00, "NR43 shift 15 a cadencé le LFSR alors que son horloge est coupée");
+}
+
+/**
+ * Le premier pas du LFSR arrive une période et un M-cycle après un départ,
+ * deux M-cycles après un redéclenchement en marche (SameSuite,
+ * channel_4_lfsr, channel_4_lfsr_restart).
+ */
+void noise_trigger_delay_test() {
+    const auto first_step = [](bool restart) {
+        Apu apu(gbc::HardwareMode::cgb_native);
+        apu.write(0xff21, 0xf0);
+        apu.write(0xff22, 0x00); // diviseur 8, décalage 0 : période de 8 cycles
+        apu.write(0xff23, 0x80);
+        if (restart) {
+            apu.tick(100);
+            apu.write(0xff23, 0x80); // redéclenché en marche : LFSR remis à 7FFF
+        }
+        // LFSR à 7FFF, sortie basse : chaque pas fait entrer un 0 en tête, et
+        // la sortie ne monte qu'au quinzième, que l'on date au cycle près.
+        int cycles = 0;
+        while ((apu.read_pcm34() & 0xf0) == 0 && cycles < 1000) {
+            apu.tick(1);
+            ++cycles;
+        }
+        return cycles;
+    };
+    check(first_step(false) == 8 * 15 + 4, "délai de départ du bruit différent d'une période et d'un M-cycle");
+    check(first_step(true) == 8 * 15 + 8, "délai de redéclenchement du bruit différent d'une période et de deux M-cycles");
+}
+
+/**
+ * Couper le DAC du canal 3 vide son tampon : redémarré, il sort 0 jusqu'à son
+ * premier échantillon (SameSuite, channel_3_restart_stop_delay).
+ */
+void wave_dac_off_clears_sample_buffer_test() {
+    Apu apu(gbc::HardwareMode::cgb_native);
+    for (int index = 0; index < 16; ++index) apu.write(0xff30 + index, 0xff);
+    apu.write(0xff1a, 0x80);
+    apu.write(0xff1c, 0x20); // volume 100 %
+    apu.write(0xff1d, 0xfe);
+    apu.write(0xff1e, 0x87);
+    apu.tick(64);
+    check((apu.read_pcm34() & 0x0f) == 0x0f, "précondition : le canal 3 ne joue pas son échantillon");
+    apu.write(0xff1a, 0x00);
+    apu.write(0xff1a, 0x80);
+    apu.write(0xff1e, 0x87);
+    check((apu.read_pcm34() & 0x0f) == 0, "canal 3 redémarré après son DAC : ancien échantillon resté en tampon");
 }
 
 void dac_polarity_and_disconnect_test() {
@@ -805,6 +852,8 @@ int main() {
     trigger_envelope_delay_and_zombie_test();
     dmg_wave_retrigger_corruption_test();
     noise_shift_disconnect_test();
+    noise_trigger_delay_test();
+    wave_dac_off_clears_sample_buffer_test();
     dac_polarity_and_disconnect_test();
     first_duty_step_and_idle_clock_test();
     square_restart_delay_test();

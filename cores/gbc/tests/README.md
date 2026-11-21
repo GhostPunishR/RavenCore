@@ -129,7 +129,7 @@ RGB888 ; `memory_before` liste l'état intermédiaire exigé par
 
 ## Suites publiques exécutées par la CI
 
-`public-test-roms.json` fige 256 tests issus de l'archive
+`public-test-roms.json` fige 260 tests issus de l'archive
 [game-boy-test-roms v7.0](https://github.com/c-sp/game-boy-test-roms/releases/tag/v7.0)
 de Christoph Sprenger (SHA-256
 `b9a9d7a1075aa35a3d07c07c34974048672d8520dca9e07a50178f5860c3832c`), avec le
@@ -155,7 +155,7 @@ ASan/UBSan les exécutent tous.
 | Blargg `mem_timing-2`, `dmg_sound`, `cgb_sound`, `oam_bug` (ROMs séparées) | 20 DMG + 13 CGB | Résultat en `$A000` précédé de `$80` |
 | Blargg `halt_bug`, `interrupt_time` (CGB) et `oam_bug` combiné (DMG) | 2 DMG + 2 CGB | Capture de référence de game-boy-test-roms |
 | dmg-acid2 (DMG et compatibilité CGB), cgb-acid2 (MIT) | 1 DMG + 2 CGB | Capture de référence |
-| SameSuite (X11), canaux APU, DMA, interruptions et palettes | 47 CGB | Signature de registres |
+| SameSuite (X11), canaux APU, DMA, interruptions et palettes | 51 CGB | Signature de registres |
 | Mealybug Tearoom Tests (MIT) | 1 DMG + 2 CGB | Capture de référence (DMG blob, CGB-D) |
 | AGE test roms (MIT) | 3 DMG + 3 CGB | Signature de registres ou capture de référence |
 
@@ -165,8 +165,8 @@ RAM de cartouche et déborde sur son propre programme en WRAM. La ROM combinée
 exécute le même test et sa capture a été vérifiée sur console.
 
 Les autres tests de l'archive sont plus exigeants et ne sont pas encore
-exécutés par la CI. Mesure de la 0.17.0, avec entre parenthèses celle de la
-0.16.0 : SameSuite (47/76, contre 22), Mealybug Tearoom (CGB 2/27, contre 0 ;
+exécutés par la CI. Mesure de la 0.17.1, avec entre parenthèses celle de la
+0.16.0 : SameSuite (51/76, contre 22), Mealybug Tearoom (CGB 2/27, contre 0 ;
 DMG 1/24), AGE (CGB 3/34, contre 2 ; DMG 3/14), gbmicrotest (304/513).
 Les tests qui passent rejoignent la CI. Sept tests SameSuite visent d'autres
 révisions que la CGB-E (suffixes `-cgb0B`, `-cgb0`, `-cgbB`, `-cgb0BC`, `-A`)
