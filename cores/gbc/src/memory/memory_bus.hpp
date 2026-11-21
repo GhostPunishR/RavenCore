@@ -244,8 +244,7 @@ public:
             (hdma_active_ && hdma_length_ == 0) ||
             hdma_block_bytes_remaining_ > hdma_length_ ||
             (!hdma_active_ && hdma_block_bytes_remaining_ != 0) ||
-            (hdma_active_ && !hdma_hblank_ && hdma_block_bytes_remaining_ == 0) ||
-            (hdma_active_ && hdma_hblank_ && !ppu_.lcd_enabled())) {
+            (hdma_active_ && !hdma_hblank_ && hdma_block_bytes_remaining_ == 0)) {
             throw SaveStateError("État instantané corrompu (DMA)");
         }
         if (oam_dma_active_) ppu_.restore_oam_dma_bus(oam_dma_index_);
@@ -594,18 +593,26 @@ private:
         if (hdma_active_) {
             if (hdma_hblank_ && (value & 0x80) == 0) {
                 // Seul bit 7=0 arrête un HBlank DMA. Une écriture avec bit 7
-                // à 1 ne recharge ni son adresse ni sa longueur.
+                // à 1 ne recharge ni son adresse ni sa longueur. L'arrêt écrit
+                // la longueur : FF55 relit $80 après $00 (SameSuite,
+                // hdma_lcd_off et hdma_mode0).
                 hdma_active_ = false;
+                hdma_length_ = ((value & 0x7f) + 1) * 16;
                 hdma_block_bytes_remaining_ = 0;
                 hdma_dot_accum_ = 0;
             }
             return;
         }
-        const bool hblank = (value & 0x80) != 0 && ppu_.lcd_enabled();
+        const bool hblank = (value & 0x80) != 0;
         hdma_length_ = ((value & 0x7f) + 1) * 16;
         hdma_hblank_ = hblank;
         hdma_active_ = true;
-        hdma_block_bytes_remaining_ = hblank ? 0 : std::min(16, hdma_length_);
+        // Lancé pendant un H-Blank, ou écran éteint, un HBlank DMA copie
+        // aussitôt un bloc, puis attend le H-Blank suivant ; écran éteint, il
+        // n'en vient pas, et le transfert en reste là (SameSuite, hdma_mode0,
+        // hdma_lcd_off, gdma_addr_mask).
+        const bool copy_now = !hblank || !ppu_.lcd_enabled() || ppu_.mode() == Ppu::mode_hblank;
+        hdma_block_bytes_remaining_ = copy_now ? std::min(16, hdma_length_) : 0;
         hdma_dot_accum_ = 0;
     }
 

@@ -1183,6 +1183,7 @@ void vram_dma_timing_test() {
     f.bus.write(0xff53, 0x00);
     f.bus.write(0xff54, 0x20);
     f.ppu.write_lcdc(0x91);
+    f.ppu.tick(80); // hors du H-Blank de la ligne de démarrage
     f.bus.write(0xff55, 0x81); // HDMA, deux blocs
     check(!f.bus.cpu_blocked(), "HDMA ne doit pas bloquer hors HBlank");
     f.bus.notify_hblank();
@@ -1200,6 +1201,7 @@ void vram_dma_timing_test() {
         halted_hdma.bus.write(0xc000 + index, 0xc0 + index);
     }
     halted_hdma.ppu.write_lcdc(0x91);
+    halted_hdma.ppu.tick(80);
     halted_hdma.bus.write(0xff51, 0xc0);
     halted_hdma.bus.write(0xff52, 0x00);
     halted_hdma.bus.write(0xff53, 0x00);
@@ -1219,13 +1221,41 @@ void vram_dma_timing_test() {
           halted_hdma.bus.read(0xff55) == 0xff,
           "bloc HDMA suspendu par HALT non repris avant le prochain accès CPU");
 
+    // Écran éteint, un HBlank DMA copie aussitôt un bloc puis attend un
+    // H-Blank qui ne vient pas ; un arrêt par $00 relit $80 (SameSuite,
+    // hdma_lcd_off).
     Fixture lcd_off;
+    for (int i = 0; i < 32; ++i) lcd_off.bus.write(0xc000 + i, 0x90 + i);
     lcd_off.bus.write(0xff51, 0xc0);
     lcd_off.bus.write(0xff52, 0x00);
     lcd_off.bus.write(0xff53, 0x00);
     lcd_off.bus.write(0xff54, 0x00);
-    lcd_off.bus.write(0xff55, 0x80);
-    check(lcd_off.bus.cpu_blocked(), "HDMA demandé LCD off doit devenir un GDMA bloquant");
+    lcd_off.bus.write(0xff55, 0x81); // deux blocs
+    check(lcd_off.bus.cpu_blocked(), "HDMA demandé LCD off ne copie pas aussitôt un bloc");
+    lcd_off.bus.tick(0, 200);
+    check(!lcd_off.bus.cpu_blocked() && lcd_off.ppu.vram[15] == 0x9f && lcd_off.ppu.vram[16] == 0x00 &&
+              lcd_off.bus.read(0xff55) == 0x00,
+          "HDMA LCD off : un seul bloc copié, un restant, transfert actif");
+    lcd_off.bus.write(0xff55, 0x00);
+    check(lcd_off.bus.read(0xff55) == 0x80, "arrêt HDMA LCD off : FF55 ne relit pas $80");
+
+    // Lancé pendant un H-Blank, il copie aussi un bloc sans attendre le
+    // suivant (SameSuite, hdma_mode0).
+    Fixture in_hblank;
+    for (int i = 0; i < 32; ++i) in_hblank.bus.write(0xc000 + i, 0xa0 + i);
+    in_hblank.ppu.write_lcdc(0x91);
+    in_hblank.ppu.tick(80);
+    while (in_hblank.ppu.mode() != Ppu::mode_hblank) in_hblank.ppu.tick(1);
+    in_hblank.bus.write(0xff51, 0xc0);
+    in_hblank.bus.write(0xff52, 0x00);
+    in_hblank.bus.write(0xff53, 0x00);
+    in_hblank.bus.write(0xff54, 0x00);
+    in_hblank.bus.write(0xff55, 0x81);
+    check(in_hblank.bus.cpu_blocked(), "HDMA lancé en H-Blank n'a pas copié de bloc aussitôt");
+    in_hblank.bus.tick(0, 32);
+    check(in_hblank.ppu.vram[15] == 0xaf && in_hblank.ppu.vram[16] == 0x00 &&
+              in_hblank.bus.read(0xff55) == 0x00,
+          "HDMA lancé en H-Blank : un bloc copié, un restant");
 
     Fixture disable_during_hdma;
     for (int i = 0; i < 32; ++i) disable_during_hdma.bus.write(0xc000 + i, 0x70 + i);
@@ -1245,10 +1275,11 @@ void vram_dma_timing_test() {
 
     Fixture cancel;
     cancel.ppu.write_lcdc(0x91);
+    cancel.ppu.tick(80);
     cancel.bus.write(0xff55, 0x81);
     cancel.bus.write(0xff55, 0x00);
-    check(!cancel.bus.cpu_blocked() && cancel.bus.read(0xff55) == 0x81,
-          "annulation HDMA ne conserve pas le nombre de blocs restant dans FF55");
+    check(!cancel.bus.cpu_blocked() && cancel.bus.read(0xff55) == 0x80,
+          "arrêt HDMA par $00 : FF55 ne relit pas $80");
 
     Fixture overflow;
     for (int i = 0; i < 32; ++i) overflow.bus.write(0xc000 + i, 0x20 + i);

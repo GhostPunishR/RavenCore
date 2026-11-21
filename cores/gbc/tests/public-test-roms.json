@@ -5494,6 +5494,54 @@
       "success": {
         "register_signature": true
       }
+    },
+    {
+      "id": "samesuite.dma.gdma_addr_mask.cgb",
+      "category": "vram-dma",
+      "hardware": "cgb",
+      "rom": {
+        "path": "same-suite/dma/gdma_addr_mask.gb",
+        "sha256": "63c855b24300ac477ae783c17444ead5ec97be45a9e699b3dddd1a622955fbbf",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "X11 (SameSuite, Lior Halphon)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 120,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "samesuite.dma.hdma_lcd_off.cgb",
+      "category": "vram-dma",
+      "hardware": "cgb",
+      "rom": {
+        "path": "same-suite/dma/hdma_lcd_off.gb",
+        "sha256": "d6c3dde21fe7104129bc8ef0dde7f5d5f050b4de5498fc8f2f06e0d37bdfd0db",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "X11 (SameSuite, Lior Halphon)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 120,
+      "success": {
+        "register_signature": true
+      }
+    },
+    {
+      "id": "samesuite.dma.hdma_mode0.cgb",
+      "category": "vram-dma",
+      "hardware": "cgb",
+      "rom": {
+        "path": "same-suite/dma/hdma_mode0.gb",
+        "sha256": "e5ded5dc154004bdaafc443df6e63459ec7eb7d636687a4a578f91820557e0b2",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "X11 (SameSuite, Lior Halphon)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 120,
+      "success": {
+        "register_signature": true
+      }
     }
   ]
 }
