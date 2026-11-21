@@ -244,11 +244,17 @@ public:
      * moment-là. Mealybug Tearoom (m3_bgp_change, m3_window_timing) le mesure
      * sur DMG comme sur CGB-D, sans que la durée du mode 3 change. Le bus en
      * tient compte en validant ces écritures dès le premier point de leur
-     * M-cycle (MemoryBus::write_render_register_mcycle) ; les autres bits de
-     * LCDC, lus par le fetcher ou qui allument l'écran, gardent leur instant.
+     * M-cycle (MemoryBus::write_render_register_mcycle).
+     *
+     * Le bit 6 (carte de la window) suit le même instant : m3_lcdc_win_map_change
+     * le mesure sur DMG et CGB. Les bits 3 et 4 (carte et données du BG)
+     * gardent le leur, faute d'instant qui satisfasse à la fois Mealybug
+     * Tearoom et AGE (m3-bg-lcdc) ; l'allumage de l'écran aussi.
      */
+    static constexpr int early_lcdc_bits = 0x43;
+
     void preview_lcdc_render_bits(int value) noexcept {
-        render_lcdc_ = (render_lcdc_ & ~3) | (value & 3);
+        render_lcdc_ = (render_lcdc_ & ~early_lcdc_bits) | (value & early_lcdc_bits);
     }
 
     void write_lcdc(int value) noexcept {
@@ -850,8 +856,14 @@ private:
     }
 
     void tick_bg_fetcher() noexcept {
+        // Pan Docs, Pixel FIFO : les pixels ne sont poussés que dans une FIFO
+        // BG vide. Le fetcher ne prend donc qu'une tuile d'avance sur la
+        // sortie : il lit les registres (SCY, SCX, LCDC) et la VRAM d'une
+        // tuile pendant la sortie de la précédente. Mealybug Tearoom
+        // (m3_scy_change, m3_lcdc_bg_map_change, m3_scx_high_5_bits) et AGE
+        // (m3-bg-lcdc) le mesurent ; la durée du mode 3 ne change pas.
         if (fetcher_phase_ == 3) {
-            if (bg_fifo_size_ <= 8) push_fetched_tile();
+            if (bg_fifo_size_ == 0) push_fetched_tile();
             return;
         }
         if (--fetcher_phase_dots_ > 0) return;
@@ -860,8 +872,8 @@ private:
         case 0: fetch_tile_index(); fetcher_phase_ = 1; fetcher_phase_dots_ = 2; break;
         case 1: fetch_tile_low(); fetcher_phase_ = 2; fetcher_phase_dots_ = 2; break;
         default:
-            fetcher_data_high_ = vram_byte(fetcher_bank(), fetcher_tile_data_address_ + 1);
-            if (bg_fifo_size_ <= 8) push_fetched_tile(); else fetcher_phase_ = 3;
+            fetch_tile_high();
+            if (bg_fifo_size_ == 0) push_fetched_tile(); else fetcher_phase_ = 3;
             break;
         }
     }
@@ -872,7 +884,7 @@ private:
         // le fetcher relit les bits de tuile à chaque étape Get Tile. Une
         // écriture en mode 3 peut donc changer les tuiles encore non fetchées.
         const int tile_x = fetcher_window_ ? fetcher_tile_x_ : ((scx_ >> 3) + fetcher_tile_x_) & 31;
-        const int map = fetcher_window_ ? ((lcdc_ & 0x40) != 0 ? 0x1c00 : 0x1800)
+        const int map = fetcher_window_ ? ((render_lcdc_ & 0x40) != 0 ? 0x1c00 : 0x1800)
                                         : ((lcdc_ & 8) != 0 ? 0x1c00 : 0x1800);
         const int map_address = map + ((y >> 3) & 31) * 32 + tile_x;
         fetcher_tile_ = vram_byte(0, map_address);
@@ -885,12 +897,31 @@ private:
         return gbc::cgb_features_enabled(hardware_mode_) ? (fetcher_attributes_ >> 3) & 1 : 0;
     }
 
+    /**
+     * Ligne de tuile du BG. Sur DMG, elle suit SCY jusqu'à chacune des deux
+     * lectures de données ; sur CGB, elle reste celle de la lecture de l'index
+     * et des attributs (retournement vertical compris). Mealybug Tearoom,
+     * m3_scy_change, le mesure sur DMG et CGB-D. La window a sa propre ligne,
+     * indépendante de SCY.
+     */
+    void refresh_fetcher_row() noexcept {
+        if (!fetcher_window_ && hardware_mode_ == gbc::HardwareMode::dmg) fetcher_row_ = (ly_ + scy_) & 7;
+    }
+
     void fetch_tile_low() noexcept {
+        refresh_fetcher_row();
         const int base = (lcdc_ & 0x10) != 0
             ? fetcher_tile_ * 16
             : 0x1000 + static_cast<std::int8_t>(fetcher_tile_) * 16;
         fetcher_tile_data_address_ = base + fetcher_row_ * 2;
         fetcher_data_low_ = vram_byte(fetcher_bank(), fetcher_tile_data_address_);
+    }
+
+    // La zone de tuile (LCDC.4) reste celle de l'octet bas.
+    void fetch_tile_high() noexcept {
+        refresh_fetcher_row();
+        fetcher_tile_data_address_ = (fetcher_tile_data_address_ & ~0x0f) + fetcher_row_ * 2;
+        fetcher_data_high_ = vram_byte(fetcher_bank(), fetcher_tile_data_address_ + 1);
     }
 
     void push_fetched_tile() noexcept {
@@ -1424,8 +1455,8 @@ private:
     InterruptController& interrupts_;
     gbc::HardwareMode hardware_mode_{gbc::HardwareMode::dmg};
     int lcdc_{0x91};
-    // Bits 0 et 1 de LCDC tels que le rendu les voit ; égal à lcdc_ entre
-    // deux instructions (voir preview_lcdc_render_bits).
+    // Bits 0, 1 et 6 de LCDC tels que le rendu et le fetcher les voient ;
+    // égal à lcdc_ entre deux instructions (voir preview_lcdc_render_bits).
     int render_lcdc_{0x91};
     int stat_enable_{};
     int scy_{};

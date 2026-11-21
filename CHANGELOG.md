@@ -2,6 +2,22 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.17.2 - 2026-11-21
+
+Cette version corrige l'instant où le fetcher du fond de la Game Boy et de la Game Boy Color lit ses registres et la VRAM pendant le mode 3. Sur l'ensemble des tests Mealybug Tearoom et des tests AGE du mode 3, qui changent ces registres en cours de ligne, les pixels faux passent de 127 242 à 80 543 (−37 %) ; AGE `m3-bg-lcdc` passe sur Game Boy et rejoint la CI (261 ROMs). L'API, Libretro, le GBA et le format des états ne changent pas.
+
+### Corrigé
+
+- **Image : avance du fetcher.** Le fetcher ne pousse une tuile que dans une FIFO du fond vide (Pan Docs, *Pixel FIFO*). RavenCore la poussait dès qu'il n'y restait que huit pixels : le fetcher prenait une tuile d'avance de trop et lisait index, données et registres huit points trop tôt. La durée du mode 3 ne change pas. Mealybug Tearoom `m3_lcdc_bg_map_change` (de 1 984 à 700 pixels faux sur Game Boy, de 2 112 à 316 sur GBC), `m3_lcdc_tile_sel_change` (de 2 172 à 1 536, de 2 108 à 1 460), `m3_scx_high_5_bits` (de 342 à 84, de 277 à 19) et leurs variantes se rapprochent de l'attendu ; AGE `m3-bg-lcdc` passe sur Game Boy (sur GBC, de 5 120 à 256).
+- **Image : SCY en cours de tuile.** Sur Game Boy, la ligne de la tuile suit SCY jusqu'à chacune des deux lectures de données ; sur GBC, elle reste celle de la lecture de l'index et des attributs. Une écriture de SCY est validée dès le premier point de son M-cycle, comme celles des palettes. `m3_scy_change` : de 9 698 à 1 431 pixels faux sur Game Boy, de 10 395 à 2 170 sur GBC ; `m3_scy_change2` (GBC) : de 535 à 204.
+- **Image : carte de la window.** Le bit 6 de LCDC (carte de la window) est lui aussi validé dès le premier point du M-cycle, comme les bits 0 et 1 : `m3_lcdc_win_map_change` passe de 1 146 à 754 pixels faux sur Game Boy et de 1 084 à 700 sur GBC.
+- Tests : avance d'une seule tuile du fetcher, ligne de tuile et SCY sur Game Boy et sur GBC, instant de validation de SCY et du bit 6 de LCDC ; chacun échoue sans son correctif.
+- Performances : inchangées (−0,1 % d'instructions sur `cgb-acid2`).
+
+### Reste à faire
+
+- **Mealybug Tearoom et AGE.** Pour les bits 3 et 4 de LCDC (carte et données du fond) et pour SCX, l'instant d'écriture qui rapproche Mealybug Tearoom de l'attendu éloigne AGE `m3-bg-lcdc` et `m3-bg-scx`, et inversement : RavenCore garde le sien en attendant un modèle qui satisfasse les deux. Les changements de WX en cours de ligne (`m3_wx_4_change`, `m3_wx_5_change`) comptent environ 200 pixels faux de plus, et AGE `m3-bg-scx` sur GBC 56 de plus : ils sont à reprendre avec le démarrage de la window. Restent aussi les objets au bord gauche de l'écran et, sur Game Boy, la ligne 0.
+
 ## 0.17.1 - 2026-11-21
 
 Cette version poursuit le rapprochement du son de la Game Boy et de la Game Boy Color avec celui de la console : SameSuite passe de 47 à 51 tests sur 76. L'API, Libretro, le GBA et le format des états ne changent pas ; les 4 tests rejoignent la CI (260 ROMs).

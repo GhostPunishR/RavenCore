@@ -4707,6 +4707,29 @@
       }
     },
     {
+      "id": "age.m3-bg-lcdc.m3-bg-lcdc.dmgC.dmg",
+      "category": "ppu",
+      "hardware": "dmg",
+      "rom": {
+        "path": "age-test-roms/m3-bg-lcdc/m3-bg-lcdc.gb",
+        "sha256": "b809826cbe370675d8fb173dc56c81db134668b3b844ac15c66033b0b3acb7eb",
+        "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+        "license": "MIT (AGE test roms, Christoph Sprenger)",
+        "redistribution": "external-only"
+      },
+      "timeout_frames": 120,
+      "success": {
+        "register_signature": false,
+        "screenshot": {
+          "path": "age-test-roms/m3-bg-lcdc/m3-bg-lcdc-dmgC.png",
+          "sha256": "0ea5464a75aa674ade5942cee2c57b4ff7b506916a62986a1545531f0f200588",
+          "source": "https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip",
+          "license": "MIT (game-boy-test-roms, Christoph Sprenger)",
+          "redistribution": "external-only"
+        }
+      }
+    },
+    {
       "id": "age.speed-switch.spsw-div-cgbBCE.cgbBCE.cgb",
       "category": "speed-switch",
       "hardware": "cgb",

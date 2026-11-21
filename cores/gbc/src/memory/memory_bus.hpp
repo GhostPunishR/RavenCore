@@ -70,9 +70,12 @@ public:
      * sans rien retarder : c'est le cas en vitesse simple, celui que mesurent
      * Mealybug Tearoom et AGE. En double vitesse, un M-cycle ne dure que deux
      * points ; l'écriture y est validée au premier, faute de mesure.
+     *
+     * SCY, lu par le fetcher, suit le même instant : Mealybug Tearoom,
+     * m3_scy_change, le mesure sur DMG comme sur CGB-D.
      */
     [[nodiscard]] static bool render_register(int address) noexcept {
-        return address == 0xff40 || (address >= 0xff47 && address <= 0xff49) ||
+        return address == 0xff40 || address == 0xff42 || (address >= 0xff47 && address <= 0xff49) ||
             address == 0xff69 || address == 0xff6b;
     }
 
