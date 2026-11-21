@@ -3,6 +3,7 @@
 #include "cpu/cpu.hpp"
 #include "memory/memory_bus.hpp"
 #include "cartridge/cartridge_factory.hpp"
+#include "boot/post_boot_vram.hpp"
 #include "infrared/machine_infrared_port.hpp"
 #include <ravenemu/gbc/hardware_mode.hpp>
 #include "infrared/infrared_port.hpp"
@@ -47,6 +48,7 @@ public:
             joypad.write(mode == gbc::HardwareMode::dmg ? 0x00 : 0x30);
             apu.initialize_hle_post_boot();
             ppu.initialize_hle_post_boot();
+            install_post_boot_logo(ppu, *cartridge, mode);
             if (mode == gbc::HardwareMode::cgb_compatibility) {
                 ppu.initialize_hle_compatibility_palettes();
             }

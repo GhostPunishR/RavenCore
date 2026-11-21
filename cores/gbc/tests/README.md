@@ -170,9 +170,9 @@ exécutés par la CI. Mesure de la 0.16.1, avec entre parenthèses celle de la
 DMG 1/24), AGE (CGB 3/34, contre 2 ; DMG 3/14), gbmicrotest (304/513).
 Les tests qui passent rejoignent la CI. Sept tests SameSuite visent d'autres
 révisions que la CGB-E (suffixes `-cgb0B`, `-cgb0`, `-cgbB`, `-cgb0BC`, `-A`)
-et ne sont pas attendus. Plusieurs tests Mealybug Tearoom affichent le logo
-« ® » que la boot ROM laisse en VRAM : sans boot ROM, RavenCore la laisse
-vide, et ces tests restent faux quel que soit le reste. Mesure plus ancienne,
+et ne sont pas attendus. Plusieurs tests Mealybug Tearoom affichent le glyphe
+« ® » que la boot ROM laisse en VRAM ; RavenCore l'y recopie depuis la 0.16.1,
+ce qui rapproche neuf d'entre eux de l'attendu. Mesure plus ancienne,
 pour les suites non remesurées : scribbltests (CGB 3/5, DMG 4/5), TurtleTests
 (2/2), Bully (0/2), mbc3-tester (0/2), Strikethrough (0/2, 7 pixels) et
 cgb-acid-hell (0/1, 2 pixels).
