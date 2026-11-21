@@ -46,6 +46,7 @@ void dmg_post_boot_ppu_phase_test() {
     check(dmg.ppu.mode() == Ppu::mode_vblank && dmg.ppu.ly() == 0 && dmg.ppu.line_dot() == 396,
           "DMG : PPU pas en fin de ligne 153 à l'entrée en $0100");
     check((dmg.ppu.read_stat() & 0x07) == 0x05, "DMG : STAT ne lit pas V-Blank et LY=LYC au démarrage");
+    check(dmg.ppu.obp0() == 0xff && dmg.ppu.obp1() == 0xff, "DMG : OBP0 et OBP1 ne lisent pas $FF au démarrage");
     for (int mcycle = 0; mcycle < 15; ++mcycle) dmg.bus.tick_mcycle();
     check(dmg.ppu.ly() == 0 && dmg.ppu.line_dot() == 0 && dmg.ppu.mode() == Ppu::mode_oam,
           "DMG : la ligne 0 ne commence pas 60 points après $0100");

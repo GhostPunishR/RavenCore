@@ -2,6 +2,19 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.17.4 - 2026-11-21
+
+Cette version corrige les palettes d'objets laissées par la boot ROM du DMG et documente ce qui bloque la suite de GBMicrotest : 355 de ses 513 tests passent, contre 353. L'API, Libretro, le GBA, la GBC et le format des états ne changent pas.
+
+### Corrigé
+
+- **OBP0 et OBP1 au démarrage sans boot ROM (DMG).** La boot ROM ne les écrit pas : ils lisent $FF, pas $00 (GBMicrotest, `poweron_obp0`, `poweron_obp1` ; Pan Docs les dit indéterminés). Un jeu qui affiche des objets sans régler ses palettes les dessine désormais comme sur la console mesurée.
+- Test : palettes d'objets au démarrage ; il échoue sans le correctif.
+
+### Reste à faire
+
+- **Phase entre le CPU et le PPU du DMG.** Vus du CPU, les bits de mode de STAT et son drapeau LY=LYC changent quatre points après LY sur toutes les lignes : GBMicrotest le mesure en régime établi (`poweron_stat`, ligne 153 avec LYC=0 et LYC=153, `win*_b`, `ppu_sprite0_scx*_b`), Mooneye le mesure sur les lignes d'allumage (`lcdon_timing-GS`), et RavenCore ne l'applique qu'à ces lignes. L'étendre à toutes les lignes casse Mooneye (`intr_2_mode0_timing`, `intr_2_mode3_timing`), qui fixe l'écart entre interruptions et STAT ; avancer LY casse `hblank_ly_scx_timing-GS` et AGE `ly`. Ces contraintes ne tiennent ensemble que si le CPU lit le bus avant la fin du M-cycle, alors qu'il prend les interruptions à sa fin : RavenCore fait tout en fin de M-cycle, pile sur les transitions du PPU. Lire plus tôt, essayé seul, fait échouer 69 à 91 des 261 ROMs de la CI, tant le reste est calé sur l'instant actuel : c'est une refonte à mener à part, CPU et PPU ensemble.
+
 ## 0.17.3 - 2026-11-21
 
 Cette version corrige trois comportements de la Game Boy (DMG) que mesure GBMicrotest, une suite vérifiée sur console : 353 de ses 513 tests passent, contre 304. L'API, Libretro, le GBA et le format des états ne changent pas ; la GBC ne change que pour l'interruption H-Blank de la ligne d'allumage.
