@@ -81,7 +81,9 @@ public:
      * en V-Blank, à 60 points de la fin de la ligne 153 (LY lit déjà 0). La
      * ligne 0 commence donc 60 points après. GBMicrotest la mesure sur DMG :
      * poweron_stat, poweron_ly, poweron_oam et poweron_vram, qui lisent STAT,
-     * LY, l'OAM et la VRAM à chaque M-cycle après le démarrage.
+     * LY, l'OAM et la VRAM à chaque M-cycle après le démarrage. La boot ROM
+     * n'écrit pas OBP0 ni OBP1 : ils lisent $FF (poweron_obp0, poweron_obp1 ;
+     * Pan Docs les dit indéterminés).
      */
     static constexpr int dmg_post_boot_dots_to_line_0 = 60;
 
@@ -92,6 +94,8 @@ public:
         reported_mode_delay_ = 0;
         window_y_condition_ = false;
         update_lyc_compare();
+        obp0_ = 0xff;
+        obp1_ = 0xff;
     }
 
     void reset_for_boot_rom() noexcept {

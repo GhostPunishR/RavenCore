@@ -2,6 +2,19 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## 0.17.4 - 2026-11-21
+
+Cette version corrige les palettes d'objets laissées par la boot ROM du DMG et documente ce qui bloque la suite de GBMicrotest : 355 de ses 513 tests passent, contre 353. L'API, Libretro, le GBA, la GBC et le format des états ne changent pas.
+
+### Corrigé
+
+- **OBP0 et OBP1 au démarrage sans boot ROM (DMG).** La boot ROM ne les écrit pas : ils lisent $FF, pas $00 (GBMicrotest, `poweron_obp0`, `poweron_obp1` ; Pan Docs les dit indéterminés). Un jeu qui affiche des objets sans régler ses palettes les dessine désormais comme sur la console mesurée.
+- Test : palettes d'objets au démarrage ; il échoue sans le correctif.
+
+### Reste à faire
+
+- **GBMicrotest et Mooneye se contredisent sur LY.** Vus du CPU, GBMicrotest voit les bits de mode de STAT et son drapeau LY=LYC changer quatre points après LY sur toutes les lignes (`poweron_stat`, ligne 153 avec LYC=0 et LYC=153, `win*_b`, `ppu_sprite0_scx*_b`) ; Mooneye le voit sur les lignes d'allumage (`lcdon_timing-GS`), que RavenCore reproduit. Mais Mooneye fixe aussi, par ses interruptions, la chaîne mode 2 → mode 0 → LY (`intr_2_0_timing`, `hblank_ly_scx_timing-GS`, `intr_2_mode0_timing`, `intr_2_mode3_timing`, avec AGE `ly`) : STAT y montre le mode 0 252 points après LY, et GBMicrotest, qui lit LY et STAT au registre, 256. Les deux suites, mesurées sur DMG, diffèrent donc de quatre points sur l'instant où LY change par rapport au reste de la ligne, et l'instant où le CPU lit le bus s'annule dans cette mesure : aucune phase ni aucun retard ne satisfait les deux. Essais, tous écartés : retarder STAT de quatre points sur toutes les lignes et lever l'interruption mode 2 au début de la ligne (GBMicrotest 366, mais `intr_2_0_timing`, `intr_2_oam_ok_timing` et AGE `m3-bg-lcdc` échouent) ; retarder en plus l'interruption H-Blank de un à quatre points (jusqu'à 372, mais `hblank_ly_scx_timing-GS` échoue) ; lire le bus plus tôt dans le M-cycle (69 à 91 ROMs de la CI en échec). RavenCore suit Mooneye et AGE, vérifiés sur plusieurs consoles.
+
 ## 0.17.3 - 2026-11-21
 
 Cette version corrige trois comportements de la Game Boy (DMG) que mesure GBMicrotest, une suite vérifiée sur console : 353 de ses 513 tests passent, contre 304. L'API, Libretro, le GBA et le format des états ne changent pas ; la GBC ne change que pour l'interruption H-Blank de la ligne d'allumage.

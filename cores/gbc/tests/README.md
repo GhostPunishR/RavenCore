@@ -165,12 +165,15 @@ RAM de cartouche et déborde sur son propre programme en WRAM. La ROM combinée
 exécute le même test et sa capture a été vérifiée sur console.
 
 Les autres tests de l'archive sont plus exigeants et ne sont pas encore
-exécutés par la CI. Mesure de la 0.17.3, avec entre parenthèses celle de la
+exécutés par la CI. Mesure de la 0.17.4, avec entre parenthèses celle de la
 0.16.0 : SameSuite (51/76, contre 22), Mealybug Tearoom (CGB 2/27, contre 0 ;
-DMG 1/24), AGE (CGB 3/34, contre 2 ; DMG 4/14), gbmicrotest (353/513, contre
-304). gbmicrotest n'est pas dans la CI : un écart de deux points sur l'instant
-de l'interruption H-Blank, encore inexpliqué, fait basculer certains de ses
-tests d'un M-cycle à l'autre (voir le journal de la 0.17.3).
+DMG 1/24), AGE (CGB 3/34, contre 2 ; DMG 4/14), gbmicrotest (355/513, contre
+304). gbmicrotest n'est pas dans la CI : il contredit Mooneye et AGE de quatre
+points sur l'instant où LY change par rapport au reste de la ligne, si bien
+qu'une partie de ses tests ne peut passer sans en faire échouer d'autres (voir
+le journal de la 0.17.4). Dix-huit de ses ROMs ne sont pas autoévaluées (`000-*` à `803-*`,
+`*_testbench`, `minimal`, `temp`, `flood_vram`) : elles n'écrivent pas $FF82
+et échouent donc toujours.
 Depuis la 0.17.2, le fetcher du fond lit registres et VRAM au bon moment :
 sur l'ensemble des tests Mealybug Tearoom et des tests AGE du mode 3, les
 pixels faux passent de 127 242 à 80 543 (−37 %), sans qu'un test de plus
