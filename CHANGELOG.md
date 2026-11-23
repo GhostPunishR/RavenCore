@@ -2,6 +2,12 @@
 
 Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) et le projet applique le [versionnage sémantique](https://semver.org/lang/fr/). Avant la version 1.0, une version mineure peut changer l'API ou le format des états instantanés : chaque changement de ce type est signalé ici.
 
+## Non publié
+
+### Documentation
+
+- **Carte de melonDS pour préparer le cœur NDS** ([docs/nds_melonds_map.md](docs/nds_melonds_map.md)). Elle décrit ses composants, son modèle temporel, sa carte mémoire et son démarrage. Elle propose aussi un découpage de `cores/nds/` et des étapes. C'est une lecture d'architecture, sans aucun code ni aucune donnée repris : GBATEK reste la référence matérielle. Les moteurs, l'API, Libretro et le format des états ne changent pas.
+
 ## 0.17.4 - 2026-11-21
 
 Cette version corrige les palettes d'objets laissées par la boot ROM du DMG et documente ce qui bloque la suite de GBMicrotest : 355 de ses 513 tests passent, contre 353. L'API, Libretro, le GBA, la GBC et le format des états ne changent pas.
