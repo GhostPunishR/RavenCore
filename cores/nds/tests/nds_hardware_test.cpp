@@ -370,6 +370,58 @@ void objects_test() {
     check(line[20] == 0x03e0, "objet devant un fond de même priorité");
 }
 
+void affine_backgrounds_test() {
+    Vram vram;
+    Memory memory;
+    vram.set_control(0, 0x81);  // A : fonds du moteur A
+    store(&memory.palette[0], 0x001f, 2);  // fond : rouge
+    store(&memory.palette[2], 0x03e0, 2);  // couleur 1 : vert
+    for (unsigned byte = 0; byte < 64; ++byte) vram.write(Vram::bg_a, 64 + byte, 1, 1);  // tuile 1 (256 couleurs)
+    for (unsigned entry = 0; entry < 16; ++entry) vram.write(Vram::bg_a, 0x800 + entry, 1, 1);  // carte : rangée 0
+    Engine2d engine{true};
+    const auto affine = [&](std::uint32_t pa, std::uint32_t pd) {
+        engine.write(0x30, pa, 0xffffU);           // BG3PA
+        engine.write(0x34, pd << 16U, 0xffff'0000U);  // BG3PD
+        engine.write(0x38, 0, all);                // BG3X
+        engine.write(0x3c, 0, all);                // BG3Y
+    };
+    engine.write(0x0c, (1U << 8U) << 16U, 0xffff'0000U);  // BG3CNT : carte au bloc 1, 128 × 128
+    engine.write(0x00, 0x0001'0801U, all);                 // mode 1, BG3 (affine)
+    affine(0x100, 0x100);
+    std::array<std::uint16_t, 256> line{};
+    for (unsigned y = 0; y <= 8; ++y) {
+        engine.render_line(y, vram, memory, line);
+        if (y == 7) check(line[0] == 0x03e0 && line[127] == 0x03e0 && line[128] == 0x001f, "fond affine : identité, sans répétition");
+    }
+    check(line[0] == 0x001f, "fond affine : PD avance la ligne lue");
+    engine.write(0x0c, ((1U << 8U) | 0x2000U) << 16U, 0xffff'0000U);  // répétition
+    engine.render_line(0, vram, memory, line);
+    check(line[200] == 0x03e0, "fond affine : répétition au-delà de 128 points");
+    engine.write(0x0c, (1U << 8U) << 16U, 0xffff'0000U);
+    affine(0x200, 0x100);
+    engine.render_line(0, vram, memory, line);
+    check(line[63] == 0x03e0 && line[64] == 0x001f, "fond affine : PA = 2 réduit de moitié");
+    // Bitmap de 256 couleurs (mode 5, BG3, bit 7) au bloc de 16 Kio n° 2.
+    vram.write(Vram::bg_a, 0x8000 + 5, 1, 1);
+    engine.write(0x0c, ((2U << 8U) | 0x80U) << 16U, 0xffff'0000U);
+    engine.write(0x00, 0x0001'0805U, all);
+    affine(0x100, 0x100);
+    engine.render_line(0, vram, memory, line);
+    check(line[5] == 0x03e0 && line[4] == 0x001f, "bitmap de 256 couleurs");
+    // Couleurs directes (bits 7 et 2) : bit 15 levé = point visible.
+    vram.write(Vram::bg_a, 0x8000 + 3 * 2, 0x8000 | 0x7c00, 2);
+    engine.write(0x0c, ((2U << 8U) | 0x84U) << 16U, 0xffff'0000U);
+    engine.render_line(0, vram, memory, line);
+    check(line[3] == 0x7c00 && line[4] == 0x001f, "bitmap en couleurs directes");
+    // Grand bitmap (mode 6, BG2) : toute la VRAM des fonds, depuis 0.
+    vram.write(Vram::bg_a, 10, 1, 1);
+    engine.write(0x20, 0x100, 0xffffU);
+    engine.write(0x24, 0x100U << 16U, 0xffff'0000U);
+    engine.write(0x00, 0x0001'0406U, all);
+    engine.render_line(0, vram, memory, line);
+    check(line[10] == 0x03e0, "grand bitmap du mode 6");
+}
+
 } // namespace
 
 int main() {
@@ -386,5 +438,6 @@ int main() {
     engine_test();
     decompression_test();
     objects_test();
+    affine_backgrounds_test();
     return 0;
 }

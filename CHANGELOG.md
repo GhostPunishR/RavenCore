@@ -47,6 +47,14 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
   Pas encore : objets bitmap, fenêtre d'objets, transparence, mosaïque, palettes étendues, limite de points par ligne.
 - Test : objets dans `nds_raven_hardware`. Il couvre un objet de 8 × 8, un objet retourné, un affine, un masqué, la hauteur de l'objet et sa priorité face à un fond.
+- **Cœur NDS, fonds affines et bitmap** (GBATEK, « BG Mode », « LCD I/O BG Rotation/Scaling ») :
+  - **fonds affines** de BG2 et BG3 : carte de 8 bits, tuiles de 256 couleurs, de 128 à 1024 points, avec ou sans répétition ;
+  - **fonds étendus** : carte de 16 bits avec retournements, bitmap de 256 couleurs, bitmap en couleurs directes (bit 15 = point visible) ;
+  - **grand bitmap** du mode 6, 512 × 1024 ou 1024 × 512, moteur A seul ;
+  - **points de référence internes** : rechargés à la ligne 0 et à chaque écriture de BGxX ou BGxY, puis avancés de PB et PD à chaque ligne.
+
+  Pas encore : palettes étendues des fonds, mosaïque.
+- Test : fonds affines et bitmap dans `nds_raven_hardware`. Il couvre l'identité, avec et sans répétition, la mise à l'échelle par PA, l'avancée par PD, les bitmaps de 256 couleurs et en couleurs directes, et le grand bitmap.
 
 ### Documentation
 
