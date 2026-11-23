@@ -1,0 +1,108 @@
+#include "memory/bus9.hpp"
+#include "memory/io_access.hpp"
+
+// Registres d'E/S de l'ARM9 déjà modélisés (GBATEK, « DS I/O Maps ») ; les
+// autres se lisent à 0 et ignorent les écritures.
+namespace ravenemu::nds {
+
+namespace {
+
+// Slot GBA vide (GBATEK, « DS Memory Control - Cartridges and Main RAM ») :
+// la ROM rend l'adresse / 2 par demi-mot, la RAM des 0xFF ; le CPU qui n'a pas
+// le slot lit des 0.
+std::uint32_t empty_gba_slot(std::uint32_t address, unsigned width, Region region, bool owner) noexcept {
+    if (!owner) return 0;
+    if (region == Region::gba_ram) return width == 4 ? 0xffff'ffffU : (1U << (8U * width)) - 1U;
+    const auto half = [](std::uint32_t at) { return (at >> 1U) & 0xffffU; };
+    const auto aligned = address & ~1U;
+    if (width == 4) return half(aligned) | (half(aligned + 2) << 16U);
+    const auto value = half(aligned);
+    return width == 2 ? value : (value >> ((address & 1U) * 8U)) & 0xffU;
+}
+
+} // namespace
+
+std::uint32_t Bus9::other_read(std::uint32_t address, unsigned width, Region region) {
+    switch (region) {
+    case Region::io: return io_extract(io_word(address & ~3U), address, width);
+    case Region::gba_rom:
+    case Region::gba_ram: return empty_gba_slot(address, width, region, !hw_.gba_slot_arm7());
+    default: return 0;  // VRAM pas encore projetée, WRAM absente, zones vides
+    }
+}
+
+std::uint32_t Bus9::io_word(std::uint32_t address) {
+    auto& hw = hw_;
+    const auto now = hw.arm9_time();
+    if (address == 0x0410'0000U) return hw.ipc.receive(0);
+    if (address >= 0x0400'1000U) return 0;
+    const auto offset = address & 0xfffU;
+    if (offset >= 0x100 && offset < 0x110) return hw.timers9.read(offset - 0x100, now);
+    if (offset >= 0x280 && offset < 0x2b0) return hw.divider.read(offset, now);
+    if (offset >= 0x2b0 && offset < 0x2c0) return hw.square_root.read(offset, now);
+    switch (offset) {
+    case 0x004: return hw.lcd.read(0);
+    case 0x130: return hw.keys | (hw.key_control[0] << 16U);
+    case 0x180: return hw.ipc.read_sync(0);
+    case 0x184: return hw.ipc.read_control(0);
+    case 0x204: return hw.external_memory[0];
+    case 0x208:
+    case 0x210:
+    case 0x214: return hw.irq9.read(offset);
+    case 0x240:
+    case 0x244:
+    case 0x248: {
+        std::uint32_t word = 0;
+        for (unsigned byte = 0; byte < 4; ++byte) {
+            const auto index = offset - 0x240 + byte;
+            const auto value = index == 7 ? hw.memory.wram_control : (index < 10 ? hw.vram_control[index] : 0U);
+            word |= std::uint32_t{value} << (8U * byte);
+        }
+        return word;
+    }
+    case 0x300: return hw.post_boot[0];
+    case 0x304: return hw.power_control9;
+    default: return 0;
+    }
+}
+
+void Bus9::io_write(std::uint32_t address, std::uint32_t value, unsigned width) {
+    io_write_word(address & ~3U, io_shift(address, value), io_mask(address, width));
+}
+
+void Bus9::io_write_word(std::uint32_t address, std::uint32_t value, std::uint32_t mask) {
+    auto& hw = hw_;
+    const auto now = hw.arm9_time();
+    if (address >= 0x0400'1000U) return;
+    const auto offset = address & 0xfffU;
+    if (offset >= 0x100 && offset < 0x110) return hw.timers9.write(offset - 0x100, value, mask, now);
+    if (offset >= 0x280 && offset < 0x2b0) return hw.divider.write(offset, value, mask, now);
+    if (offset >= 0x2b0 && offset < 0x2c0) return hw.square_root.write(offset, value, mask, now);
+    switch (offset) {
+    case 0x004: hw.lcd.write(0, value, mask); break;
+    case 0x130: hw.key_control[0] = merge(hw.key_control[0], value >> 16U, mask >> 16U) & 0xc3ffU; break;
+    case 0x180: hw.ipc.write_sync(0, value, mask); break;
+    case 0x184: hw.ipc.write_control(0, value, mask); break;
+    case 0x188: hw.ipc.send(0, value); break;
+    case 0x204: hw.external_memory[0] = merge(hw.external_memory[0], value, mask & 0xe8ffU); break;
+    case 0x208:
+    case 0x210:
+    case 0x214: hw.irq9.write(offset, value, mask); break;
+    case 0x240:
+    case 0x244:
+    case 0x248:
+        for (unsigned byte = 0; byte < 4; ++byte) {
+            if (((mask >> (8U * byte)) & 0xffU) == 0) continue;
+            const auto index = offset - 0x240 + byte;
+            const auto data = static_cast<std::uint8_t>(value >> (8U * byte));
+            if (index == 7) hw.memory.wram_control = data & 3U;
+            else if (index < 10) hw.vram_control[index] = data;
+        }
+        break;
+    case 0x300: hw.post_boot[0] = merge(hw.post_boot[0], value, mask & 3U); break;
+    case 0x304: hw.power_control9 = merge(hw.power_control9, value, mask & 0x820fU); break;
+    default: break;
+    }
+}
+
+} // namespace ravenemu::nds

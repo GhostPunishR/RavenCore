@@ -10,6 +10,12 @@ find_package(Threads REQUIRED)
 target_link_libraries(ravenemu_common PUBLIC ravenemu_options Threads::Threads)
 set_target_properties(ravenemu_common PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# CPU ARM commun (ARMv4T, ARMv5TE), en en-têtes : `#include "arm/cpu.hpp"`.
+# Le cœur NDS l'emploie pour ses deux processeurs.
+add_library(ravenemu_arm INTERFACE)
+target_include_directories(ravenemu_arm INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+target_link_libraries(ravenemu_arm INTERFACE ravenemu_options)
+
 if(BUILD_TESTING)
     add_executable(ravenemu_common_tests tests/sha256_test.cpp)
     target_include_directories(ravenemu_common_tests PRIVATE tests/support)
@@ -25,4 +31,10 @@ if(BUILD_TESTING)
     target_include_directories(ravenemu_cheat_tests PRIVATE tests/support)
     target_link_libraries(ravenemu_cheat_tests PRIVATE ravenemu_common)
     add_test(NAME ravenemu_cheats COMMAND ravenemu_cheat_tests)
+
+    # Programmes ARM et Thumb assemblés par llvm-mc, exécutés sur une mémoire factice.
+    add_executable(ravenemu_arm_cpu_tests tests/arm_cpu_test.cpp)
+    target_include_directories(ravenemu_arm_cpu_tests PRIVATE tests/support)
+    target_link_libraries(ravenemu_arm_cpu_tests PRIVATE ravenemu_arm)
+    add_test(NAME ravenemu_arm_cpu COMMAND ravenemu_arm_cpu_tests)
 endif()
