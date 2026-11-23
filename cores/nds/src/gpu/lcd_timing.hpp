@@ -30,15 +30,18 @@ public:
         scheduler.schedule(Event::lcd, now);
     }
 
-    // Traite l'événement échu et programme le suivant ; rend true au début
-    // d'une ligne.
-    bool on_event(Scheduler& scheduler, Cycles now) noexcept {
+    enum class Phase { line_start, hblank9, hblank7 };
+
+    // Traite l'événement échu, programme le suivant, et rend celui qui vient
+    // de se produire.
+    Phase on_event(Scheduler& scheduler, Cycles now) noexcept {
+        const auto happened = phase_;
         switch (phase_) {
         case Phase::line_start:
             begin_line(now);
             phase_ = Phase::hblank9;
             scheduler.schedule(Event::lcd, line_start_ + hblank_start[0]);
-            return true;
+            break;
         case Phase::hblank9:
             enter_hblank(0);
             phase_ = Phase::hblank7;
@@ -50,7 +53,7 @@ public:
             scheduler.schedule(Event::lcd, line_start_ + line_cycles);
             break;
         }
-        return false;
+        return happened;
     }
 
     [[nodiscard]] unsigned line() const noexcept { return line_; }
@@ -77,7 +80,6 @@ public:
     }
 
 private:
-    enum class Phase { line_start, hblank9, hblank7 };
     struct Cpu {
         std::uint32_t control{};       // bits 3-5 : IRQ V-Blank, H-Blank, V-Count
         std::uint32_t compare_line{};  // LYC sur 9 bits

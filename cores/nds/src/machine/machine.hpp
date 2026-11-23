@@ -58,6 +58,7 @@ private:
     void run_arm7(Cycles end);
     void settle(Cycles now);
     void render_line(unsigned line);
+    void on_lcd_event(LcdTiming::Phase phase);
     void sync_cp15() noexcept;
 
     std::vector<std::uint8_t> rom_;

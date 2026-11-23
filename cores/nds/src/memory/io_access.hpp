@@ -21,4 +21,15 @@ constexpr std::uint32_t merge(std::uint32_t old, std::uint32_t value, std::uint3
     return (old & ~mask) | (value & mask);
 }
 
+// Mot lu dans les registres de DMA : source, destination, DMACNT.
+template <typename Channels>
+std::uint32_t dma_register(const Channels& channels, std::uint32_t offset) noexcept {
+    const auto& channel = channels[(offset - 0x0b0U) / 12U];
+    switch ((offset - 0x0b0U) % 12U) {
+    case 0: return channel.source;
+    case 4: return channel.destination;
+    default: return channel.control;
+    }
+}
+
 } // namespace ravenemu::nds

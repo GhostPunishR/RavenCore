@@ -33,6 +33,12 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
   Pas encore : fonds affines, étendus et bitmap, objets, fenêtres, effets, palettes étendues, 3D, affichage depuis la RAM principale.
 - Tests : VRAM et moteur 2D dans `nds_raven_hardware`. `nds_raven_machine` vérifie l'écran : l'ARM9 remplit la banque A de rouge et l'affiche, et l'image du bas sort rouge.
+- **Cœur NDS, DMA et décompressions du BIOS** :
+  - **DMA** : quatre canaux par CPU (GBATEK, « DS DMA Transfers »), unités de 16 ou 32 bits, source et destination croissantes, décroissantes ou fixes, destination rechargée, répétition, IRQ de fin. Départs immédiat, au V-Blank et, pour l'ARM9, au H-Blank des lignes visibles. Les registres DMA0FILL à DMA3FILL servent aux remplissages. La DMA ne voit pas les TCM, et son CPU attend la fin du transfert ;
+  - **BIOS HLE** : `BitUnPack` (10h), LZ77 et RL vers des octets (11h, 14h), filtres différentiels de 8 et 16 bits de l'ARM9 (16h, 18h).
+
+  Pas encore : les autres départs de DMA (début d'affichage, cartouche, FIFO de géométrie, Wi-Fi), les décompressions par fonctions de rappel (12h, 13h, 15h).
+- Tests : décompressions sur une mémoire factice (`nds_raven_hardware`). `nds_raven_machine` couvre la DMA : copie immédiate, remplissage, départ au V-Blank avec IRQ, écriture sous la DTCM qui va en RAM principale, DMA de l'ARM7.
 
 ### Documentation
 

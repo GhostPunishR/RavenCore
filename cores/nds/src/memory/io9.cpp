@@ -61,6 +61,8 @@ std::uint32_t Bus9::io_word(std::uint32_t address) {
     if (address >= 0x0400'1000U) return 0;
     const auto offset = address & 0xfffU;
     if (offset >= 0x100 && offset < 0x110) return hw.timers9.read(offset - 0x100, now);
+    if (offset >= 0x0b0 && offset < 0x0e0) return dma_register(hw.dma9, offset);
+    if (offset >= 0x0e0 && offset < 0x0f0) return hw.dma_fill[(offset - 0x0e0) / 4];
     if (offset >= 0x280 && offset < 0x2b0) return hw.divider.read(offset, now);
     if (offset >= 0x2b0 && offset < 0x2c0) return hw.square_root.read(offset, now);
     if (offset != 0x004 && offset < 0x070) return hw.engine_a.read(offset);
@@ -107,6 +109,16 @@ void Bus9::io_write_word(std::uint32_t address, std::uint32_t value, std::uint32
     const auto offset = address & 0xfffU;
     if (offset != 0x004 && offset < 0x070) return hw.engine_a.write(offset, value, mask);
     if (offset >= 0x100 && offset < 0x110) return hw.timers9.write(offset - 0x100, value, mask, now);
+    if (offset >= 0x0b0 && offset < 0x0e0) {
+        if (write_dma_register(hw.dma9, offset, value, mask, true))
+            run_dma(*this, hw.dma9[(offset - 0x0b0) / 12], (offset - 0x0b0) / 12, true, hw.irq9);
+        return;
+    }
+    if (offset >= 0x0e0 && offset < 0x0f0) {
+        auto& fill = hw.dma_fill[(offset - 0x0e0) / 4];
+        fill = merge(fill, value, mask);
+        return;
+    }
     if (offset >= 0x280 && offset < 0x2b0) return hw.divider.write(offset, value, mask, now);
     if (offset >= 0x2b0 && offset < 0x2c0) return hw.square_root.write(offset, value, mask, now);
     switch (offset) {

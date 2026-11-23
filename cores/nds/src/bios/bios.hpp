@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bios/decompression.hpp"
 #include "machine/hardware.hpp"
 #include "math/square_root.hpp"
 
@@ -11,8 +12,8 @@
 // bas en Thumb. Écrites pour RavenCore d'après leur description ; aucun code
 // des BIOS de Nintendo.
 //
-// Pas encore écrites : décompressions (0x10-0x15), filtres différentiels
-// (0x16, 0x18), tables du son de l'ARM7 (0x1A-0x1C), GetBootProcs, CustomPost,
+// Pas encore écrites : décompressions par fonctions de rappel (0x12, 0x13,
+// 0x15), tables du son de l'ARM7 (0x1A-0x1C), GetBootProcs, CustomPost,
 // SoftReset. Elles ne font rien et sont comptées dans `unsupported`.
 namespace ravenemu::nds {
 
@@ -23,7 +24,8 @@ public:
 
     bool call(std::uint32_t comment, bool thumb) {
         auto& r = cpu_.regs.r;
-        switch (thumb ? comment & 0xffU : (comment >> 16U) & 0xffU) {
+        const auto number = thumb ? comment & 0xffU : (comment >> 16U) & 0xffU;
+        switch (number) {
         case 0x03: bus_.internal(static_cast<int>(std::min<std::uint32_t>(r[0], 0x1000'0000U)) * 4); break;
         case 0x04: wait_for_interrupt(); break;
         case 0x05:
@@ -44,6 +46,14 @@ public:
         case 0x0d: r[0] = integer_square_root(r[0]); break;
         case 0x0e: r[0] = crc16(r[0], r[1], r[2]); break;
         case 0x0f: r[0] = 0; break;  // IsDebugger : console de détail
+        case 0x10: decompression::bit_unpack(bus_, r[0], r[1], r[2]); break;
+        case 0x11: decompression::lz77(bus_, r[0], r[1]); break;
+        case 0x14: decompression::run_length(bus_, r[0], r[1]); break;
+        case 0x16:
+        case 0x18:  // filtres différentiels : ARM9 seul
+            if (Arm9) decompression::differential(bus_, r[0], r[1], number == 0x18);
+            else ++unsupported;
+            break;
         default: ++unsupported; break;
         }
         return true;

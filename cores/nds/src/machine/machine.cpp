@@ -69,11 +69,29 @@ void Machine::settle(Cycles now) {
     hw.timers9.advance(now);
     hw.timers7.advance(now);
     while (const auto event = hw.scheduler.take_due(now)) {
-        if (*event == Event::lcd && hw.lcd.on_event(hw.scheduler, now) && hw.lcd.line() < LcdTiming::visible_lines)
-            render_line(hw.lcd.line());
+        if (*event == Event::lcd) on_lcd_event(hw.lcd.on_event(hw.scheduler, now));
     }
     hw.scheduler.schedule(Event::timers9, hw.timers9.next_overflow());
     hw.scheduler.schedule(Event::timers7, hw.timers7.next_overflow());
+}
+
+// Débuts de ligne : rendu et DMA de V-Blank ; H-Blank : DMA de H-Blank de
+// l'ARM9, sur les lignes visibles seulement (GBATEK).
+void Machine::on_lcd_event(LcdTiming::Phase phase) {
+    const auto line = hw.lcd.line();
+    switch (phase) {
+    case LcdTiming::Phase::line_start:
+        if (line < LcdTiming::visible_lines) render_line(line);
+        if (line == LcdTiming::visible_lines) {
+            bus9.trigger_dma(DmaTiming::vblank);
+            bus7.trigger_dma(DmaTiming::vblank);
+        }
+        break;
+    case LcdTiming::Phase::hblank9:
+        if (line < LcdTiming::visible_lines) bus9.trigger_dma(DmaTiming::hblank);
+        break;
+    case LcdTiming::Phase::hblank7: break;
+    }
 }
 
 // Chaque moteur dessine la ligne au début de celle-ci ; POWCNT1 bit 15 place
