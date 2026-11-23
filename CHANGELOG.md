@@ -25,6 +25,14 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
   Pas encore modélisés : la vidéo (VRAM, moteurs 2D et 3D), le son, la DMA, le protocole de cartouche et ses sauvegardes, le firmware, l'écran tactile, l'horloge, la Wi-Fi, les caches de l'ARM9 (comptés comme des succès quand CP15 les active).
 - Tests : `nds_raven_hardware`, les composants un à un ; `nds_raven_machine`, une ROM écrite pour le test. Ses deux CPU s'échangent une valeur par IPC, divisent, l'un par le diviseur matériel, l'autre par `Div`, et l'ARM9 compte les images par interruption de V-Blank.
+- **Cœur NDS, premier affichage** :
+  - **VRAM** : les neuf banques (656 Kio), projetées par VRAMCNT_A à VRAMCNT_I selon la table de GBATEK, sur le LCDC, les fonds et objets des deux moteurs et l'ARM7. Deux banques superposées se lisent combinées et s'écrivent ensemble. Palettes, VRAM et OAM ignorent les écritures de 8 bits, sauf la VRAM donnée à l'ARM7 ;
+  - **moteurs 2D A et B** : affichage éteint (blanc), normal et VRAM affichée telle quelle (mode 2). Les fonds en mode texte ont 16 ou 256 couleurs, retournements, défilement, priorités et couleur de fond ;
+  - **luminosité maîtresse**, et image des deux écrans en ARGB8888 (`Machine::frame`). POWCNT1 bit 15 choisit l'écran du moteur A ;
+  - **réglages utilisateur du firmware** générés par RavenCore et recopiés à 0x027FFC80 au démarrage : version, pseudo « RavenEmu », langue française, calibration du tactile.
+
+  Pas encore : fonds affines, étendus et bitmap, objets, fenêtres, effets, palettes étendues, 3D, affichage depuis la RAM principale.
+- Tests : VRAM et moteur 2D dans `nds_raven_hardware`. `nds_raven_machine` vérifie l'écran : l'ARM9 remplit la banque A de rouge et l'affiche, et l'image du bas sort rouge.
 
 ### Documentation
 

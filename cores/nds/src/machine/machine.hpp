@@ -37,6 +37,9 @@ public:
     void run_until(Cycles target);
     // Jusqu'au début du V-Blank suivant.
     void run_frame();
+    // Les deux écrans de la dernière image, en ARGB8888 : 256 × 192 en haut,
+    // puis 256 × 192 en bas.
+    [[nodiscard]] const std::vector<std::uint32_t>& frame() const noexcept { return hw.frame; }
 
     Hardware hw;
     Bus9 bus9{hw};
@@ -54,6 +57,7 @@ private:
     void run_arm9(Cycles end);
     void run_arm7(Cycles end);
     void settle(Cycles now);
+    void render_line(unsigned line);
     void sync_cp15() noexcept;
 
     std::vector<std::uint8_t> rom_;

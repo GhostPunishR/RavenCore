@@ -10,8 +10,7 @@
 #include <vector>
 
 // Bus de l'ARM9 (GBATEK, « NDS9 Memory Map ») : TCM, RAM principale, WRAM,
-// E/S, palettes, OAM, slot GBA et BIOS. Il compte en cycles de l'ARM9.
-// La VRAM n'est pas encore projetée : elle se lit à 0.
+// E/S, palettes, VRAM, OAM, slot GBA et BIOS. Il compte en cycles de l'ARM9.
 namespace ravenemu::nds {
 
 // Appel d'une SWI, renvoyé au BIOS pris par l'hôte.
@@ -136,11 +135,15 @@ private:
         Region region{};
         auto* at = locate(address, true, false, region);
         charge_data(region, address, width, true);
+        // Palettes, VRAM et OAM ignorent les écritures de 8 bits (GBATEK).
+        if (width == 1 && (region == Region::palette || region == Region::vram || region == Region::oam)) return;
         if (at != nullptr) store(at, value, width);
         else if (region == Region::io) io_write(address, value, width);
+        else if (region == Region::vram) vram_write(address, value, width);
     }
 
     std::uint32_t other_read(std::uint32_t address, unsigned width, Region region);
+    void vram_write(std::uint32_t address, std::uint32_t value, unsigned width);
     std::uint32_t io_word(std::uint32_t address);
     void io_write(std::uint32_t address, std::uint32_t value, unsigned width);
     void io_write_word(std::uint32_t address, std::uint32_t value, std::uint32_t mask);

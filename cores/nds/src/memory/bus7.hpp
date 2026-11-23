@@ -11,8 +11,8 @@
 #include <vector>
 
 // Bus de l'ARM7 (GBATEK, « NDS7 Memory Map ») : BIOS, RAM principale, WRAM
-// partagée et propre, E/S, slot GBA. Il compte en cycles système. La VRAM
-// donnée à l'ARM7 et la Wi-Fi ne sont pas encore modélisées.
+// partagée et propre, E/S, VRAM qui lui est donnée (banques C et D), slot
+// GBA. Il compte en cycles système. La Wi-Fi n'est pas encore modélisée.
 namespace ravenemu::nds {
 
 class Bus7 {
@@ -103,6 +103,7 @@ private:
         charge_data(region, address, width);
         if (at != nullptr) store(at, value, width);
         else if (region == Region::io) io_write(address, value, width);
+        else if (region == Region::vram) hw_.vram.write(Vram::arm7, address & 0x3ffffU, value, width);
     }
     void charge_data(Region region, std::uint32_t address, unsigned width) noexcept {
         hw_.arm7_cycles += static_cast<Cycles>(arm7_data_costs(region).cost(data_.follows(region, address), width));

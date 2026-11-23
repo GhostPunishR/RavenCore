@@ -306,9 +306,11 @@ Chaque étape se termine par des tests automatisés et un résultat montrable.
 - dans `cores/nds/` : l'ordonnanceur à deux CPU, CP15 et les TCM, les deux bus et leurs temps d'accès d'après GBATEK ;
 - les interruptions, l'IPC, le diviseur et la racine carrée, les timers, le balayage de l'écran et le clavier ;
 - l'en-tête de cartouche et le démarrage direct ;
-- les vecteurs et une partie des SWI du BIOS HLE.
+- les vecteurs et une partie des SWI du BIOS HLE ;
+- la VRAM et sa projection, les deux moteurs 2D en mode texte et l'image des deux écrans ;
+- les réglages utilisateur du firmware, générés.
 
-Restent pour l'étape 2 la vidéo 2D, le firmware généré et les décompressions du BIOS.
+Restent pour l'étape 2 les objets, les autres types de fonds, la DMA et les décompressions du BIOS.
 
 1. **Fondations :**
    - le CPU ARM partagé ;

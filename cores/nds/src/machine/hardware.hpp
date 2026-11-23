@@ -1,6 +1,8 @@
 #pragma once
 
 #include "cpu/cp15.hpp"
+#include "gpu/engine2d.hpp"
+#include "gpu/vram.hpp"
 #include "gpu/lcd_timing.hpp"
 #include "interrupts/interrupt_controller.hpp"
 #include "ipc/ipc.hpp"
@@ -12,6 +14,7 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
 
 // Le matériel du DS hors processeurs : ce que les deux bus partagent.
 namespace ravenemu::nds {
@@ -39,9 +42,13 @@ struct Hardware {
     std::array<std::uint32_t, 2> post_boot{};
     std::uint32_t power_control9{};  // POWCNT1
     std::uint32_t power_control7{1}; // POWCNT2 : haut-parleurs
-    // VRAMCNT_A à VRAMCNT_I (0x04000240-0x04000249, sans 0x04000247) : gardés
-    // pour la projection des banques, qui viendra avec la vidéo.
-    std::array<std::uint8_t, 10> vram_control{};
+    Vram vram;
+    Engine2d engine_a{true};
+    Engine2d engine_b{false};
+    // Les deux écrans en ARGB8888, 256 × 192 chacun : celui du haut, puis
+    // celui du bas. POWCNT1 bit 15 met le moteur A en haut.
+    static constexpr std::size_t screen_pixels = 256 * 192;
+    std::vector<std::uint32_t> frame = std::vector<std::uint32_t>(2 * screen_pixels, 0xff00'0000U);
 
     // Temps : `now` en cycles système ; chaque CPU compte les siens et
     // avance jusqu'à la fin de la tranche en cours.

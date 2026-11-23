@@ -1,6 +1,7 @@
 #include "machine/machine.hpp"
 
 #include <algorithm>
+#include <array>
 
 namespace ravenemu::nds {
 
@@ -68,10 +69,31 @@ void Machine::settle(Cycles now) {
     hw.timers9.advance(now);
     hw.timers7.advance(now);
     while (const auto event = hw.scheduler.take_due(now)) {
-        if (*event == Event::lcd) hw.lcd.on_event(hw.scheduler, now);
+        if (*event == Event::lcd && hw.lcd.on_event(hw.scheduler, now) && hw.lcd.line() < LcdTiming::visible_lines)
+            render_line(hw.lcd.line());
     }
     hw.scheduler.schedule(Event::timers9, hw.timers9.next_overflow());
     hw.scheduler.schedule(Event::timers7, hw.timers7.next_overflow());
+}
+
+// Chaque moteur dessine la ligne au début de celle-ci ; POWCNT1 bit 15 place
+// le moteur A sur l'écran du haut.
+void Machine::render_line(unsigned line) {
+    std::array<std::uint16_t, Engine2d::width> a{};
+    std::array<std::uint16_t, Engine2d::width> b{};
+    hw.engine_a.render_line(line, hw.vram, hw.memory, a);
+    hw.engine_b.render_line(line, hw.vram, hw.memory, b);
+    const auto a_on_top = (hw.power_control9 & 0x8000U) != 0;
+    auto* top = &hw.frame[line * Engine2d::width];
+    auto* bottom = &hw.frame[Hardware::screen_pixels + line * Engine2d::width];
+    const auto brightness_a = hw.engine_a.master_brightness();
+    const auto brightness_b = hw.engine_b.master_brightness();
+    for (unsigned x = 0; x < Engine2d::width; ++x) {
+        const auto pixel_a = to_argb(a[x], brightness_a);
+        const auto pixel_b = to_argb(b[x], brightness_b);
+        top[x] = a_on_top ? pixel_a : pixel_b;
+        bottom[x] = a_on_top ? pixel_b : pixel_a;
+    }
 }
 
 void Machine::sync_cp15() noexcept {
