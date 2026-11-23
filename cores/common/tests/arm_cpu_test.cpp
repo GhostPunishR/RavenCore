@@ -75,6 +75,8 @@ public:
         store(address, value, 4);
     }
     void internal(int count) { cycles += count; }
+    // Rechargement du pipeline : deux lectures de code à la cible.
+    void refill(std::uint32_t, bool) { cycles += 2; }
     std::optional<std::uint32_t> coprocessor_read(CoprocessorAccess access) {
         if (!has_cp15 || access.coprocessor != 15) return std::nullopt;
         return 0x4105'9461U;  // identifiant de l'ARM946E-S
@@ -565,6 +567,8 @@ void cycles_test() {
     check(measure() == 2, "décalage par registre : un cycle interne");
     f.cpu.regs.r[0] = data;
     check(measure() == 3, "LDR : lecture du code, de la donnée, et un cycle interne");
+    f.load_arm(arm_code + 16, {0xeafffffeU});  // b .
+    check(measure() == 3, "B : 2S + 1N, rechargement du pipeline compris");
 }
 
 template <Architecture Arch>

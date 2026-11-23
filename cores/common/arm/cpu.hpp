@@ -36,6 +36,9 @@ struct CoprocessorAccess {
 // coprocesseur absent : le CPU lève alors l'exception d'instruction indéfinie.
 // `software_interrupt` rend true quand l'hôte a exécuté lui-même la fonction
 // du BIOS (BIOS HLE) ; sinon le CPU saute au vecteur SWI.
+// `refill` compte le rechargement du pipeline après un saut ou une exception :
+// les deux lectures de code (N puis S) à la cible, que GBATEK ajoute à la
+// lecture de l'instruction elle-même (B : 2S + 1N).
 template <typename B>
 concept Bus = requires(B& bus, std::uint32_t address, std::uint32_t value, int cycles, CoprocessorAccess access,
                        bool thumb) {
@@ -51,6 +54,7 @@ concept Bus = requires(B& bus, std::uint32_t address, std::uint32_t value, int c
     { bus.coprocessor_read(access) } -> std::same_as<std::optional<std::uint32_t>>;
     { bus.coprocessor_write(access, value) } -> std::same_as<bool>;
     { bus.software_interrupt(value, thumb) } -> std::same_as<bool>;
+    bus.refill(address, thumb);
 };
 
 template <Architecture Arch, Bus BusType>
@@ -79,6 +83,7 @@ public:
     void step() {
         if (irq_line_ && !regs.irq_disabled) {
             enter_exception(mode::irq, 0x18, branch_target_ + 4, false);
+            bus_.refill(branch_target_, false);
             return;
         }
         current_ = branch_target_;
@@ -88,12 +93,14 @@ public:
             regs.r[15] = current_ + 4;
             execute_thumb(opcode);
             if (!branched_) branch_target_ = current_ + 2;
+            else bus_.refill(branch_target_, regs.thumb);
         } else {
             const auto opcode = static_cast<std::uint32_t>(bus_.code32(current_));
             regs.r[15] = current_ + 8;
             if (condition(opcode >> 28U)) execute_arm(opcode);
             else if ((opcode >> 28U) == 15U) execute_unconditional(opcode);
             if (!branched_) branch_target_ = current_ + 4;
+            else bus_.refill(branch_target_, regs.thumb);
         }
     }
 
@@ -103,6 +110,10 @@ public:
 
     // Adresse de la prochaine instruction.
     [[nodiscard]] std::uint32_t pc() const noexcept { return branch_target_; }
+
+    // Pendant un appel de `software_interrupt` : refaire la même instruction
+    // ensuite. Un BIOS pris par l'hôte s'en sert pour attendre (IntrWait).
+    void repeat_instruction() noexcept { branch(current_); }
 
     Registers regs;
     // ARMv5 : 0xFFFF0000 quand CP15 place les vecteurs en haut (bit 13).
