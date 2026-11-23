@@ -1,4 +1,5 @@
 #include "gpu/engine2d.hpp"
+#include "gpu/object_renderer.hpp"
 
 #include <algorithm>
 
@@ -59,16 +60,28 @@ void Engine2d::render_line(unsigned line, const Vram& vram, const Memory& memory
     }
     const auto palette = main_ ? 0x000U : 0x400U;
     std::fill(out.begin(), out.end(), palette_color(memory, palette));
+    // Priorité du point visible : 4 pour la couleur de fond.
+    std::array<std::uint8_t, width> shown{};
+    shown.fill(4);
     // Du moins prioritaire au plus prioritaire : priorité 3 à 0, BG3 à BG0.
     for (unsigned priority = 4; priority-- > 0;) {
         for (unsigned bg = 4; bg-- > 0;) {
             if ((control & (0x100U << bg)) == 0 || (bg_control(bg) & 3U) != priority || !text_layer(bg)) continue;
             std::array<std::uint16_t, width> layer{};
             draw_text_layer(bg, line, vram, memory, layer);
-            for (unsigned x = 0; x < width; ++x)
-                if ((layer[x] & transparent) == 0) out[x] = layer[x];
+            for (unsigned x = 0; x < width; ++x) {
+                if ((layer[x] & transparent) != 0) continue;
+                out[x] = layer[x];
+                shown[x] = static_cast<std::uint8_t>(priority);
+            }
         }
     }
+    // Un objet passe devant les fonds de priorité égale ou moindre.
+    if ((control & 0x1000U) == 0) return;
+    ObjectLine objects;
+    draw_objects(main_, control, line, vram, memory, objects);
+    for (unsigned x = 0; x < width; ++x)
+        if ((objects.color[x] & ObjectLine::transparent) == 0 && objects.priority[x] <= shown[x]) out[x] = objects.color[x];
 }
 
 // GBATEK, « LCD VRAM BG Screen Data Format » : blocs de 32 × 32 entrées de

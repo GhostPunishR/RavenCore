@@ -324,6 +324,52 @@ void decompression_test() {
     check(bus.read32(0x704) == 0x3030'0303U, "BitUnPack : décalage des unités non nulles");
 }
 
+void objects_test() {
+    Vram vram;
+    Memory memory;
+    vram.set_control(1, 0x82);  // B : objets du moteur A
+    vram.set_control(0, 0x81);  // A : fonds du moteur A
+    const auto put16 = [](std::vector<std::uint8_t>& bytes, unsigned at, std::uint32_t value) { store(&bytes[at], value, 2); };
+    put16(memory.palette, 0, 0x001f);          // fond : rouge
+    put16(memory.palette, 0x200 + 2, 0x03e0);  // objets, couleur 1 : vert
+    put16(memory.palette, 2, 0x7c00);          // fonds, couleur 1 : bleu
+    // Tuile 0 : couleur 1 partout ; tuile 1 : couleur 1 dans la seule colonne 0.
+    for (unsigned byte = 0; byte < 32; ++byte) vram.write(Vram::obj_a, byte, 0x11, 1);
+    for (unsigned row = 0; row < 8; ++row) vram.write(Vram::obj_a, 32 + row * 4, 0x01, 1);
+    const auto object = [&](unsigned index, std::uint32_t a0, std::uint32_t a1, std::uint32_t a2) {
+        put16(memory.oam, index * 8, a0);
+        put16(memory.oam, index * 8 + 2, a1);
+        put16(memory.oam, index * 8 + 4, a2);
+    };
+    object(0, 10, 20, 0x0000);                   // 8 × 8 à (20, 10)
+    object(1, 10, 40 | 0x1000U, 0x0001);         // tuile 1 retournée horizontalement
+    object(5, 10 | 0x100U, 100, 0x0000);         // affine, paramètres du groupe 0
+    object(6, 10 | 0x200U, 150, 0x0000);         // masqué
+    put16(memory.oam, 6, 0x100);                 // PA = 1
+    put16(memory.oam, 30, 0x100);                // PD = 1
+    Engine2d engine{true};
+    engine.write(0x00, 0x0001'1010U, all);       // normal, objets, correspondance 1D
+    std::array<std::uint16_t, 256> line{};
+    engine.render_line(10, vram, memory, line);
+    check(line[20] == 0x03e0 && line[27] == 0x03e0 && line[19] == 0x001f && line[28] == 0x001f, "objet de 8 × 8");
+    check(line[47] == 0x03e0 && line[40] == 0x001f, "retournement horizontal");
+    check(line[100] == 0x03e0 && line[107] == 0x03e0 && line[108] == 0x001f, "objet affine, matrice identité");
+    check(line[150] == 0x001f, "objet masqué");
+    engine.render_line(18, vram, memory, line);
+    check(line[20] == 0x001f, "objet limité à ses 8 lignes");
+    // BG0 de priorité 0 partout ; l'objet 0 passe en priorité 1, puis 0.
+    for (unsigned byte = 0; byte < 32; ++byte) vram.write(Vram::bg_a, 32 + byte, 0x11, 1);
+    for (unsigned entry = 0; entry < 32 * 32; ++entry) vram.write(Vram::bg_a, 0x800 + entry * 2, 1, 2);
+    engine.write(0x08, 1U << 8U, 0xffffU);
+    engine.write(0x00, 0x0001'1110U, all);
+    object(0, 10, 20, 0x0400);
+    engine.render_line(10, vram, memory, line);
+    check(line[20] == 0x7c00, "fond de priorité 0 devant un objet de priorité 1");
+    object(0, 10, 20, 0x0000);
+    engine.render_line(10, vram, memory, line);
+    check(line[20] == 0x03e0, "objet devant un fond de même priorité");
+}
+
 } // namespace
 
 int main() {
@@ -339,5 +385,6 @@ int main() {
     vram_test();
     engine_test();
     decompression_test();
+    objects_test();
     return 0;
 }
