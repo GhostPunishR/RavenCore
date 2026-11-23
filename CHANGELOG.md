@@ -39,6 +39,14 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
   Pas encore : les autres départs de DMA (début d'affichage, cartouche, FIFO de géométrie, Wi-Fi), les décompressions par fonctions de rappel (12h, 13h, 15h).
 - Tests : décompressions sur une mémoire factice (`nds_raven_hardware`). `nds_raven_machine` couvre la DMA : copie immédiate, remplissage, départ au V-Blank avec IRQ, écriture sous la DTCM qui va en RAM principale, DMA de l'ARM7.
+- **Cœur NDS, objets (sprites)** des deux moteurs 2D (GBATEK, « DS Video OBJs ») :
+  - les 128 objets de l'OAM, normaux ou affines, taille doublée comprise ;
+  - 16 ou 256 couleurs, tuiles en correspondance 1D (pas réglé par DISPCNT) ou 2D ;
+  - retournements, objets masqués ;
+  - priorités : un objet passe devant les fonds de priorité égale ou moindre, et l'objet de plus petit numéro l'emporte entre deux objets.
+
+  Pas encore : objets bitmap, fenêtre d'objets, transparence, mosaïque, palettes étendues, limite de points par ligne.
+- Test : objets dans `nds_raven_hardware`. Il couvre un objet de 8 × 8, un objet retourné, un affine, un masqué, la hauteur de l'objet et sa priorité face à un fond.
 
 ### Documentation
 

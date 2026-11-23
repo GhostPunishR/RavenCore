@@ -12,8 +12,9 @@
 // BGR555 :
 // - modes d'affichage 0 (blanc), 1 (normal), 2 (VRAM, moteur A) ;
 // - fonds en mode texte, 16 ou 256 couleurs, avec retournements et
-//   défilement, priorités et couleur de fond.
-// Pas encore : fonds affines, étendus et bitmap, objets, fenêtres, effets,
+//   défilement, priorités et couleur de fond ;
+// - objets (object_renderer.hpp), placés selon leur priorité.
+// Pas encore : fonds affines, étendus et bitmap, fenêtres, effets,
 // mosaïque, palettes étendues, calque 3D, affichage depuis la RAM principale
 // (mode 3, rendu noir).
 namespace ravenemu::nds {

@@ -3,6 +3,7 @@
 add_library(nds_raven_core STATIC
     src/cartridge/header.cpp
     src/gpu/engine2d.cpp
+    src/gpu/object_renderer.cpp
     src/machine/direct_boot.cpp
     src/machine/machine.cpp
     src/memory/io7.cpp
