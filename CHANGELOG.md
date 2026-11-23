@@ -12,8 +12,19 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
   - les écarts entre les deux architectures : alignements de `LDRH` et `LDRSH`, réécriture de la base des `LDM` et `STM`, liste vide, changement d'état par `LDR`, `LDM` et `POP` vers PC ;
   - les exceptions, la ligne IRQ, les accès aux coprocesseurs et les appels au BIOS pris par l'hôte.
 
-  Le bus compte le coût des accès ; les cycles internes suivent ceux de l'ARM7, ceux de l'ARM9 restent à mesurer. Le cœur GBA garde son propre CPU : son passage sur ce CPU commun sera un refactor à part, prouvé octet pour octet.
+  Le bus compte le coût des accès, rechargement du pipeline compris après un saut (B : 2S + 1N). Les cycles internes suivent ceux de l'ARM7 ; ceux de l'ARM9 restent à mesurer. Le cœur GBA garde son propre CPU : son passage sur ce CPU commun sera un refactor à part, prouvé octet pour octet.
 - Test : `ravenemu_arm_cpu`, des programmes ARM et Thumb assemblés par llvm-mc, exécutés sur les deux architectures.
+- **Cœur NDS, fondations** (`cores/nds/`, cible `nds_raven_core`), écrit pour RavenCore d'après GBATEK. Il n'a encore ni API publique, ni cœur Libretro, ni image. Il comprend :
+  - **la machine** : l'ARM9 et l'ARM7 avancent par tranches d'au plus 64 cycles système, jusqu'au prochain événement ;
+  - **la mémoire** : RAM principale, WRAM partagée selon WRAMCNT, WRAM de l'ARM7, palettes, OAM et slot GBA vide ;
+  - **les deux bus**, avec les temps d'accès de GBATEK pour le code et les données ;
+  - **CP15** : identifiants, contrôle, ITCM et DTCM, mise en attente ;
+  - **les périphériques** : interruptions des deux CPU, IPC (IPCSYNC et FIFO), diviseur et racine carrée, timers, balayage de l'écran (DISPSTAT, VCOUNT, IRQ), clavier, POSTFLG, HALTCNT ;
+  - **le démarrage direct** : en-tête vérifié (CRC, zones de chargement), binaires chargés, RAM préparée comme par le BIOS et le firmware. Une ROM dont la zone sécurisée est chiffrée est refusée ;
+  - **un BIOS HLE** : vecteurs d'exception écrits pour RavenCore, et les SWI `WaitByLoop`, `IntrWait`, `VBlankIntrWait`, `Halt`, `Sleep`, `CustomHalt`, `Div`, `Sqrt`, `CpuSet`, `CpuFastSet`, `GetCRC16`, `IsDebugger`. Aucun BIOS ni firmware de Nintendo n'est nécessaire ni inclus.
+
+  Pas encore modélisés : la vidéo (VRAM, moteurs 2D et 3D), le son, la DMA, le protocole de cartouche et ses sauvegardes, le firmware, l'écran tactile, l'horloge, la Wi-Fi, les caches de l'ARM9 (comptés comme des succès quand CP15 les active).
+- Tests : `nds_raven_hardware`, les composants un à un ; `nds_raven_machine`, une ROM écrite pour le test. Ses deux CPU s'échangent une valeur par IPC, divisent, l'un par le diviseur matériel, l'autre par `Div`, et l'ARM9 compte les images par interruption de V-Blank.
 
 ### Documentation
 

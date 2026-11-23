@@ -33,6 +33,8 @@ add_subdirectory(common)
 # matériel (DMG, CGB ou CGB d'une GBA) pour chaque jeu ; Game Boy Advance : le sien.
 add_subdirectory(gbc)
 add_subdirectory(gba)
+# Nintendo DS : en construction, hors de `ravencore` tant qu'il n'a pas d'API.
+add_subdirectory(nds)
 
 # Les deux moteurs ensemble : RavenCore::ravencore une fois installés.
 add_library(ravencore INTERFACE)

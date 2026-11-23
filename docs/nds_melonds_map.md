@@ -261,18 +261,18 @@ melonDS sait démarrer de deux façons :
 
   GBATEK décrit cet état. melonDS impose ce démarrage quand il n'a pas les dumps (`NeedsDirectBoot`).
 
-RavenCore démarrera directement, avec un **BIOS HLE** écrit pour lui. Ses fonctions SWI seront exécutées en C++, comme le BIOS GBA de `cores/gba/src/bios/`. Voici les fonctions du BIOS DS, d'après le résumé de GBATEK. Les numéros et la répartition entre ARM9 et ARM7 sont à reconfirmer avant d'écrire le code :
+RavenCore démarre directement, avec un **BIOS HLE** écrit pour lui : ses fonctions SWI s'exécutent en C++, comme le BIOS GBA de `cores/gba/src/bios/`. Voici les fonctions du BIOS DS et leurs numéros, d'après la table de GBATEK (« BIOS Function Summary ») :
 
 - **Communes aux deux CPU :**
-  - attente : `SoftReset`, `WaitByLoop`, `IntrWait`, `VBlankIntrWait`, `Halt` ;
-  - calcul : `Div`, `Sqrt`, `GetCRC16` ;
-  - copie : `CpuSet`, `CpuFastSet` ;
-  - décompression : `BitUnPack`, `LZ77UnComp*`, `HuffUnComp`, `RLUnComp*`.
+  - attente : `SoftReset` (00h), `WaitByLoop` (03h), `IntrWait` (04h), `VBlankIntrWait` (05h), `Halt` (06h) ;
+  - calcul : `Div` (09h), `Sqrt` (0Dh), `GetCRC16` (0Eh), `IsDebugger` (0Fh) ;
+  - copie : `CpuSet` (0Bh), `CpuFastSet` (0Ch) ;
+  - décompression : `BitUnPack` (10h), `LZ77UnComp` (11h, et 12h par rappels), `HuffUnComp` par rappels (13h), `RLUnComp` (14h, et 15h par rappels).
 
-  La plupart existent dans le BIOS GBA de RavenCore et peuvent être partagées.
-- **ARM9 seul :** `Diff8bitUnFilterWram` et `Diff16bitUnFilter`.
-- **ARM7 seul :** `Sleep`, `SoundBias`, `CustomHalt`, `GetSineTable`, `GetPitchTable` et `GetVolumeTable`. Les trois dernières lisent des tables du BIOS de Nintendo. RavenCore devra les recalculer à partir de leur définition et vérifier qu'elles tombent juste, sans jamais les copier.
-- **Gestion des interruptions :** le BIOS DS saute à l'adresse que le jeu a rangée en fin de DTCM (ARM9) ou de WRAM ARM7, et `IntrWait` lit les drapeaux rangés juste à côté.
+  La décompression existe dans le BIOS GBA de RavenCore et pourra être partagée ; sur DS, plusieurs variantes lisent la source par des fonctions de rappel du jeu.
+- **ARM9 seul :** `Diff8bitUnFilter` (16h), `Diff16bitUnFilter` (18h), `CustomPost` (1Fh).
+- **ARM7 seul :** `Sleep` (07h), `SoundBias` (08h), `GetSineTable` (1Ah), `GetPitchTable` (1Bh), `GetVolumeTable` (1Ch), `GetBootProcs` (1Dh), `CustomHalt` (1Fh). Les trois tables lisent des données du BIOS de Nintendo : RavenCore devra les recalculer à partir de leur définition et vérifier qu'elles tombent juste, sans jamais les copier.
+- **Gestion des interruptions :** le BIOS DS saute à l'adresse que le jeu a rangée à DTCM + 0x3FFC (ARM9, ARM ou Thumb) ou à 0x0380FFFC (ARM7, ARM seul), et `IntrWait` lit les drapeaux rangés 4 octets plus bas. Sur l'ARM9, `IntrWait` attend toujours au moins une IRQ, même quand le drapeau est déjà levé : un bogue du BIOS d'origine.
 
 ## Découpage proposé pour RavenCore
 
@@ -300,6 +300,15 @@ Le dossier `cores/nds/` suivrait les règles du dépôt : un dossier par composa
 ## Étapes
 
 Chaque étape se termine par des tests automatisés et un résultat montrable.
+
+**Avancement.** L'étape 1 est faite, avec une partie de l'étape 2 :
+- le CPU ARM commun (`cores/common/arm/`), en ARMv4T et ARMv5TE ;
+- dans `cores/nds/` : l'ordonnanceur à deux CPU, CP15 et les TCM, les deux bus et leurs temps d'accès d'après GBATEK ;
+- les interruptions, l'IPC, le diviseur et la racine carrée, les timers, le balayage de l'écran et le clavier ;
+- l'en-tête de cartouche et le démarrage direct ;
+- les vecteurs et une partie des SWI du BIOS HLE.
+
+Restent pour l'étape 2 la vidéo 2D, le firmware généré et les décompressions du BIOS.
 
 1. **Fondations :**
    - le CPU ARM partagé ;
