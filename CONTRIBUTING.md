@@ -32,7 +32,7 @@ Les tests GB/GBC disposent aussi d'un [runner de conformité](cores/gbc/tests/RE
 
 | Dossier | Contenu |
 | --- | --- |
-| `cores/common/` | Contrats et outils C++ partagés |
+| `cores/common/` | Contrats et outils C++ partagés ; `cores/common/arm/` : CPU ARM commun (ARMv4T, ARMv5TE), en en-têtes |
 | `cores/gbc/` | Moteur Game Boy Color, qui émule aussi la Game Boy : un seul cœur pour les deux consoles |
 | `cores/gba/` | Moteur Game Boy Advance |
 | `libretro/` | Adaptateurs, métadonnées et tests Libretro |

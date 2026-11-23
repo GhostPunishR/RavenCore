@@ -4,6 +4,17 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
 ## Non publié
 
+### Ajouté
+
+- **CPU ARM commun** (`cores/common/arm/`), écrit pour RavenCore d'après GBATEK. Ce premier morceau du futur cœur NDS sert à ses deux processeurs :
+  - l'ARMv4T (ARM7TDMI) et l'ARMv5TE (ARM946E-S), en ARM et en Thumb ;
+  - les instructions de l'ARMv5TE : `BLX`, `CLZ`, l'arithmétique saturée, les multiplications 16 bits, `LDRD`, `STRD`, `PLD`, `BKPT` ;
+  - les écarts entre les deux architectures : alignements de `LDRH` et `LDRSH`, réécriture de la base des `LDM` et `STM`, liste vide, changement d'état par `LDR`, `LDM` et `POP` vers PC ;
+  - les exceptions, la ligne IRQ, les accès aux coprocesseurs et les appels au BIOS pris par l'hôte.
+
+  Le bus compte le coût des accès ; les cycles internes suivent ceux de l'ARM7, ceux de l'ARM9 restent à mesurer. Le cœur GBA garde son propre CPU : son passage sur ce CPU commun sera un refactor à part, prouvé octet pour octet.
+- Test : `ravenemu_arm_cpu`, des programmes ARM et Thumb assemblés par llvm-mc, exécutés sur les deux architectures.
+
 ### Documentation
 
 - **Carte de melonDS pour préparer le cœur NDS** ([docs/nds_melonds_map.md](docs/nds_melonds_map.md)). Elle décrit ses composants, son modèle temporel, sa carte mémoire et son démarrage. Elle propose aussi un découpage de `cores/nds/` et des étapes. C'est une lecture d'architecture, sans aucun code ni aucune donnée repris : GBATEK reste la référence matérielle. Les moteurs, l'API, Libretro et le format des états ne changent pas.
