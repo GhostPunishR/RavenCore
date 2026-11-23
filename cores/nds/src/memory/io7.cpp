@@ -7,6 +7,7 @@ namespace ravenemu::nds {
 
 std::uint32_t Bus7::other_read(std::uint32_t address, unsigned width, Region region) {
     if (region == Region::io) return io_extract(io_word(address & ~3U), address, width);
+    if (region == Region::vram) return hw_.vram.read(Vram::arm7, address & 0x3ffffU, width);
     if (region != Region::gba_rom && region != Region::gba_ram) return 0;
     if (!hw_.gba_slot_arm7()) return 0;
     if (region == Region::gba_ram) return width == 4 ? 0xffff'ffffU : (1U << (8U * width)) - 1U;
@@ -34,7 +35,8 @@ std::uint32_t Bus7::io_word(std::uint32_t address) {
     case 0x208:
     case 0x210:
     case 0x214: return hw.irq7.read(offset);
-    case 0x240: return std::uint32_t{hw.memory.wram_control} << 8U;  // WRAMSTAT à 0x04000241
+    // VRAMSTAT (0x04000240), puis WRAMSTAT (0x04000241).
+    case 0x240: return hw.vram.arm7_status() | (std::uint32_t{hw.memory.wram_control} << 8U);
     case 0x300: return hw.post_boot[1];
     case 0x304: return hw.power_control7;
     default: return 0;

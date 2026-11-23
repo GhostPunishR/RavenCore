@@ -1,4 +1,7 @@
 #include "machine/machine.hpp"
+#include "machine/user_settings.hpp"
+
+#include <algorithm>
 
 // Démarrage direct : l'état que le BIOS et le firmware laissent au lancement
 // d'une cartouche, d'après GBATEK (« BIOS RAM Usage », « DS Cartridge
@@ -62,6 +65,8 @@ void Machine::boot_memory() {
     write32(memory, 0x027f'f884U, 6);  // tâche de l'ARM7
     write16(memory, 0x027f'fc40U, 1);  // démarrage normal
     for (std::uint32_t index = 0; index < CartridgeHeader::size; ++index) *memory.main(0x027f'fe00U + index) = rom[index];
+    const auto settings = user_settings_block(UserSettings{});
+    std::copy(settings.begin(), settings.end(), memory.main(0x027f'fc80U));
     hw.post_boot = {1, 1};
     hw.external_memory = {0x6000U, 0};  // slots à l'ARM9, RAM principale en mode synchrone
 }

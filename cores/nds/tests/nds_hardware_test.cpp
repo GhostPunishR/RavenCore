@@ -1,5 +1,7 @@
 #include "cartridge/header.hpp"
 #include "cpu/cp15.hpp"
+#include "gpu/engine2d.hpp"
+#include "gpu/vram.hpp"
 #include "gpu/lcd_timing.hpp"
 #include "ipc/ipc.hpp"
 #include "math/divider.hpp"
@@ -10,6 +12,7 @@
 #include "check.hpp"
 
 #include <cstdint>
+#include <array>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -218,6 +221,63 @@ void header_test() {
     expect_failure<CartridgeError>([&] { static_cast<void>(parse_header(outside)); }, "binaire hors de la ROM accepté");
 }
 
+void vram_test() {
+    Vram vram;
+    vram.set_control(0, 0x80);  // A : LCDC
+    vram.write(Vram::lcdc, 0x10, 0x1234, 2);
+    check(vram.read(Vram::lcdc, 0x10, 2) == 0x1234 && vram.read(Vram::bg_a, 0x10, 2) == 0, "A en LCDC à 0x06800000");
+    vram.set_control(0, 0x81 | (1U << 3U));  // A : fonds du moteur A, OFS = 1
+    check(vram.read(Vram::bg_a, 0x20010, 2) == 0x1234 && vram.read(Vram::lcdc, 0x10, 2) == 0,
+          "A sur les fonds du moteur A, à 0x20000 × OFS");
+    vram.set_control(4, 0x81);  // E : fonds du moteur A, à 0
+    vram.set_control(5, 0x81 | (2U << 3U));  // F : 64 Kio × OFS.1
+    vram.write(Vram::bg_a, 0x10000, 0x00ff, 2);
+    check(vram.read(Vram::lcdc, 0, 2) == 0 && vram.bank_halfword(5, 0) == 0x00ff, "F placé par OFS.1");
+    vram.set_control(6, 0x81 | (2U << 3U));  // G au même endroit que F
+    vram.write(Vram::bg_a, 0x10002, 0x0f0f, 2);
+    vram.set_control(6, 0x80);
+    vram.write(Vram::lcdc, 0x94000, 0xf000, 2);  // G en LCDC : 0x06894000
+    vram.set_control(6, 0x81 | (2U << 3U));
+    check(vram.read(Vram::bg_a, 0x10002, 2) == 0x0f0f && vram.read(Vram::bg_a, 0x10000, 2) == 0xf0ff,
+          "banques superposées : écriture dans les deux, lecture combinée");
+    vram.set_control(2, 0x82);  // C : ARM7
+    check(vram.arm7_status() == 1, "VRAMSTAT : C donnée à l'ARM7");
+}
+
+void engine_test() {
+    Vram vram;
+    Memory memory;
+    vram.set_control(0, 0x81);  // A : fonds du moteur A
+    Engine2d engine{true};
+    const auto palette = [&](unsigned index, std::uint16_t color) { store(&memory.palette[index * 2], color, 2); };
+    palette(0, 0x001f);   // fond : rouge
+    palette(1, 0x03e0);   // vert
+    palette(17, 0x7c00);  // bleu (palette 1, couleur 1)
+    // BG0 : tuiles à 0, carte à 0x800 ; tuile 1 pleine de couleur 1 ; carte : tuile 1, puis tuile 1 en palette 1.
+    for (unsigned byte = 0; byte < 32; ++byte) vram.write(Vram::bg_a, 32 + byte, 0x11, 1);
+    vram.write(Vram::bg_a, 0x800, 0x0001, 2);
+    vram.write(Vram::bg_a, 0x802, 0x1001, 2);
+    engine.write(0x08, 1U << 8U, 0xffffU);         // BG0CNT : carte au bloc 1
+    engine.write(0x00, 0x0001'0100U, all);         // affichage normal, BG0
+    std::array<std::uint16_t, 256> line{};
+    engine.render_line(0, vram, memory, line);
+    check(line[0] == 0x03e0 && line[8] == 0x7c00 && line[16] == 0x001f, "fond texte, 16 couleurs, et couleur de fond");
+    engine.write(0x10, 4, 0x1ffU);  // BG0HOFS = 4
+    engine.render_line(0, vram, memory, line);
+    check(line[3] == 0x03e0 && line[4] == 0x7c00 && line[12] == 0x001f, "défilement horizontal");
+    engine.write(0x00, 0x0002'0000U, all);  // affichage de la VRAM, banque A
+    vram.set_control(0, 0x80);
+    vram.write(Vram::lcdc, (5 * 256 + 7) * 2, 0x1234, 2);
+    engine.render_line(5, vram, memory, line);
+    check(line[7] == 0x1234, "mode 2 : la banque A telle quelle");
+    engine.write(0x00, 0, all);
+    engine.render_line(0, vram, memory, line);
+    check(line[0] == 0x7fff, "affichage éteint : blanc");
+    check(to_argb(0x001f, 0) == 0xffff'0000U && to_argb(0x7c00, 0) == 0xff00'00ffU, "BGR555 vers ARGB8888");
+    check(to_argb(0, 0x4010) == 0xffff'ffffU && to_argb(0x7fff, 0x8008) == 0xff82'8282U,
+          "luminosité maîtresse vers le blanc et vers le noir");
+}
+
 } // namespace
 
 int main() {
@@ -230,5 +290,7 @@ int main() {
     cp15_test();
     memory_test();
     header_test();
+    vram_test();
+    engine_test();
     return 0;
 }

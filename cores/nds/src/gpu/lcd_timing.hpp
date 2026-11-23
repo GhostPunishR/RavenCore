@@ -30,14 +30,15 @@ public:
         scheduler.schedule(Event::lcd, now);
     }
 
-    // Traite l'événement échu et programme le suivant.
-    void on_event(Scheduler& scheduler, Cycles now) noexcept {
+    // Traite l'événement échu et programme le suivant ; rend true au début
+    // d'une ligne.
+    bool on_event(Scheduler& scheduler, Cycles now) noexcept {
         switch (phase_) {
         case Phase::line_start:
             begin_line(now);
             phase_ = Phase::hblank9;
             scheduler.schedule(Event::lcd, line_start_ + hblank_start[0]);
-            break;
+            return true;
         case Phase::hblank9:
             enter_hblank(0);
             phase_ = Phase::hblank7;
@@ -49,6 +50,7 @@ public:
             scheduler.schedule(Event::lcd, line_start_ + line_cycles);
             break;
         }
+        return false;
     }
 
     [[nodiscard]] unsigned line() const noexcept { return line_; }

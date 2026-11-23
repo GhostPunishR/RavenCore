@@ -2,6 +2,7 @@
 # Libretro, ni d'installation. Ses deux processeurs viennent du CPU ARM commun.
 add_library(nds_raven_core STATIC
     src/cartridge/header.cpp
+    src/gpu/engine2d.cpp
     src/machine/direct_boot.cpp
     src/machine/machine.cpp
     src/memory/io7.cpp

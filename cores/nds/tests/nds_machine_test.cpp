@@ -110,7 +110,9 @@ void put32(std::vector<std::uint8_t>& rom, std::size_t at, std::uint32_t value) 
     for (unsigned byte = 0; byte < 4; ++byte) rom[at + byte] = static_cast<std::uint8_t>(value >> (8U * byte));
 }
 
-std::vector<std::uint8_t> test_rom(std::string_view game_code = "####") {
+std::vector<std::uint8_t> test_rom(std::string_view game_code = "####",
+                                   std::initializer_list<std::uint32_t> arm9 = arm9_program,
+                                   std::initializer_list<std::uint32_t> arm7 = arm7_program) {
     std::vector<std::uint8_t> rom(0x800);
     const std::string_view title{"RAVENTEST"};
     for (std::size_t index = 0; index < title.size(); ++index) rom[index] = static_cast<std::uint8_t>(title[index]);
@@ -127,8 +129,8 @@ std::vector<std::uint8_t> test_rom(std::string_view game_code = "####") {
             offset += 4;
         }
     };
-    place(0x20, 0x200, arm9_address, arm9_program);
-    place(0x30, 0x400, arm7_address, arm7_program);
+    place(0x20, 0x200, arm9_address, arm9);
+    place(0x30, 0x400, arm7_address, arm7);
     const auto crc = crc16(std::span<const std::uint8_t>{rom}.first(0x15e));
     rom[0x15e] = static_cast<std::uint8_t>(crc);
     rom[0x15f] = static_cast<std::uint8_t>(crc >> 8U);
@@ -150,6 +152,37 @@ void direct_boot_test() {
     check(machine.arm9.pc() == arm9_address && machine.arm7.pc() == arm7_address, "points d'entrée");
     check(machine.arm9.vector_base == 0xffff'0000U && machine.hw.cp15.dtcm_base() == 0x027c'0000U,
           "CP15 : vecteurs hauts, DTCM à 0x027C0000");
+    check((main_word(machine, 0x027f'fc80U) & 0xffffU) == 5 && (main_word(machine, 0x027f'fc86U) & 0xffffU) == u'R' &&
+              (main_word(machine, 0x027f'fc9aU) & 0xffffU) == 8,
+          "réglages utilisateur générés : version 5, pseudo de 8 lettres");
+}
+
+// L'ARM9 donne la banque A au LCDC, la remplit de rouge et l'affiche (mode 2).
+void video_test() {
+    const std::initializer_list<std::uint32_t> program{
+        0xe3a00301U,  // mov r0, #0x04000000
+        0xe3a01080U,  // mov r1, #0x80
+        0xe5c01240U,  // strb r1, [r0, #0x240]     ; VRAMCNT_A : LCDC
+        0xe3a01802U,  // mov r1, #0x00020000
+        0xe5801000U,  // str r1, [r0]              ; DISPCNT : affichage de la VRAM A
+        0xe3a0251aU,  // mov r2, #0x06800000
+        0xe3a0301fU,  // mov r3, #0x1f
+        0xe1833803U,  // orr r3, r3, r3, lsl #16
+        0xe3a04906U,  // mov r4, #0x18000
+        // .Lfill:
+        0xe4823004U,  // str r3, [r2], #4
+        0xe2544004U,  // subs r4, r4, #4
+        0x1afffffcU,  // bne .Lfill
+        0xeafffffeU,  // b .
+    };
+    Machine machine{test_rom("####", program, {0xeafffffeU})};
+    machine.run_frame();
+    machine.run_frame();
+    const auto& frame = machine.frame();
+    check(frame.size() == 2 * Hardware::screen_pixels, "deux écrans de 256 × 192");
+    check(frame[Hardware::screen_pixels] == 0xffff'0000U && frame.back() == 0xffff'0000U,
+          "moteur A sur l'écran du bas : la VRAM rouge");
+    check(frame[0] == 0xffff'ffffU, "moteur B éteint : écran du haut blanc");
 }
 
 void two_processors_test() {
@@ -184,6 +217,7 @@ void refused_rom_test() {
 
 int main() {
     direct_boot_test();
+    video_test();
     two_processors_test();
     refused_rom_test();
     return 0;
