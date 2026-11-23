@@ -26,23 +26,43 @@ void Engine2d::write(std::uint32_t offset, std::uint32_t value, std::uint32_t ma
     if (offset >= 0x70) return;
     auto& word = registers_[offset / 4];
     word = (word & ~mask) | (value & mask);
+    // BG2X, BG2Y, BG3X, BG3Y rechargent aussitôt le point de référence.
+    if (offset == 0x28 || offset == 0x2c) reload_reference(2);
+    if (offset == 0x38 || offset == 0x3c) reload_reference(3);
 }
 
-// Fonds en mode texte selon le mode de fond (DISPCNT bits 0-2) ; BG0 passe au
-// calque 3D quand DISPCNT bit 3 le demande (moteur A seul).
-bool Engine2d::text_layer(unsigned bg) const noexcept {
+// Fonds selon le mode (GBATEK, « BG Mode ») ; BG0 passe au calque 3D quand
+// DISPCNT bit 3 le demande (moteur A seul), et le mode 6 n'existe que sur A.
+auto Engine2d::layer_kind(unsigned bg) const noexcept -> Layer {
     const auto control = display_control();
     const auto mode = control & 7U;
     switch (bg) {
-    case 0: return mode != 6 && !(main_ && (control & 8U) != 0);
-    case 1: return mode <= 5;
-    case 2: return mode == 0 || mode == 1 || mode == 3;
-    default: return mode == 0;
+    case 0: return mode != 6 && !(main_ && (control & 8U) != 0) ? Layer::text : Layer::none;
+    case 1: return mode <= 5 ? Layer::text : Layer::none;
+    case 2:
+        if (mode == 0 || mode == 1 || mode == 3) return Layer::text;
+        if (mode == 2 || mode == 4) return Layer::affine;
+        if (mode == 5) return Layer::extended;
+        return mode == 6 && main_ ? Layer::large : Layer::none;
+    default:
+        if (mode == 0) return Layer::text;
+        if (mode == 1 || mode == 2) return Layer::affine;
+        return mode <= 5 ? Layer::extended : Layer::none;
     }
 }
 
 void Engine2d::render_line(unsigned line, const Vram& vram, const Memory& memory,
-                           std::span<std::uint16_t, width> out) const {
+                           std::span<std::uint16_t, width> out) {
+    if (line == 0) {
+        reload_reference(2);
+        reload_reference(3);
+    }
+    compose_line(line, vram, memory, out);
+    advance_references();
+}
+
+void Engine2d::compose_line(unsigned line, const Vram& vram, const Memory& memory,
+                            std::span<std::uint16_t, width> out) const {
     const auto control = display_control();
     const auto display_mode = (control >> 16U) & (main_ ? 3U : 1U);
     if (display_mode == 0 || (control & 0x80U) != 0) {  // éteint ou blanc forcé
@@ -66,9 +86,11 @@ void Engine2d::render_line(unsigned line, const Vram& vram, const Memory& memory
     // Du moins prioritaire au plus prioritaire : priorité 3 à 0, BG3 à BG0.
     for (unsigned priority = 4; priority-- > 0;) {
         for (unsigned bg = 4; bg-- > 0;) {
-            if ((control & (0x100U << bg)) == 0 || (bg_control(bg) & 3U) != priority || !text_layer(bg)) continue;
+            const auto kind = layer_kind(bg);
+            if ((control & (0x100U << bg)) == 0 || (bg_control(bg) & 3U) != priority || kind == Layer::none) continue;
             std::array<std::uint16_t, width> layer{};
-            draw_text_layer(bg, line, vram, memory, layer);
+            if (kind == Layer::text) draw_text_layer(bg, line, vram, memory, layer);
+            else draw_affine_layer(bg, kind, vram, memory, layer);
             for (unsigned x = 0; x < width; ++x) {
                 if ((layer[x] & transparent) != 0) continue;
                 out[x] = layer[x];

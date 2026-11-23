@@ -14,7 +14,9 @@
 // - fonds en mode texte, 16 ou 256 couleurs, avec retournements et
 //   défilement, priorités et couleur de fond ;
 // - objets (object_renderer.hpp), placés selon leur priorité.
-// Pas encore : fonds affines, étendus et bitmap, fenêtres, effets,
+// - fonds affines, étendus (carte de 16 bits, bitmap 256 couleurs ou
+//   couleurs directes) et grand bitmap (mode 6), avec ou sans répétition.
+// Pas encore : fenêtres, effets,
 // mosaïque, palettes étendues, calque 3D, affichage depuis la RAM principale
 // (mode 3, rendu noir).
 namespace ravenemu::nds {
@@ -29,7 +31,8 @@ public:
     [[nodiscard]] std::uint32_t read(std::uint32_t offset) const noexcept;
     void write(std::uint32_t offset, std::uint32_t value, std::uint32_t mask) noexcept;
 
-    void render_line(unsigned line, const Vram& vram, const Memory& memory, std::span<std::uint16_t, width> out) const;
+    // Dessine la ligne, puis avance les points de référence des fonds affines.
+    void render_line(unsigned line, const Vram& vram, const Memory& memory, std::span<std::uint16_t, width> out);
 
     [[nodiscard]] std::uint32_t display_control() const noexcept { return registers_[0]; }
     // MASTER_BRIGHT (0x6C) : facteur (bits 0-4), mode (bits 14-15).
@@ -43,12 +46,26 @@ private:
         const auto offset = 0x10 + bg * 4 + (vertical ? 2U : 0U);
         return (registers_[offset / 4] >> ((offset & 2U) * 8U)) & 0x1ffU;
     }
-    [[nodiscard]] bool text_layer(unsigned bg) const noexcept;
+    // Type de chaque fond selon le mode (DISPCNT bits 0-2, GBATEK « BG Mode »).
+    enum class Layer { none, text, affine, extended, large };
+    [[nodiscard]] Layer layer_kind(unsigned bg) const noexcept;
+    void compose_line(unsigned line, const Vram& vram, const Memory& memory, std::span<std::uint16_t, width> out) const;
     void draw_text_layer(unsigned bg, unsigned line, const Vram& vram, const Memory& memory,
                          std::span<std::uint16_t, width> colors) const;
+    // Fonds affines, étendus et grand bitmap (affine_background.cpp).
+    void draw_affine_layer(unsigned bg, Layer kind, const Vram& vram, const Memory& memory,
+                           std::span<std::uint16_t, width> colors) const;
+    // PA, PB, PC, PD (8.8 signés) de BG2 ou BG3.
+    [[nodiscard]] std::int32_t affine_parameter(unsigned bg, unsigned index) const noexcept;
+    // Points de référence internes : rechargés à la ligne 0 et à chaque
+    // écriture de BGxX ou BGxY, puis avancés de PB et PD à chaque ligne.
+    void reload_reference(unsigned bg) noexcept;
+    void advance_references() noexcept;
 
     bool main_;
     std::array<std::uint32_t, 0x70 / 4> registers_{};
+    std::array<std::int32_t, 2> reference_x_{};
+    std::array<std::int32_t, 2> reference_y_{};
 };
 
 // BGR555 vers ARGB8888, après la luminosité maîtresse (GBATEK : sur des
