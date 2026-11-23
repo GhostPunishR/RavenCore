@@ -213,11 +213,50 @@ void refused_rom_test() {
     expect_failure<CartridgeError>([&] { Machine machine{rom}; }, "zone sécurisée chiffrée acceptée");
 }
 
+// DMA de l'ARM9, pilotée par ses registres depuis le bus : copie immédiate,
+// remplissage par DMA0FILL, départ au V-Blank avec IRQ, TCM contournées.
+void dma_test() {
+    Machine machine{test_rom("####", {0xeafffffeU}, {0xeafffffeU})};
+    auto& bus = machine.bus9;
+    auto& memory = machine.hw.memory;
+    for (std::uint32_t index = 0; index < 16; ++index) store(memory.main(0x0210'0000U + index * 4), index * 3, 4);
+    bus.write32(0x0400'00d4U, 0x0210'0000U);
+    bus.write32(0x0400'00d8U, 0x0211'0000U);
+    bus.write32(0x0400'00dcU, 0x8400'0010U);  // activée, 32 bits, immédiate, 16 mots
+    check(main_word(machine, 0x0211'003cU) == 45 && (bus.read32(0x0400'00dcU) & 0x8000'0000U) == 0,
+          "DMA immédiate : copie, puis canal désactivé");
+    bus.write32(0x0400'00e0U, 0xcafe'babeU);
+    bus.write32(0x0400'00b0U, 0x0400'00e0U);
+    bus.write32(0x0400'00b4U, 0x0212'0000U);
+    bus.write32(0x0400'00b8U, 0x8500'0008U);  // source fixe
+    check(main_word(machine, 0x0212'0000U) == 0xcafe'babeU && main_word(machine, 0x0212'001cU) == 0xcafe'babeU,
+          "remplissage par DMA0FILL");
+    bus.write32(0x0400'00bcU, 0x0210'0000U);
+    bus.write32(0x0400'00c0U, 0x0213'0000U);
+    bus.write32(0x0400'00c4U, 0xcc00'0004U);  // V-Blank, IRQ
+    check(main_word(machine, 0x0213'0004U) == 0, "DMA de V-Blank : en attente");
+    machine.run_frame();
+    check(main_word(machine, 0x0213'0004U) == 3 && (machine.hw.irq9.flags() & (1U << (irq::dma0 + 1))) != 0,
+          "DMA de V-Blank : copie et IRQ");
+    bus.write32(0x0400'00d4U, 0x0210'0004U);  // le mot 3
+    bus.write32(0x0400'00d8U, 0x027c'0000U);  // sous la DTCM
+    bus.write32(0x0400'00dcU, 0x8400'0001U);
+    check(load(memory.main(0x027c'0000U), 4) == 3 && load(machine.hw.cp15.dtcm(0x027c'0000U), 4) == 0 &&
+              bus.peek(0x027c'0000U, 4) == 0,
+          "la DMA écrit en RAM principale, pas dans la DTCM");
+    auto& bus7 = machine.bus7;
+    bus7.write32(0x0400'00d4U, 0x0210'0000U);
+    bus7.write32(0x0400'00d8U, 0x0214'0000U);
+    bus7.write32(0x0400'00dcU, 0x8400'0004U);
+    check(main_word(machine, 0x0214'000cU) == 9, "DMA immédiate de l'ARM7");
+}
+
 } // namespace
 
 int main() {
     direct_boot_test();
     video_test();
+    dma_test();
     two_processors_test();
     refused_rom_test();
     return 0;

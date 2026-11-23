@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cpu/cp15.hpp"
+#include "dma/dma_channel.hpp"
 #include "gpu/engine2d.hpp"
 #include "gpu/vram.hpp"
 #include "gpu/lcd_timing.hpp"
@@ -42,6 +43,9 @@ struct Hardware {
     std::array<std::uint32_t, 2> post_boot{};
     std::uint32_t power_control9{};  // POWCNT1
     std::uint32_t power_control7{1}; // POWCNT2 : haut-parleurs
+    std::array<DmaChannel, 4> dma9{};
+    std::array<DmaChannel, 4> dma7{};
+    std::array<std::uint32_t, 4> dma_fill{};  // DMA0FILL à DMA3FILL (ARM9)
     Vram vram;
     Engine2d engine_a{true};
     Engine2d engine_b{false};

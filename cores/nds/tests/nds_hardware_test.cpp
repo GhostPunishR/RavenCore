@@ -1,3 +1,4 @@
+#include "bios/decompression.hpp"
 #include "cartridge/header.hpp"
 #include "cpu/cp15.hpp"
 #include "gpu/engine2d.hpp"
@@ -13,6 +14,8 @@
 
 #include <cstdint>
 #include <array>
+#include <initializer_list>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -130,7 +133,7 @@ void lcd_test() {
         while (scheduler.next() <= time) {
             const auto at = scheduler.next();
             static_cast<void>(scheduler.take_due(at));
-            lcd.on_event(scheduler, at);
+            static_cast<void>(lcd.on_event(scheduler, at));
         }
     };
     run_to(LcdTiming::hblank_start[0]);
@@ -278,6 +281,49 @@ void engine_test() {
           "luminosité maîtresse vers le blanc et vers le noir");
 }
 
+// Mémoire plate pour les décompressions du BIOS.
+struct ByteBus {
+    std::vector<std::uint8_t> bytes = std::vector<std::uint8_t>(0x1000);
+    std::uint32_t read8(std::uint32_t at) const { return bytes[at]; }
+    std::uint32_t read16(std::uint32_t at) const { return load(&bytes[at], 2); }
+    std::uint32_t read32(std::uint32_t at) const { return load(&bytes[at], 4); }
+    void write8(std::uint32_t at, std::uint32_t value) { bytes[at] = static_cast<std::uint8_t>(value); }
+    void write16(std::uint32_t at, std::uint32_t value) { store(&bytes[at], value, 2); }
+    void write32(std::uint32_t at, std::uint32_t value) { store(&bytes[at], value, 4); }
+    void put(std::uint32_t at, std::initializer_list<std::uint8_t> data) {
+        for (const auto byte : data) bytes[at++] = byte;
+    }
+    [[nodiscard]] std::string text(std::uint32_t at, std::size_t length) const {
+        return {reinterpret_cast<const char*>(&bytes[at]), length};
+    }
+};
+
+void decompression_test() {
+    ByteBus bus;
+    // LZ77 : « ABC », puis 6 octets copiés 3 en arrière, puis « X ».
+    bus.put(0x100, {0x10, 10, 0, 0, 0x10, 'A', 'B', 'C', 0x30, 0x02, 'X'});
+    decompression::lz77(bus, 0x100, 0x400);
+    check(bus.text(0x400, 10) == "ABCABCABCX", "LZ77 : blocs bruts et références");
+    // RL : 5 « A » répétés, puis « BC » tels quels.
+    bus.put(0x200, {0x30, 7, 0, 0, 0x82, 'A', 0x01, 'B', 'C'});
+    decompression::run_length(bus, 0x200, 0x500);
+    check(bus.text(0x500, 7) == "AAAAABC", "RL : répétition et octets bruts");
+    bus.put(0x300, {0x81, 4, 0, 0, 1, 1, 1, 0xff});
+    decompression::differential(bus, 0x300, 0x600, false);
+    check(bus.read32(0x600) == 0x0203'0201U, "filtre différentiel de 8 bits");
+    bus.put(0x320, {0x82, 4, 0, 0, 0x00, 0x01, 0x01, 0x00});
+    decompression::differential(bus, 0x320, 0x610, true);
+    check(bus.read16(0x610) == 0x0100 && bus.read16(0x612) == 0x0101, "filtre différentiel de 16 bits");
+    // BitUnPack : 1 bit vers 4 bits ; décalage 2 sur les unités non nulles.
+    bus.put(0x340, {0xa5});
+    bus.put(0x350, {1, 0, 1, 4, 0, 0, 0, 0});
+    decompression::bit_unpack(bus, 0x340, 0x700, 0x350);
+    check(bus.read32(0x700) == 0x1010'0101U, "BitUnPack de 1 à 4 bits");
+    bus.put(0x350, {1, 0, 1, 4, 2, 0, 0, 0});
+    decompression::bit_unpack(bus, 0x340, 0x704, 0x350);
+    check(bus.read32(0x704) == 0x3030'0303U, "BitUnPack : décalage des unités non nulles");
+}
+
 } // namespace
 
 int main() {
@@ -292,5 +338,6 @@ int main() {
     header_test();
     vram_test();
     engine_test();
+    decompression_test();
     return 0;
 }

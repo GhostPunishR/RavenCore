@@ -52,6 +52,18 @@ public:
         return at != nullptr ? load(at, width) : 0U;
     }
 
+    std::uint32_t dma_read16(std::uint32_t address) { return read(address, 2); }
+    std::uint32_t dma_read32(std::uint32_t address) { return read(address, 4); }
+    void dma_write16(std::uint32_t address, std::uint32_t value) { write(address, value, 2); }
+    void dma_write32(std::uint32_t address, std::uint32_t value) { write(address, value, 4); }
+    void trigger_dma(DmaTiming timing) {
+        for (unsigned index = 0; index < 4; ++index) {
+            auto& channel = hw_.dma7[index];
+            if (channel.enabled() && dma_timing(channel.control, false, index) == timing)
+                run_dma(*this, channel, index, false, hw_.irq7);
+        }
+    }
+
     SwiHook swi;
 
 private:

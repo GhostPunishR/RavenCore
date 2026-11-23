@@ -72,6 +72,24 @@ public:
         return at != nullptr ? load(at, width) : 0U;
     }
 
+    // Accès de la DMA : par le bus, sans les TCM (GBATEK, « DS DMA Transfers »).
+    std::uint32_t dma_read16(std::uint32_t address) { return dma_access([&] { return read(address, 2); }); }
+    std::uint32_t dma_read32(std::uint32_t address) { return dma_access([&] { return read(address, 4); }); }
+    void dma_write16(std::uint32_t address, std::uint32_t value) {
+        dma_access([&] { write(address, value, 2); return 0U; });
+    }
+    void dma_write32(std::uint32_t address, std::uint32_t value) {
+        dma_access([&] { write(address, value, 4); return 0U; });
+    }
+    // Lance les canaux actifs qui attendent ce départ.
+    void trigger_dma(DmaTiming timing) {
+        for (unsigned index = 0; index < 4; ++index) {
+            auto& channel = hw_.dma9[index];
+            if (channel.enabled() && dma_timing(channel.control, true, index) == timing)
+                run_dma(*this, channel, index, true, hw_.irq9);
+        }
+    }
+
     SwiHook swi;
     // Levé à chaque écriture dans CP15 : la machine en recopie les réglages
     // (vecteurs, changement d'état par LDR PC) dans le CPU.
@@ -82,11 +100,13 @@ private:
     // les zones vides. La DTCM ne sert pas au code.
     std::uint8_t* locate(std::uint32_t address, bool write, bool code, Region& region) noexcept {
         auto& cp = hw_.cp15;
-        if (cp.in_itcm(address) && (write || cp.itcm_reads())) {
+        if (dma_) {
+            // la DMA ne voit pas les TCM
+        } else if (cp.in_itcm(address) && (write || cp.itcm_reads())) {
             region = Region::tcm;
             return cp.itcm(address);
         }
-        if (!code && cp.in_dtcm(address) && (write || cp.dtcm_reads())) {
+        if (!dma_ && !code && cp.in_dtcm(address) && (write || cp.dtcm_reads())) {
             region = Region::tcm;
             return cp.dtcm(address);
         }
@@ -148,8 +168,17 @@ private:
     void io_write(std::uint32_t address, std::uint32_t value, unsigned width);
     void io_write_word(std::uint32_t address, std::uint32_t value, std::uint32_t mask);
 
+    template <typename Access>
+    std::uint32_t dma_access(Access access) {
+        dma_ = true;
+        const auto value = access();
+        dma_ = false;
+        return value;
+    }
+
     Hardware& hw_;
     std::vector<std::uint8_t> bios_;
+    bool dma_{};
     Region last_region_{Region::none};
     std::uint32_t last_address_{};
     unsigned last_width_{};
