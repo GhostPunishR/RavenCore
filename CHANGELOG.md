@@ -55,6 +55,13 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
   Pas encore : palettes étendues des fonds, mosaïque.
 - Test : fonds affines et bitmap dans `nds_raven_hardware`. Il couvre l'identité, avec et sans répétition, la mise à l'échelle par PA, l'avancée par PD, les bitmaps de 256 couleurs et en couleurs directes, et le grand bitmap.
+- **Cœur NDS, fenêtres et effets de couleur** (GBATEK, « LCD I/O Window Feature », « LCD I/O Color Special Effects ») :
+  - **fenêtres** WIN0, WIN1 et fenêtre d'objets, faite des objets du mode 2 : chacune choisit les fonds, les objets et les effets permis, l'extérieur aussi. GBATEK note que seuls 8 bits de la ligne sont comparés, que X2 = 0 vaut 256, et que X1 = X2 = 0 n'affiche rien ;
+  - **effets** : transparence entre les deux calques visibles du dessus (EVA, EVB), éclaircissement et assombrissement (EVY), selon les cibles de BLDCNT ;
+  - **objets semi-transparents** (mode 1), toujours mélangés au calque dessous quand celui-ci est une seconde cible.
+
+  La composition se fait désormais point par point, dans l'ordre des priorités.
+- Test : fenêtres et effets dans `nds_raven_hardware`. Il couvre WIN0, l'assombrissement, la transparence d'un fond sur la couleur de fond, et un objet semi-transparent sur un fond.
 
 ### Documentation
 

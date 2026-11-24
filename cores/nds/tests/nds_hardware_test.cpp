@@ -422,6 +422,46 @@ void affine_backgrounds_test() {
     check(line[10] == 0x03e0, "grand bitmap du mode 6");
 }
 
+void windows_and_effects_test() {
+    Vram vram;
+    Memory memory;
+    vram.set_control(0, 0x81);  // A : fonds
+    vram.set_control(1, 0x82);  // B : objets
+    store(&memory.palette[0], 0x001f, 2);          // fond : rouge
+    store(&memory.palette[2], 0x03e0, 2);          // BG, couleur 1 : vert
+    store(&memory.palette[0x200 + 2], 0x7c00, 2);  // objets, couleur 1 : bleu
+    for (unsigned byte = 0; byte < 32; ++byte) vram.write(Vram::bg_a, 32 + byte, 0x11, 1);
+    for (unsigned entry = 0; entry < 32 * 32; ++entry) vram.write(Vram::bg_a, 0x800 + entry * 2, 1, 2);
+    Engine2d engine{true};
+    engine.write(0x08, 1U << 8U, 0xffffU);       // BG0 : carte au bloc 1, vert partout
+    engine.write(0x00, 0x0001'2100U, all);       // normal, BG0, WIN0
+    engine.write(0x40, (16U << 8U) | 32U, 0xffffU);             // WIN0H : x de 16 à 31
+    engine.write(0x44, 192U, 0xffffU);                          // WIN0V : lignes 0 à 191
+    engine.write(0x48, 0, 0xffffU);                             // WININ : rien dans WIN0
+    engine.write(0x48, 0x3fU << 16U, 0xffff'0000U);             // WINOUT : tout dehors
+    std::array<std::uint16_t, 256> line{};
+    engine.render_line(0, vram, memory, line);
+    check(line[20] == 0x001f && line[40] == 0x03e0 && line[15] == 0x03e0, "WIN0 : BG0 masqué dans la fenêtre");
+    engine.write(0x00, 0x0001'0100U, all);                      // sans fenêtre
+    engine.write(0x50, 0x00c1, 0xffffU);                        // BLDCNT : assombrir BG0
+    engine.write(0x54, 8, 0xffffU);                             // BLDY = 8
+    engine.render_line(0, vram, memory, line);
+    check(line[40] == 0x0200, "assombrissement de moitié");
+    engine.write(0x50, 0x2041U | (8U << 16U), all);             // transparence BG0 sur le fond ; EVA = 8
+    engine.write(0x50, 8U << 24U, 0xff00'0000U);                // EVB = 8
+    engine.render_line(0, vram, memory, line);
+    check(line[40] == 0x01ef, "transparence : moitié vert, moitié rouge");
+    // Objet semi-transparent (mode 1) sur BG0, cible seconde BG0, sans autre effet.
+    store(&memory.oam[0], 10U | (1U << 10U), 2);
+    store(&memory.oam[2], 20, 2);
+    for (unsigned byte = 0; byte < 32; ++byte) vram.write(Vram::obj_a, byte, 0x11, 1);
+    engine.write(0x00, 0x0001'1110U, all);                      // BG0, objets, 1D
+    engine.write(0x50, 0x0100U | (8U << 16U), all);             // seconde cible BG0 ; EVA = 8
+    engine.write(0x50, 8U << 24U, 0xff00'0000U);
+    engine.render_line(10, vram, memory, line);
+    check(line[20] == 0x3dE0 && line[30] == 0x03e0, "objet semi-transparent mélangé au fond dessous");
+}
+
 } // namespace
 
 int main() {
@@ -439,5 +479,6 @@ int main() {
     decompression_test();
     objects_test();
     affine_backgrounds_test();
+    windows_and_effects_test();
     return 0;
 }

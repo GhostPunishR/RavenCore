@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gpu/object_renderer.hpp"
 #include "gpu/vram.hpp"
 #include "memory/memory.hpp"
 
@@ -16,7 +17,9 @@
 // - objets (object_renderer.hpp), placés selon leur priorité.
 // - fonds affines, étendus (carte de 16 bits, bitmap 256 couleurs ou
 //   couleurs directes) et grand bitmap (mode 6), avec ou sans répétition.
-// Pas encore : fenêtres, effets,
+// - fenêtres WIN0, WIN1 et d'objets, effets de couleur : transparence,
+//   éclaircissement, assombrissement (compositor.cpp).
+// Pas encore :
 // mosaïque, palettes étendues, calque 3D, affichage depuis la RAM principale
 // (mode 3, rendu noir).
 namespace ravenemu::nds {
@@ -61,6 +64,18 @@ private:
     // écriture de BGxX ou BGxY, puis avancés de PB et PD à chaque ligne.
     void reload_reference(unsigned bg) noexcept;
     void advance_references() noexcept;
+
+    // Fonds d'une ligne avant composition (bit 15 : point vide).
+    struct Layers {
+        std::array<std::array<std::uint16_t, width>, 4> colors{};
+        std::array<bool, 4> present{};
+    };
+    void compose_pixels(unsigned line, const Layers& layers, const ObjectLine* objects, std::uint16_t backdrop,
+                        std::span<std::uint16_t, width> out) const;
+    [[nodiscard]] std::uint32_t window_mask(unsigned x, unsigned line, const ObjectLine* objects) const noexcept;
+    [[nodiscard]] std::uint16_t half(unsigned offset) const noexcept {
+        return static_cast<std::uint16_t>(registers_[offset / 4] >> ((offset & 2U) * 8U));
+    }
 
     bool main_;
     std::array<std::uint32_t, 0x70 / 4> registers_{};

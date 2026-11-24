@@ -63,13 +63,18 @@ private:
     unsigned oam_;
 };
 
-void plot(ObjectLine& out, int x, std::uint16_t color, unsigned priority) noexcept {
+void plot(ObjectLine& out, int x, std::uint16_t color, unsigned priority, unsigned mode) noexcept {
     if (x < 0 || x >= 256) return;
     const auto at = static_cast<std::size_t>(x);
+    if (mode == 2) {  // fenêtre d'objets : rien n'est dessiné
+        out.window[at] = true;
+        return;
+    }
     // Le premier objet dessiné (plus petit numéro) garde sa place à priorité égale.
     if ((out.color[at] & ObjectLine::transparent) == 0 && out.priority[at] <= priority) return;
     out.color[at] = color;
     out.priority[at] = static_cast<std::uint8_t>(priority);
+    out.semi_transparent[at] = mode == 1;
 }
 
 void draw_object(const ObjectDrawer& drawer, const Object& object, unsigned line, ObjectLine& out) {
@@ -82,12 +87,13 @@ void draw_object(const ObjectDrawer& drawer, const Object& object, unsigned line
     auto left = static_cast<int>(object.attribute1 & 0x1ffU);
     if (left >= 256) left -= 512;
     const auto priority = (object.attribute2 >> 10U) & 3U;
+    const auto mode = (object.attribute0 >> 10U) & 3U;
     if (!affine) {
         const auto y = (object.attribute1 & 0x2000U) != 0 ? object.height - 1 - row : row;
         for (unsigned column = 0; column < object.width; ++column) {
             const auto x = (object.attribute1 & 0x1000U) != 0 ? object.width - 1 - column : column;
             const auto index = drawer.texel(object, x, y);
-            if (index != 0) plot(out, left + static_cast<int>(column), drawer.color(object, index), priority);
+            if (index != 0) plot(out, left + static_cast<int>(column), drawer.color(object, index), priority, mode);
         }
         return;
     }
@@ -105,7 +111,7 @@ void draw_object(const ObjectDrawer& drawer, const Object& object, unsigned line
         if (tx < 0 || ty < 0 || tx >= static_cast<std::int32_t>(object.width) || ty >= static_cast<std::int32_t>(object.height))
             continue;
         const auto index = drawer.texel(object, static_cast<unsigned>(tx), static_cast<unsigned>(ty));
-        if (index != 0) plot(out, left + static_cast<int>(column), drawer.color(object, index), priority);
+        if (index != 0) plot(out, left + static_cast<int>(column), drawer.color(object, index), priority, mode);
     }
 }
 
@@ -115,6 +121,8 @@ void draw_objects(bool main, std::uint32_t display_control, unsigned line, const
                   ObjectLine& out) {
     std::fill(out.color.begin(), out.color.end(), ObjectLine::transparent);
     std::fill(out.priority.begin(), out.priority.end(), std::uint8_t{4});
+    out.semi_transparent.fill(false);
+    out.window.fill(false);
     const ObjectDrawer drawer{main, display_control, vram, memory};
     for (unsigned index = 0; index < 128; ++index) {
         const Object probe{index, drawer.oam16(index * 8U), drawer.oam16(index * 8U + 2U), drawer.oam16(index * 8U + 4U), 0, 0};
@@ -122,7 +130,7 @@ void draw_objects(bool main, std::uint32_t display_control, unsigned line, const
         if (!affine && (probe.attribute0 & 0x200U) != 0) continue;  // objet masqué
         const auto mode = (probe.attribute0 >> 10U) & 3U;
         const auto shape = probe.attribute0 >> 14U;
-        if (mode >= 2 || shape == 3) continue;  // fenêtre d'objets, bitmap, forme interdite
+        if (mode == 3 || shape == 3) continue;  // objet bitmap (pas encore), forme interdite
         const auto size = object_sizes[shape][probe.attribute1 >> 14U];
         draw_object(drawer, {index, probe.attribute0, probe.attribute1, probe.attribute2, size[0], size[1]}, line, out);
     }
