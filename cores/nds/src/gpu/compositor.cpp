@@ -28,8 +28,8 @@ bool inside(unsigned value, std::uint16_t range, bool horizontal) noexcept {
 std::uint16_t blend(std::uint16_t top, std::uint16_t below, unsigned eva, unsigned evb) noexcept {
     std::uint16_t result = 0;
     for (unsigned shift = 0; shift < 15; shift += 5) {
-        const auto a = (top >> shift) & 31U;
-        const auto b = (below >> shift) & 31U;
+        const auto a = (std::uint32_t{top} >> shift) & 31U;
+        const auto b = (std::uint32_t{below} >> shift) & 31U;
         result = static_cast<std::uint16_t>(result | (std::min(31U, (a * eva + b * evb) >> 4U) << shift));
     }
     return result;
@@ -38,7 +38,7 @@ std::uint16_t blend(std::uint16_t top, std::uint16_t below, unsigned eva, unsign
 std::uint16_t fade(std::uint16_t color, unsigned evy, bool brighter) noexcept {
     std::uint16_t result = 0;
     for (unsigned shift = 0; shift < 15; shift += 5) {
-        const auto value = (color >> shift) & 31U;
+        const auto value = (std::uint32_t{color} >> shift) & 31U;
         const auto faded = brighter ? value + (((31U - value) * evy) >> 4U) : value - ((value * evy) >> 4U);
         result = static_cast<std::uint16_t>(result | (faded << shift));
     }
