@@ -78,32 +78,19 @@ void Engine2d::compose_line(unsigned line, const Vram& vram, const Memory& memor
         std::fill(out.begin(), out.end(), std::uint16_t{0});
         return;
     }
-    const auto palette = main_ ? 0x000U : 0x400U;
-    std::fill(out.begin(), out.end(), palette_color(memory, palette));
-    // Priorité du point visible : 4 pour la couleur de fond.
-    std::array<std::uint8_t, width> shown{};
-    shown.fill(4);
-    // Du moins prioritaire au plus prioritaire : priorité 3 à 0, BG3 à BG0.
-    for (unsigned priority = 4; priority-- > 0;) {
-        for (unsigned bg = 4; bg-- > 0;) {
-            const auto kind = layer_kind(bg);
-            if ((control & (0x100U << bg)) == 0 || (bg_control(bg) & 3U) != priority || kind == Layer::none) continue;
-            std::array<std::uint16_t, width> layer{};
-            if (kind == Layer::text) draw_text_layer(bg, line, vram, memory, layer);
-            else draw_affine_layer(bg, kind, vram, memory, layer);
-            for (unsigned x = 0; x < width; ++x) {
-                if ((layer[x] & transparent) != 0) continue;
-                out[x] = layer[x];
-                shown[x] = static_cast<std::uint8_t>(priority);
-            }
-        }
+    Layers layers;
+    for (unsigned bg = 0; bg < 4; ++bg) {
+        const auto kind = layer_kind(bg);
+        if ((control & (0x100U << bg)) == 0 || kind == Layer::none) continue;
+        layers.present[bg] = true;
+        if (kind == Layer::text) draw_text_layer(bg, line, vram, memory, layers.colors[bg]);
+        else draw_affine_layer(bg, kind, vram, memory, layers.colors[bg]);
     }
-    // Un objet passe devant les fonds de priorité égale ou moindre.
-    if ((control & 0x1000U) == 0) return;
+    // Les objets servent aussi à la fenêtre d'objets (DISPCNT bit 15).
     ObjectLine objects;
-    draw_objects(main_, control, line, vram, memory, objects);
-    for (unsigned x = 0; x < width; ++x)
-        if ((objects.color[x] & ObjectLine::transparent) == 0 && objects.priority[x] <= shown[x]) out[x] = objects.color[x];
+    const auto use_objects = (control & 0x9000U) != 0;
+    if (use_objects) draw_objects(main_, control, line, vram, memory, objects);
+    compose_pixels(line, layers, use_objects ? &objects : nullptr, palette_color(memory, main_ ? 0x000U : 0x400U), out);
 }
 
 // GBATEK, « LCD VRAM BG Screen Data Format » : blocs de 32 × 32 entrées de

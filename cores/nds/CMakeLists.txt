@@ -3,6 +3,7 @@
 add_library(nds_raven_core STATIC
     src/cartridge/header.cpp
     src/gpu/affine_background.cpp
+    src/gpu/compositor.cpp
     src/gpu/engine2d.cpp
     src/gpu/object_renderer.cpp
     src/machine/direct_boot.cpp
