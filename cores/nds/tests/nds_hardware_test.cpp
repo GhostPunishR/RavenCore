@@ -473,7 +473,7 @@ void game_card_test() {
     card.insert(rom, 0x0000'00c2U);  // puce de 1 Mio
     Scheduler scheduler;
     InterruptController irq{irq::arm9_bits};
-    check(card.read(0x04) == 0x2058'6000U, "ROMCTRL après le démarrage : celui de l'en-tête, reset relâché");
+    check(card.read(0x04, 0) == 0x2058'6000U, "ROMCTRL après le démarrage : celui de l'en-tête, reset relâché");
     const auto command = [&](std::uint8_t first, std::uint32_t address) {
         card.write(0x08, first | ((address >> 24U) << 8U) | (((address >> 16U) & 0xffU) << 16U) | (((address >> 8U) & 0xffU) << 24U),
                    all, 0, scheduler);
@@ -485,14 +485,14 @@ void game_card_test() {
         std::vector<std::uint8_t> bytes;
         times.clear();
         card.write(0x04, control, all, 0, scheduler);
-        while ((card.read(0x04) & 0x8000'0000U) != 0) {
+        while ((card.read(0x04, 0) & 0x8000'0000U) != 0) {
             const auto at = scheduler.time_of(Event::card);
             static_cast<void>(scheduler.take_due(at));
             times.push_back(at);
             if (!card.on_event(irq)) continue;
-            check((card.read(0x04) & 0x0080'0000U) != 0, "mot prêt : DRQ (ROMCTRL bit 23)");
+            check((card.read(0x04, 0) & 0x0080'0000U) != 0, "mot prêt : DRQ (ROMCTRL bit 23)");
             const auto word = card.read_data(at, scheduler, irq);
-            check((card.read(0x04) & 0x0080'0000U) == 0, "mot lu : DRQ retombé");
+            check((card.read(0x04, 0) & 0x0080'0000U) == 0, "mot lu : DRQ retombé");
             for (unsigned byte = 0; byte < 4; ++byte) bytes.push_back(static_cast<std::uint8_t>(word >> (8U * byte)));
         }
         return bytes;
@@ -503,7 +503,7 @@ void game_card_test() {
     };
     command(0xb7, 0x8000);
     card.write(0x04, 0xa158'6000U, all, 0, scheduler);
-    check((card.read(0x04) & 0x8000'0000U) == 0, "slot coupé (AUXSPICNT bit 15) : pas de transfert");
+    check((card.read(0x04, 0) & 0x8000'0000U) == 0, "slot coupé (AUXSPICNT bit 15) : pas de transfert");
     card.write(0x00, 0xc000U, 0xffffU, 0, scheduler);  // slot activé, IRQ de fin
     check(transfer(0xa158'6000U) == rom_at(0x8000, 0x200), "B7 : 0x200 octets à 0x8000");
     check(times.front() == (8 + 4) * 5 && times[1] == times[0] + 4 * 5, "commande, puis 4 octets par mot, à 5 cycles par octet");
@@ -527,6 +527,102 @@ void game_card_test() {
     static_cast<void>(transfer(0xaa58'6000U));  // 0x400 octets, horloge de 8 cycles
     check(times[0x80] == times[0x7f] + (4 + 0x18) * 8 && times[0x81] == times[0x80] + 4 * 8,
           "gap2 (0x18 périodes) tous les 0x200 octets, horloge de 8 cycles");
+}
+
+// Puce de sauvegarde, d'après GBATEK (« DS Cartridge Backup », « DS Firmware
+// Serial Flash Memory ») : une commande par sélection de la puce.
+void save_memory_test() {
+    SaveMemory chip;
+    const auto command = [&](std::initializer_list<std::uint8_t> bytes) {
+        std::vector<std::uint8_t> replies;
+        for (const auto byte : bytes) replies.push_back(chip.transfer(byte));
+        chip.deselect();
+        return replies;
+    };
+    check(command({0x05, 0x00}) == std::vector<std::uint8_t>{0xff, 0xff}, "pas de puce : 0xFF");
+    // EEPROM de 0,5 Kio : adresse d'un octet, 0Ah/0Bh pour 100h-1FFh.
+    chip.set_type(SaveType::eeprom_512);
+    check(command({0x05, 0})[1] == 0xf0, "EEPROM de 0,5 Kio : état F0h");
+    command({0x02, 0x10, 'A', 'B'});
+    check(command({0x03, 0x10, 0})[2] == 0xff, "écriture sans WREN : ignorée");
+    command({0x06});
+    check(command({0x05, 0})[1] == 0xf2, "WREN : WEL levé");
+    command({0x02, 0x10, 'A', 'B'});
+    check(command({0x05, 0})[1] == 0xf0 && command({0x03, 0x10, 0, 0}) == std::vector<std::uint8_t>{0xff, 0xff, 'A', 'B'},
+          "écriture puis lecture ; WEL retombé en fin d'écriture");
+    command({0x06});
+    command({0x0a, 0x05, 'H'});
+    check(chip.data()[0x105] == 'H' && command({0x0b, 0x05, 0})[2] == 'H', "WRHI et RDHI : 100h-1FFh");
+    command({0x06});
+    command({0x02, 0x0e, 1, 2, 3, 4});
+    check(chip.data()[0x0e] == 1 && chip.data()[0x0f] == 2 && chip.data()[0x00] == 3 && chip.data()[0x01] == 4,
+          "écriture bouclée dans la page de 16 octets");
+    // EEPROM de 8 Kio : adresse de 2 octets, protection par WP.
+    chip.set_type(SaveType::eeprom_8k);
+    command({0x06});
+    command({0x02, 0x12, 0x34, 0x5a});
+    check(chip.data()[0x1234] == 0x5a && chip.dirty() && command({0x03, 0x12, 0x34, 0})[3] == 0x5a,
+          "EEPROM de 8 Kio : adresse de 2 octets ; écriture signalée à l'hôte");
+    command({0x06});
+    command({0x01, 0x0c});  // WRSR : toute la mémoire protégée
+    command({0x06});
+    command({0x02, 0x00, 0x00, 0x77});
+    check(command({0x05, 0})[1] == 0x0c && chip.data()[0] == 0xff, "WP = 3 : écriture refusée, WEL retombé");
+    // Flash de 256 Kio : RDID, PW, PP, PE, SE, FAST.
+    chip.set_type(SaveType::flash_256k);
+    check(command({0x9f, 0, 0, 0}) == std::vector<std::uint8_t>{0xff, 0x20, 0x40, 0x12}, "Flash : identifiant JEDEC");
+    command({0x06});
+    command({0x0a, 0x01, 0x02, 0x03, 0xf0});
+    command({0x06});
+    command({0x02, 0x01, 0x02, 0x03, 0x3c});
+    check(chip.data()[0x10203] == 0x30, "PW écrit, PP ne fait que passer des bits à 0");
+    check(command({0x0b, 0x01, 0x02, 0x03, 0x00, 0x00})[5] == 0x30, "FAST : un octet muet après l'adresse");
+    command({0x06});
+    command({0xdb, 0x01, 0x02, 0x80});
+    check(chip.data()[0x10203] == 0xff, "PE : page de 0x100 octets effacée");
+    command({0x06});
+    command({0x02, 0x00, 0x00, 0x00, 0x00});
+    command({0x06});
+    command({0xd8, 0x00, 0x80, 0x00});
+    check(chip.data()[0] == 0xff, "SE : secteur de 0x10000 octets effacé");
+    command({0xb9});
+    check(command({0x9f, 0})[1] == 0xff, "DP : la puce n'écoute plus");
+    command({0xab});
+    check(command({0x9f, 0})[1] == 0x20, "RDP : la puce répond de nouveau");
+    // Type déduit de la taille d'un fichier.
+    SaveMemory loaded;
+    check(loaded.load(std::vector<std::uint8_t>(64 * 1024, 0x11)) && loaded.type() == SaveType::eeprom_64k &&
+              !loaded.load(std::vector<std::uint8_t>(100)),
+          "fichier de 64 Kio : EEPROM de 64 Kio ; taille inconnue refusée");
+}
+
+// SPI de la cartouche : AUXSPIDATA échange un octet ; bit 6 maintient la puce
+// sélectionnée ; le bus reste occupé 64 << débit cycles.
+void card_spi_test() {
+    GameCard card;
+    card.insert(std::vector<std::uint8_t>(0x1000), 0xc2U);
+    card.save().set_type(SaveType::eeprom_8k);
+    Scheduler scheduler;
+    const auto send = [&](std::uint8_t byte, bool hold, Cycles now) {
+        card.write(0x00, 0xa000U | (hold ? 0x40U : 0U) | 1U, 0xffffU, now, scheduler);  // slot, SPI, débit 1
+        card.write(0x00, std::uint32_t{byte} << 16U, 0x00ff'0000U, now, scheduler);
+        return static_cast<std::uint8_t>(card.read(0x00, now + 128) >> 16U);
+    };
+    send(0x06, false, 0);
+    send(0x02, true, 0);
+    send(0x00, true, 0);
+    send(0x10, true, 0);
+    send(0x42, false, 0);
+    check(card.save().data()[0x10] == 0x42, "écriture par AUXSPIDATA, puce relâchée après le dernier octet");
+    check((card.read(0x00, 127) & 0x80U) != 0 && (card.read(0x00, 128) & 0x80U) == 0, "occupé 128 cycles au débit 1");
+    send(0x03, true, 1000);
+    send(0x00, true, 1000);
+    send(0x10, true, 1000);
+    check(send(0x00, false, 1000) == 0x42, "lecture par AUXSPIDATA");
+    card.write(0x00, 0xc000U, 0xffffU, 2000, scheduler);  // mode ROM
+    card.write(0x00, 0x05U << 16U, 0x00ff'0000U, 2000, scheduler);
+    check(((card.read(0x00, 3000) >> 16U) & 0xffU) == 0x42 && (card.read(0x00, 2000) & 0x80U) == 0,
+          "hors du mode SPI : rien n'est échangé, AUXSPIDATA garde le dernier octet");
 }
 
 void extended_palettes_test() {
@@ -718,6 +814,8 @@ int main() {
     affine_backgrounds_test();
     windows_and_effects_test();
     game_card_test();
+    save_memory_test();
+    card_spi_test();
     extended_palettes_test();
     bitmap_objects_test();
     mosaic_test();

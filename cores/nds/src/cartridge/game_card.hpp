@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cartridge/header.hpp"
+#include "cartridge/save_memory.hpp"
 #include "interrupts/interrupt_controller.hpp"
 #include "machine/scheduler.hpp"
 
@@ -30,8 +31,12 @@
 // qui déclenche la DMA « cartouche ») ; le suivant part quand il est lu.
 // Le dernier mot lu, ROMCTRL bit 31 retombe et l'IRQ 19 part si AUXSPICNT
 // bit 14 la demande.
-// Pas encore : sauvegardes (AUXSPIDATA, mode SPI), protocole avant le mode
-// principal (KEY1, zone sécurisée), écriture des cartouches NAND.
+// Sauvegarde : en mode SPI (AUXSPICNT bits 13 et 15), chaque écriture
+// d'AUXSPIDATA échange un octet avec la puce (save_memory.hpp) et la laisse
+// sélectionnée si AUXSPICNT bit 6 est levé ; le transfert occupe le bus
+// (bit 7) 8 bits à 4 MHz >> débit (bits 0-1), soit 64 << débit cycles.
+// Pas encore : protocole avant le mode principal (KEY1, zone sécurisée),
+// écriture des cartouches NAND.
 namespace ravenemu::nds {
 
 // Identifiant de puce annoncé pour une ROM : fabricant C2h (Macronix), puis
@@ -43,9 +48,11 @@ public:
     void insert(std::vector<std::uint8_t> rom, std::uint32_t chip_id);
     [[nodiscard]] std::span<const std::uint8_t> rom() const noexcept { return rom_; }
     [[nodiscard]] std::uint32_t chip_id() const noexcept { return chip_id_; }
+    [[nodiscard]] SaveMemory& save() noexcept { return save_; }
+    [[nodiscard]] const SaveMemory& save() const noexcept { return save_; }
 
     // Mots d'E/S de 0x040001A0 à 0x040001BF, `offset` depuis 0x040001A0.
-    [[nodiscard]] std::uint32_t read(std::uint32_t offset) const noexcept;
+    [[nodiscard]] std::uint32_t read(std::uint32_t offset, Cycles now) const noexcept;
     void write(std::uint32_t offset, std::uint32_t value, std::uint32_t mask, Cycles now, Scheduler& scheduler);
     // 0x04100010 : le mot reçu. Lire un mot prêt lance le suivant, ou finit
     // le transfert.
@@ -59,6 +66,8 @@ private:
     [[nodiscard]] std::uint8_t stream_byte(std::uint32_t index) const noexcept;
     void start(Cycles now, Scheduler& scheduler);
     void finish(InterruptController& irq) noexcept;
+    void write_spi_control(std::uint32_t value, std::uint32_t mask);
+    void spi_transfer(std::uint8_t value, Cycles now);
 
     std::vector<std::uint8_t> rom_;
     std::uint32_t chip_id_{};
@@ -69,6 +78,9 @@ private:
     std::uint32_t length_{};    // octets du transfert en cours
     std::uint32_t position_{};  // octets déjà mis dans un mot
     std::uint32_t data_{};      // dernier mot reçu
+    SaveMemory save_;
+    std::uint8_t spi_data_{};   // AUXSPIDATA : dernier octet reçu de la puce
+    Cycles spi_busy_until_{};
 };
 
 } // namespace ravenemu::nds

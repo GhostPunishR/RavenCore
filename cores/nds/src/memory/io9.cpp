@@ -66,7 +66,7 @@ std::uint32_t Bus9::io_word(std::uint32_t address) {
     if (offset >= 0x0e0 && offset < 0x0f0) return hw.dma_fill[(offset - 0x0e0) / 4];
     if (offset >= 0x280 && offset < 0x2b0) return hw.divider.read(offset, now);
     if (offset >= 0x2b0 && offset < 0x2c0) return hw.square_root.read(offset, now);
-    if (offset >= 0x1a0 && offset < 0x1c0) return hw.card_arm7() ? 0U : hw.card.read(offset - 0x1a0);
+    if (offset >= 0x1a0 && offset < 0x1c0) return hw.card_arm7() ? 0U : hw.card.read(offset - 0x1a0, now);
     if (offset != 0x004 && offset < 0x070) return hw.engine_a.read(offset);
     switch (offset) {
     case 0x004: return hw.lcd.read(0);

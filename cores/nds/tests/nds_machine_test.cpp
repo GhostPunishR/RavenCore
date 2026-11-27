@@ -257,14 +257,14 @@ void dma_test() {
 // le donne à l'ARM7 (GBATEK, « DS Memory Control »). L'autre CPU lit 0.
 void card_owner_test() {
     Machine machine{test_rom("####", {0xeafffffeU}, {0xeafffffeU})};
-    const auto control = machine.hw.card.read(0x04);
+    const auto control = machine.hw.card.read(0x04, 0);
     check(control != 0 && machine.bus9.read32(0x0400'01a4U) == control && machine.bus7.read32(0x0400'01a4U) == 0,
           "ROMCTRL vu par l'ARM9 seul après le démarrage");
     machine.bus9.write32(0x0400'0204U, 0x6800U);  // EXMEMCNT : bit 11
     check(machine.bus9.read32(0x0400'01a4U) == 0 && machine.bus7.read32(0x0400'01a4U) == control,
           "EXMEMCNT bit 11 : le slot passe à l'ARM7");
     machine.bus9.write32(0x0400'01a4U, 0);
-    check(machine.hw.card.read(0x04) == control, "écriture de l'ARM9 sans le slot : ignorée");
+    check(machine.hw.card.read(0x04, 0) == control, "écriture de l'ARM9 sans le slot : ignorée");
 }
 
 // Programmes du test des décompressions par fonctions de rappel : ils

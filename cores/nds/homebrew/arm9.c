@@ -8,7 +8,8 @@
  * - le pseudo des réglages utilisateur du firmware ;
  * - les touches appuyées ;
  * - un message lu dans la ROM par le bus de la cartouche (commande B7, DMA
- *   « cartouche », IRQ de fin de transfert attendue par IntrWait).
+ *   « cartouche », IRQ de fin de transfert attendue par IntrWait) ;
+ * - le nombre de démarrages, gardé dans l'EEPROM de sauvegarde de 8 Kio.
  */
 #include "ds.h"
 #include "font.h"
@@ -94,6 +95,38 @@ static void card_read_block(uint32_t address, uint32_t* destination) {
     cache_invalidate(destination, BLOCK_WORDS * 4u);
 }
 
+/* Un octet sur le SPI de la cartouche (mode sauvegarde) ; `last` relâche la
+ * puce après lui (AUXSPICNT bit 6 à 0, GBATEK, « DS Cartridge I/O Ports »). */
+static uint8_t spi_byte(uint8_t value, int last) {
+    AUXSPICNT = (uint16_t)(0xa000u | (last ? 0u : 0x40u)); /* slot activé, mode SPI */
+    AUXSPIDATA = value;
+    while ((AUXSPICNT & 0x80u) != 0) {
+    }
+    return (uint8_t)AUXSPIDATA;
+}
+
+/* Compteur de démarrages dans l'EEPROM de 8 Kio (adresse de 2 octets) : « R »
+ * puis le compte, à l'adresse 0 (GBATEK, « DS Cartridge Backup »). */
+static unsigned count_boot(void) {
+    spi_byte(0x03, 0); /* RD, adresse 0000h */
+    spi_byte(0x00, 0);
+    spi_byte(0x00, 0);
+    const uint8_t marker = spi_byte(0, 0);
+    const uint8_t stored = spi_byte(0, 1);
+    const unsigned count = (marker == 'R' ? stored : 0u) + 1u;
+    spi_byte(0x06, 1); /* WREN */
+    spi_byte(0x02, 0); /* WR, adresse 0000h */
+    spi_byte(0x00, 0);
+    spi_byte(0x00, 0);
+    spi_byte('R', 0);
+    spi_byte((uint8_t)count, 1);
+    spi_byte(0x05, 0); /* RDSR jusqu'à la fin de l'écriture (WIP) */
+    while ((spi_byte(0, 0) & 1u) != 0) {
+    }
+    spi_byte(0, 1);
+    return count & 0xffu;
+}
+
 static void show_card_message(Screen screen, unsigned y) {
     card_read_block(MESSAGE_ADDRESS, card_block);
     char message[31];
@@ -167,6 +200,7 @@ static void draw_labels(Screen top, Screen bottom) {
     text_print(top, 1, 8, PALETTE_MUTED, "ARM7 IPC");
     text_print(top, 12, 8, PALETTE_TEXT, "..");
     text_print(top, 1, 9, PALETTE_MUTED, "PSEUDO");
+    text_print(top, 1, 10, PALETTE_MUTED, "DEMARRAGES");
     show_nickname(top, 12, 9);
     text_print(top, 1, 12, PALETTE_MUTED, "TOUCHES");
     text_print(top, 1, 15, PALETTE_MUTED, "CARTOUCHE");
@@ -197,6 +231,7 @@ int main(void) {
     IE = IRQ_VBLANK | IRQ_TIMER0 | IRQ_CARD;
     IME = 1;
     show_card_message(top, 16);
+    text_number(top, 12, 10, PALETTE_TEXT, count_boot(), 3);
 
     uint32_t frames = 0;
     for (;;) {

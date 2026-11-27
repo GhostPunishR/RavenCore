@@ -94,6 +94,13 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
   - le chiffrement KEY2 n'est pas modélisé : les données arrivent en clair, comme le DS les rend une fois déchiffrées.
 - Homebrew : il lit un message placé à 0x8000 dans sa ROM, par la commande B7, la DMA « cartouche » et IntrWait sur l'IRQ de fin. `nds_make_rom` accepte un fichier de données à 0x8000 et écrit les ROMCTRL par défaut des puces MROM.
 - Tests : `game_card_test` dans `nds_raven_hardware` (temps, boucle de 4 Kio, redirection, miroir, B8, transfert sans données, gap2, DRQ, IRQ), `card_owner_test` dans `nds_raven_machine` (EXMEMCNT bit 11), et le message lu par le homebrew dans `nds_raven_homebrew`.
+- **Cœur NDS, sauvegardes de la cartouche** (GBATEK, « DS Cartridge Backup », « DS Firmware Serial Flash Memory ») :
+  - puce sur le SPI de la cartouche : en mode SPI, chaque écriture d'AUXSPIDATA échange un octet ; AUXSPICNT bit 6 garde la puce sélectionnée ; le bus reste occupé (bit 7) 64 << débit cycles ;
+  - EEPROM de 0,5 Kio (adresse d'un octet, 0Ah/0Bh pour 100h-1FFh), de 8 et 64 Kio (2 octets), de 128 Kio (3 octets) ; FRAM de 8 et 32 Kio ; Flash de 256 Kio, 512 Kio, 1 Mio et 8 Mio, avec leur identifiant JEDEC ;
+  - commandes WREN, WRDI, RDSR, WRSR (protection WP et SRWD), RDID, lecture, écriture bouclée dans la page, et pour la Flash FAST, PW, PP, PE, SE, DP et RDP. Écritures sans délai, WEL remis à 0 en fin de commande ;
+  - type choisi par l'hôte (`SaveType`) ou déduit de la taille d'un fichier de sauvegarde ; `dirty()` signale à l'hôte une écriture à enregistrer. La détection par les commandes du jeu reste à écrire.
+- Homebrew : il compte ses démarrages dans une EEPROM de 8 Kio.
+- Tests : `save_memory_test` et `card_spi_test` dans `nds_raven_hardware` ; dans `nds_raven_homebrew`, un premier démarrage compté, puis un second démarrage depuis le fichier de sauvegarde du premier.
 
 ### Documentation
 

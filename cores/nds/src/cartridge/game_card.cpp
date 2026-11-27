@@ -13,6 +13,8 @@ constexpr std::uint32_t reset_released = 0x2000'0000U;
 constexpr std::uint32_t slot_enabled = 0x8000U;  // AUXSPICNT bit 15
 constexpr std::uint32_t spi_mode = 0x2000U;      // AUXSPICNT bit 13
 constexpr std::uint32_t done_irq = 0x4000U;      // AUXSPICNT bit 14
+constexpr std::uint32_t spi_hold = 0x0040U;      // AUXSPICNT bit 6
+constexpr std::uint32_t spi_busy = 0x0080U;      // AUXSPICNT bit 7
 
 constexpr std::uint32_t merge(std::uint32_t old, std::uint32_t value, std::uint32_t mask) noexcept {
     return (old & ~mask) | (value & mask);
@@ -38,9 +40,9 @@ void GameCard::insert(std::vector<std::uint8_t> rom, std::uint32_t chip_id) {
     rom_control_ = (header_control & 0x5f7f'7fffU) | reset_released;
 }
 
-std::uint32_t GameCard::read(std::uint32_t offset) const noexcept {
+std::uint32_t GameCard::read(std::uint32_t offset, Cycles now) const noexcept {
     switch (offset) {
-    case 0x00: return spi_control_;  // AUXSPIDATA (bits 16-23) : pas encore de sauvegarde
+    case 0x00: return spi_control_ | (now < spi_busy_until_ ? spi_busy : 0U) | (std::uint32_t{spi_data_} << 16U);
     case 0x04: return rom_control_;
     default: return 0;  // commande et graines : en écriture seule
     }
@@ -48,7 +50,10 @@ std::uint32_t GameCard::read(std::uint32_t offset) const noexcept {
 
 void GameCard::write(std::uint32_t offset, std::uint32_t value, std::uint32_t mask, Cycles now, Scheduler& scheduler) {
     switch (offset) {
-    case 0x00: spi_control_ = merge(spi_control_, value, mask & 0xe043U); break;  // bit 7 (occupé) en lecture seule
+    case 0x00:
+        write_spi_control(value, mask);
+        if ((mask & 0x00ff'0000U) != 0) spi_transfer(static_cast<std::uint8_t>(value >> 16U), now);
+        break;
     case 0x04:
         // Bits 15 (graine) et 31 (départ) en écriture seule, 23 en lecture
         // seule ; le reset (bit 29) ne se remet pas.
@@ -64,6 +69,22 @@ void GameCard::write(std::uint32_t offset, std::uint32_t value, std::uint32_t ma
         break;
     default: break;
     }
+}
+
+// AUXSPICNT : bit 7 (occupé) en lecture seule. Quitter le mode SPI, ou
+// couper le slot, relâche la puce.
+void GameCard::write_spi_control(std::uint32_t value, std::uint32_t mask) {
+    spi_control_ = merge(spi_control_, value, mask & 0xe043U);
+    if ((spi_control_ & (slot_enabled | spi_mode)) != (slot_enabled | spi_mode)) save_.deselect();
+}
+
+// AUXSPIDATA : un octet échangé avec la puce, en mode SPI seulement. Sans
+// AUXSPICNT bit 6, la puce est relâchée après l'octet.
+void GameCard::spi_transfer(std::uint8_t value, Cycles now) {
+    if ((spi_control_ & (slot_enabled | spi_mode)) != (slot_enabled | spi_mode)) return;
+    spi_data_ = save_.transfer(value);
+    if ((spi_control_ & spi_hold) == 0) save_.deselect();
+    spi_busy_until_ = now + (Cycles{64} << (spi_control_ & 3U));
 }
 
 void GameCard::start(Cycles now, Scheduler& scheduler) {
