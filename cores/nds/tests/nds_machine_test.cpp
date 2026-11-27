@@ -253,6 +253,20 @@ void dma_test() {
     check(main_word(machine, 0x0214'000cU) == 9, "DMA immédiate de l'ARM7");
 }
 
+// Le slot de la cartouche est à l'ARM9 après le démarrage ; EXMEMCNT bit 11
+// le donne à l'ARM7 (GBATEK, « DS Memory Control »). L'autre CPU lit 0.
+void card_owner_test() {
+    Machine machine{test_rom("####", {0xeafffffeU}, {0xeafffffeU})};
+    const auto control = machine.hw.card.read(0x04);
+    check(control != 0 && machine.bus9.read32(0x0400'01a4U) == control && machine.bus7.read32(0x0400'01a4U) == 0,
+          "ROMCTRL vu par l'ARM9 seul après le démarrage");
+    machine.bus9.write32(0x0400'0204U, 0x6800U);  // EXMEMCNT : bit 11
+    check(machine.bus9.read32(0x0400'01a4U) == 0 && machine.bus7.read32(0x0400'01a4U) == control,
+          "EXMEMCNT bit 11 : le slot passe à l'ARM7");
+    machine.bus9.write32(0x0400'01a4U, 0);
+    check(machine.hw.card.read(0x04) == control, "écriture de l'ARM9 sans le slot : ignorée");
+}
+
 // Programmes du test des décompressions par fonctions de rappel : ils
 // remplissent la structure des fonctions, puis appellent les SWI.
 const std::initializer_list<std::uint32_t> callback_arm9_program{
@@ -397,6 +411,7 @@ int main() {
     dma_test();
     two_processors_test();
     refused_rom_test();
+    card_owner_test();
     callback_decompression_test();
     return 0;
 }

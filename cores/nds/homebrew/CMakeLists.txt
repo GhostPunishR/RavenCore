@@ -46,9 +46,12 @@ add_executable(nds_make_rom make_rom.cpp)
 target_link_libraries(nds_make_rom PRIVATE nds_raven_core)
 
 set(homebrew_rom ${CMAKE_CURRENT_BINARY_DIR}/raven_hello.nds)
+# Le message, à 0x8000 dans la ROM, est lu par le bus de la cartouche.
+set(homebrew_message ${CMAKE_CURRENT_SOURCE_DIR}/cartridge_message.txt)
 add_custom_command(OUTPUT ${homebrew_rom}
     COMMAND nds_make_rom ${CMAKE_CURRENT_BINARY_DIR}/arm9.bin ${CMAKE_CURRENT_BINARY_DIR}/arm7.bin ${homebrew_rom}
-    DEPENDS nds_make_rom ${CMAKE_CURRENT_BINARY_DIR}/arm9.bin ${CMAKE_CURRENT_BINARY_DIR}/arm7.bin
+            ${homebrew_message}
+    DEPENDS nds_make_rom ${CMAKE_CURRENT_BINARY_DIR}/arm9.bin ${CMAKE_CURRENT_BINARY_DIR}/arm7.bin ${homebrew_message}
     COMMENT "Homebrew NDS : raven_hello.nds"
     VERBATIM)
 add_custom_target(nds_raven_homebrew ALL DEPENDS ${homebrew_rom})

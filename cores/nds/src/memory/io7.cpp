@@ -21,10 +21,12 @@ std::uint32_t Bus7::io_word(std::uint32_t address) {
     auto& hw = hw_;
     const auto now = hw.arm7_time();
     if (address == 0x0410'0000U) return hw.ipc.receive(1);
+    if (address == 0x0410'0010U) return hw.card_arm7() ? hw.card.read_data(now, hw.scheduler, hw.irq7) : 0U;
     if (address >= 0x0400'1000U) return 0;  // Wi-Fi à 0x04800000 : pas encore modélisée
     const auto offset = address & 0xfffU;
     if (offset >= 0x100 && offset < 0x110) return hw.timers7.read(offset - 0x100, now);
     if (offset >= 0x0b0 && offset < 0x0e0) return dma_register(hw.dma7, offset);
+    if (offset >= 0x1a0 && offset < 0x1c0) return hw.card_arm7() ? hw.card.read(offset - 0x1a0) : 0U;
     switch (offset) {
     case 0x004: return hw.lcd.read(1);
     case 0x130: return hw.keys | (hw.key_control[1] << 16U);
@@ -54,6 +56,10 @@ void Bus7::io_write_word(std::uint32_t address, std::uint32_t value, std::uint32
     if (address >= 0x0400'1000U) return;
     const auto offset = address & 0xfffU;
     if (offset >= 0x100 && offset < 0x110) return hw.timers7.write(offset - 0x100, value, mask, now);
+    if (offset >= 0x1a0 && offset < 0x1c0) {
+        if (hw.card_arm7()) hw.card.write(offset - 0x1a0, value, mask, now, hw.scheduler);
+        return;
+    }
     if (offset >= 0x0b0 && offset < 0x0e0) {
         if (write_dma_register(hw.dma7, offset, value, mask, false))
             run_dma(*this, hw.dma7[(offset - 0x0b0) / 12], (offset - 0x0b0) / 12, false, hw.irq7);

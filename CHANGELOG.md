@@ -86,6 +86,14 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
   - il reçoit la réponse de l'ARM7 par la FIFO de l'IPC, et affiche le pseudo du firmware et les touches appuyées ;
   - option `RAVENEMU_NDS_HOMEBREW`, activée dans la CI Linux, qui installe Clang et ld.lld et publie la ROM comme artefact `raven-hello-nds`. La ROM n'est jamais versionnée.
 - Test : `nds_raven_homebrew` démarre la ROM, relit le texte des deux écrans dans la VRAM, puis vérifie les compteurs, la réponse de l'ARM7, le pseudo, les touches A et START, et les couleurs de l'image. `RAVENEMU_NDS_SCREENSHOT=chemin.ppm` enregistre les deux écrans.
+- **Cœur NDS, bus de la cartouche** (GBATEK, « DS Cartridge I/O Ports », « DS Cartridge Protocol »), début de l'étape 3 :
+  - registres AUXSPICNT, ROMCTRL et commande de 8 octets, mots reçus à 0x04100010 ;
+  - accès réservé au CPU qui a le slot (EXMEMCNT bit 11), l'autre lit 0 ;
+  - mode de lecture principal laissé par le démarrage direct. B7 lit les données : le flux reste dans son bloc de 4 Kio, les adresses bouclent au-delà de la puce, et 0 à 0x7FFF lisent 0x8000 + (adresse & 0x1FF). B8 rend l'identifiant de la puce. Les autres commandes rendent des 0 ;
+  - temps de transfert tirés de ROMCTRL : horloge de 5 ou 8 cycles, commande, gap1, 4 octets par mot, gap2 tous les 0x200 octets. Chaque mot prêt lève le DRQ et déclenche la DMA « cartouche » du CPU qui a le slot. En fin de transfert, l'IRQ 19 part si AUXSPICNT la demande ;
+  - le chiffrement KEY2 n'est pas modélisé : les données arrivent en clair, comme le DS les rend une fois déchiffrées.
+- Homebrew : il lit un message placé à 0x8000 dans sa ROM, par la commande B7, la DMA « cartouche » et IntrWait sur l'IRQ de fin. `nds_make_rom` accepte un fichier de données à 0x8000 et écrit les ROMCTRL par défaut des puces MROM.
+- Tests : `game_card_test` dans `nds_raven_hardware` (temps, boucle de 4 Kio, redirection, miroir, B8, transfert sans données, gap2, DRQ, IRQ), `card_owner_test` dans `nds_raven_machine` (EXMEMCNT bit 11), et le message lu par le homebrew dans `nds_raven_homebrew`.
 
 ### Documentation
 

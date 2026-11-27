@@ -41,6 +41,19 @@
 #define IF REG32(0x04000214u)
 #define IRQ_VBLANK 0x0001u
 #define IRQ_TIMER0 0x0008u
+#define IRQ_CARD 0x00080000u /* fin de transfert de la cartouche */
+
+/* DMA 0 : source, destination, contrôle. */
+#define DMA0SAD REG32(0x040000b0u)
+#define DMA0DAD REG32(0x040000b4u)
+#define DMA0CNT REG32(0x040000b8u)
+
+/* Bus de la cartouche : AUXSPICNT, ROMCTRL, commande de 8 octets (premier
+ * octet à l'adresse basse), mots reçus. */
+#define AUXSPICNT REG16(0x040001a0u)
+#define ROMCTRL REG32(0x040001a4u)
+#define CARD_COMMAND ((volatile uint32_t*)0x040001a8u)
+#define CARD_DATA 0x04100010u
 
 /* FIFO de l'IPC : contrôle, envoi, réception. */
 #define IPCFIFOCNT REG32(0x04000184u)

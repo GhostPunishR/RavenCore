@@ -5,7 +5,8 @@
 
 namespace ravenemu::nds {
 
-Machine::Machine(std::vector<std::uint8_t> rom) : header(parse_header(rom)), rom_(std::move(rom)) {
+Machine::Machine(std::vector<std::uint8_t> rom) : header(parse_header(rom)) {
+    hw.card.insert(std::move(rom), cartridge_chip_id(header));
     bus9.swi = {[](void* bios, std::uint32_t comment, bool thumb) {
                     return static_cast<Bios<Arm9, Bus9, true>*>(bios)->call(comment, thumb);
                 },
@@ -70,6 +71,7 @@ void Machine::settle(Cycles now) {
     hw.timers7.advance(now);
     while (const auto event = hw.scheduler.take_due(now)) {
         if (*event == Event::lcd) on_lcd_event(hw.lcd.on_event(hw.scheduler, now));
+        else if (*event == Event::card) on_card_event();
     }
     hw.scheduler.schedule(Event::timers9, hw.timers9.next_overflow());
     hw.scheduler.schedule(Event::timers7, hw.timers7.next_overflow());
@@ -92,6 +94,14 @@ void Machine::on_lcd_event(LcdTiming::Phase phase) {
         break;
     case LcdTiming::Phase::hblank7: break;
     }
+}
+
+// Un mot de la cartouche est prêt : DMA « cartouche » du CPU qui a le slot.
+void Machine::on_card_event() {
+    const auto arm7 = hw.card_arm7();
+    if (!hw.card.on_event(arm7 ? hw.irq7 : hw.irq9)) return;
+    if (arm7) bus7.trigger_dma(DmaTiming::cartridge);
+    else bus9.trigger_dma(DmaTiming::cartridge);
 }
 
 // Chaque moteur dessine la ligne au début de celle-ci ; POWCNT1 bit 15 place

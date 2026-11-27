@@ -1,6 +1,8 @@
 // Construit la ROM .nds du homebrew à partir des binaires de l'ARM9 et de
-// l'ARM7 : en-tête de GBATEK (« DS Cartridge Header »), sans logo ni zone
-// sécurisée, puis vérification par l'analyse d'en-tête du cœur.
+// l'ARM7, et d'un fichier de données facultatif placé à 0x8000, première
+// adresse que la commande B7 lit : en-tête de GBATEK (« DS Cartridge
+// Header »), sans logo ni zone sécurisée, puis vérification par l'analyse
+// d'en-tête du cœur.
 #include "cartridge/header.hpp"
 
 #include <algorithm>
@@ -21,6 +23,7 @@ using ravenemu::nds::parse_header;
 constexpr std::uint32_t arm9_address = 0x0200'0000U;
 constexpr std::uint32_t arm7_address = 0x037f'8000U;
 constexpr std::uint32_t arm9_offset = 0x200;
+constexpr std::uint32_t data_offset = 0x8000;
 
 std::vector<std::uint8_t> read_file(const char* path) {
     std::ifstream file{path, std::ios::binary};
@@ -42,18 +45,25 @@ void put_text(std::vector<std::uint8_t>& rom, std::size_t at, std::string_view t
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 4) {
-        std::fputs("usage : nds_make_rom arm9.bin arm7.bin sortie.nds\n", stderr);
+    if (argc != 4 && argc != 5) {
+        std::fputs("usage : nds_make_rom arm9.bin arm7.bin sortie.nds [données]\n", stderr);
         return 2;
     }
     const auto arm9 = read_file(argv[1]);
     const auto arm7 = read_file(argv[2]);
+    const auto data = argc == 5 ? read_file(argv[4]) : std::vector<std::uint8_t>{};
     if (arm9.empty() || arm7.empty()) {
         std::fputs("nds_make_rom : binaire ARM9 ou ARM7 vide ou illisible\n", stderr);
         return 1;
     }
     const auto arm7_offset = align(arm9_offset + arm9.size(), 0x200);
-    std::vector<std::uint8_t> rom(align(arm7_offset + arm7.size(), 0x200));
+    if (!data.empty() && arm7_offset + arm7.size() > data_offset) {
+        std::fputs("nds_make_rom : les binaires débordent sur les données à 0x8000\n", stderr);
+        return 1;
+    }
+    auto size = align(arm7_offset + arm7.size(), 0x200);
+    if (!data.empty()) size = align(data_offset + data.size(), 0x200);
+    std::vector<std::uint8_t> rom(size);
     put_text(rom, 0x000, "RAVENCORE");  // titre, 12 caractères au plus
     put_text(rom, 0x00c, "####");       // code de jeu des homebrews
     put_text(rom, 0x010, "00");         // fabricant
@@ -70,6 +80,11 @@ int main(int argc, char** argv) {
     };
     place(0x020, arm9_offset, arm9_address, arm9);
     place(0x030, arm7_offset, arm7_address, arm7);
+    std::copy(data.begin(), data.end(), rom.begin() + data_offset);
+    // ROMCTRL des commandes normales et de la zone sécurisée : valeurs par
+    // défaut des puces MROM (GBATEK).
+    put32(rom, 0x060, 0x0058'6000U);
+    put32(rom, 0x064, 0x0018'08f8U);
     put32(rom, 0x080, static_cast<std::uint32_t>(rom.size()));  // taille utilisée
     put32(rom, 0x084, 0x4000);                                   // taille de l'en-tête
     const auto crc = crc16(std::span<const std::uint8_t>{rom}.first(0x15e));
