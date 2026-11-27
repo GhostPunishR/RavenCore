@@ -12,7 +12,8 @@
  * - le nombre de démarrages, gardé dans l'EEPROM de sauvegarde, dont le cœur
  *   reconnaît seul le type ;
  * - le point touché sur l'écran tactile : l'ARM7 le lit par le bus SPI,
- *   l'ARM9 le convertit en pixels avec le calibrage des réglages utilisateur.
+ *   l'ARM9 le convertit en pixels avec le calibrage des réglages utilisateur ;
+ * - l'heure, que l'ARM7 lit sur l'horloge temps réel.
  */
 #include "ds.h"
 #include "font.h"
@@ -217,6 +218,19 @@ static void show_touch(Screen screen, unsigned y, uint32_t message) {
     text_number(screen, 9, y, PALETTE_TEXT, (uint32_t)touch_pixel(message & 0xfffu, 1), 3);
 }
 
+/* Heure reçue de l'ARM7 : trois octets BCD, affichés hh:mm:ss. */
+static void show_time(Screen screen, unsigned x, unsigned y, uint32_t message) {
+    char text[9];
+    for (unsigned field = 0; field < 3u; ++field) {
+        const uint32_t bcd = (message >> (16u - field * 8u)) & 0xffu;
+        text[field * 3u] = (char)('0' + (bcd >> 4u));
+        text[field * 3u + 1u] = (char)('0' + (bcd & 15u));
+        if (field < 2u) text[field * 3u + 2u] = ':';
+    }
+    text[8] = '\0';
+    text_print(screen, x, y, PALETTE_TEXT, text);
+}
+
 static void show_keys(Screen screen, unsigned y) {
     static const char* const names[10] = {"A", "B", "SELECT", "START", "DROITE", "GAUCHE", "HAUT", "BAS", "R", "L"};
     const unsigned pressed = ~(unsigned)KEYINPUT & 0x3ffu;
@@ -246,6 +260,7 @@ static void draw_labels(Screen top, Screen bottom) {
     text_print(top, 1, 12, PALETTE_MUTED, "TOUCHES");
     text_print(top, 1, 15, PALETTE_MUTED, "CARTOUCHE");
     text_print(top, 1, 18, PALETTE_MUTED, "TACTILE");
+    text_print(top, 1, 21, PALETTE_MUTED, "HEURE");
     text_print(bottom, 1, 1, PALETTE_ACCENT, "ECRAN DU BAS - MOTEUR B");
     text_print(bottom, 1, 3, PALETTE_TEXT, "DEUX PROCESSEURS ARM");
     text_print(bottom, 1, 4, PALETTE_TEXT, "DEUX MOTEURS 2D");
@@ -284,9 +299,11 @@ int main(void) {
         while ((IPCFIFOCNT & FIFO_RECV_EMPTY) == 0) {
             const uint32_t message = IPCFIFORECV;
             if ((message & TOUCH_REPLY) != 0) show_touch(top, 19, message);
+            else if ((message & TIME_REQUEST) != 0) show_time(top, 12, 21, message);
             else text_number(top, 12, 8, PALETTE_TEXT, message, 2);
         }
         IPCFIFOSEND = TOUCH_REQUEST;
+        IPCFIFOSEND = TIME_REQUEST;
         show_keys(top, 13);
     }
 }

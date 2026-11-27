@@ -42,6 +42,10 @@
 /* Messages de l'IPC entre les deux processeurs du homebrew. */
 #define TOUCH_REQUEST 0x40000000u /* ARM9 : position du crayon ? */
 #define TOUCH_REPLY 0x80000000u   /* ARM7 : bit 24 crayon posé, X en bits 12-23, Y en 0-11 */
+#define TIME_REQUEST 0x20000000u  /* ARM9 : heure ? ARM7 : même bit, heure, minute, seconde en BCD */
+
+/* Horloge temps réel de l'ARM7 : données (bit 0), /SCK (1), CS (2), directions (4-6). */
+#define RTC REG16(0x04000138u)
 
 /* Minuteurs : compteur et rechargement, puis contrôle. */
 #define TM0CNT_L REG16(0x04000100u)

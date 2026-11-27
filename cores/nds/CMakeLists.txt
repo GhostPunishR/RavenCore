@@ -12,6 +12,7 @@ add_library(nds_raven_core STATIC
     src/machine/machine.cpp
     src/memory/io7.cpp
     src/memory/io9.cpp
+    src/rtc/real_time_clock.cpp
     src/spi/firmware_image.cpp
     src/spi/spi_bus.cpp
 )
@@ -31,6 +32,12 @@ if(BUILD_TESTING)
     target_include_directories(nds_raven_machine_tests PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support)
     target_link_libraries(nds_raven_machine_tests PRIVATE nds_raven_core)
     add_test(NAME nds_raven_machine COMMAND nds_raven_machine_tests)
+
+    # Horloge temps réel, pilotée bit par bit.
+    add_executable(nds_raven_rtc_tests tests/nds_rtc_test.cpp)
+    target_include_directories(nds_raven_rtc_tests PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support)
+    target_link_libraries(nds_raven_rtc_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_raven_rtc COMMAND nds_raven_rtc_tests)
 endif()
 
 # Homebrew de démonstration, écrit pour RavenCore : il faut Clang et ld.lld

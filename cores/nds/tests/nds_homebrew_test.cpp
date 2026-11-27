@@ -59,6 +59,7 @@ int main(int argc, char** argv) {
     std::ifstream file{argv[1], std::ios::binary};
     std::vector<std::uint8_t> rom{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}};
     Machine machine{rom};
+    machine.set_date_time({2026, 11, 27, 21, 30, 45});
     for (int frame = 0; frame < 70; ++frame) machine.run_frame();
 
     check(row_text(machine, 0, 1) == " RAVENCORE - COEUR NDS" && row_text(machine, 0, 3) == " BONJOUR DEPUIS LE DS !",
@@ -74,6 +75,7 @@ int main(int argc, char** argv) {
     check(save.type() == SaveType::eeprom_64k, "puce reconnue seule : adresse de 2 octets, EEPROM de 64 Kio");
     check(save.dirty() && save.data()[0] == 'R' && save.data()[1] == 1, "sauvegarde écrite par le SPI de la cartouche");
     check(row_text(machine, 0, 13) == " AUCUNE", "aucune touche appuyée");
+    check(row_text(machine, 0, 21) == " HEURE      21:30:46", "heure lue par l'ARM7 sur l'horloge temps réel, une seconde plus tard");
     check(row_text(machine, 0, 16) == " LU SUR LA CARTOUCHE PAR DMA",
           "message lu dans la ROM par le bus de la cartouche (B7, DMA, IRQ de fin)");
     machine.hw.keys = 0x3ffU & ~(1U | 8U);  // A et START

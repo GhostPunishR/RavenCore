@@ -31,6 +31,7 @@ std::uint32_t Bus7::io_word(std::uint32_t address) {
     switch (offset) {
     case 0x004: return hw.lcd.read(1);
     case 0x130: return hw.keys | (hw.key_control[1] << 16U);
+    case 0x138: return hw.rtc.read();
     case 0x134: return hw.extended_keys << 16U;  // RCNT (0x134), puis EXTKEYIN
     case 0x180: return hw.ipc.read_sync(1);
     case 0x184: return hw.ipc.read_control(1);
@@ -67,6 +68,7 @@ void Bus7::io_write_word(std::uint32_t address, std::uint32_t value, std::uint32
             run_dma(*this, hw.dma7[(offset - 0x0b0) / 12], (offset - 0x0b0) / 12, false, hw.irq7);
         return;
     }
+    if (offset == 0x138) return hw.rtc.write(value, mask, now);
     switch (offset) {
     case 0x004: hw.lcd.write(1, value, mask); break;
     case 0x130: hw.key_control[1] = merge(hw.key_control[1], value >> 16U, mask >> 16U) & 0xc3ffU; break;
