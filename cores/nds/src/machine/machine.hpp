@@ -37,6 +37,9 @@ public:
     void run_until(Cycles target);
     // Jusqu'au début du V-Blank suivant.
     void run_frame();
+    // Écran tactile : point touché (pixels de l'écran du bas), ou relâché ;
+    // EXTKEYIN bit 6 suit le crayon.
+    void set_touch(bool pressed, unsigned x = 0, unsigned y = 0) noexcept;
     // Les deux écrans de la dernière image, en ARGB8888 : 256 × 192 en haut,
     // puis 256 × 192 en bas.
     [[nodiscard]] const std::vector<std::uint32_t>& frame() const noexcept { return hw.frame; }

@@ -27,6 +27,21 @@
 #define POWCNT1 REG16(0x04000304u)
 
 #define KEYINPUT REG16(0x04000130u) /* touches : bit à 0 = appuyée */
+#define EXTKEYIN REG16(0x04000136u) /* ARM7 : bit 6 à 0 = crayon posé */
+
+/* Bus SPI de l'ARM7 : contrôle, puis octet échangé. */
+#define SPICNT REG16(0x040001c0u)
+#define SPIDATA REG16(0x040001c2u)
+
+/* Diviseur de l'ARM9 : contrôle, numérateur, dénominateur, quotient. */
+#define DIVCNT REG32(0x04000280u)
+#define DIV_NUMER REG32(0x04000290u)
+#define DIV_DENOM REG32(0x04000298u)
+#define DIV_RESULT REG32(0x040002a0u)
+
+/* Messages de l'IPC entre les deux processeurs du homebrew. */
+#define TOUCH_REQUEST 0x40000000u /* ARM9 : position du crayon ? */
+#define TOUCH_REPLY 0x80000000u   /* ARM7 : bit 24 crayon posé, X en bits 12-23, Y en 0-11 */
 
 /* Minuteurs : compteur et rechargement, puis contrôle. */
 #define TM0CNT_L REG16(0x04000100u)

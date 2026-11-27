@@ -27,6 +27,7 @@ std::uint32_t Bus7::io_word(std::uint32_t address) {
     if (offset >= 0x100 && offset < 0x110) return hw.timers7.read(offset - 0x100, now);
     if (offset >= 0x0b0 && offset < 0x0e0) return dma_register(hw.dma7, offset);
     if (offset >= 0x1a0 && offset < 0x1c0) return hw.card_arm7() ? hw.card.read(offset - 0x1a0, now) : 0U;
+    if (offset == 0x1c0) return hw.spi.read(now);
     switch (offset) {
     case 0x004: return hw.lcd.read(1);
     case 0x130: return hw.keys | (hw.key_control[1] << 16U);
@@ -60,6 +61,7 @@ void Bus7::io_write_word(std::uint32_t address, std::uint32_t value, std::uint32
         if (hw.card_arm7()) hw.card.write(offset - 0x1a0, value, mask, now, hw.scheduler, instruction());
         return;
     }
+    if (offset == 0x1c0) return hw.spi.write(value, mask, now, hw.scheduler);
     if (offset >= 0x0b0 && offset < 0x0e0) {
         if (write_dma_register(hw.dma7, offset, value, mask, false))
             run_dma(*this, hw.dma7[(offset - 0x0b0) / 12], (offset - 0x0b0) / 12, false, hw.irq7);

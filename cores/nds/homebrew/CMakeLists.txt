@@ -39,7 +39,7 @@ function(ravenemu_nds_homebrew_binary name cpu script)
         VERBATIM)
 endfunction()
 
-ravenemu_nds_homebrew_binary(arm9 arm946e-s arm9.ld arm9.c font.c text.c runtime.c)
+ravenemu_nds_homebrew_binary(arm9 arm946e-s arm9.ld arm9.c font.c text.c runtime.c card_spi.s)
 ravenemu_nds_homebrew_binary(arm7 arm7tdmi arm7.ld arm7.c runtime.c)
 
 add_executable(nds_make_rom make_rom.cpp)

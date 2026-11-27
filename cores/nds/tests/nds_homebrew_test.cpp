@@ -80,6 +80,13 @@ int main(int argc, char** argv) {
     machine.run_frame();
     machine.run_frame();
     check(row_text(machine, 0, 13) == " A START", "touches A et START");
+    check(row_text(machine, 0, 19) == " LEVE", "crayon levé");
+    machine.set_touch(true, 100, 50);
+    for (int frame = 0; frame < 3; ++frame) machine.run_frame();
+    check(row_text(machine, 0, 19) == " X 100 Y 050", "point touché : lu par l'ARM7 sur le SPI, converti par l'ARM9");
+    machine.set_touch(false);
+    for (int frame = 0; frame < 3; ++frame) machine.run_frame();
+    check(row_text(machine, 0, 19) == " LEVE", "crayon relevé");
 
     // Moteur A en haut (POWCNT1 bit 15). Le « R » du titre (tuile en colonne
     // 1, rangée 1) commence par quatre points allumés.
