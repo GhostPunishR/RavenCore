@@ -78,6 +78,14 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
   - la SWI rend la taille décompressée, ou le code d'erreur négatif de Open ou de Close. Huffman recopie son arbre dans le tampon fourni par le jeu ;
   - comme le décrit GBATEK, l'écriture par demi-mots empêche LZ77 de relire l'octet qui vient d'être produit (déplacement 0).
 - Test : décompressions par fonctions de rappel dans `nds_raven_machine`. Il couvre les trois SWI sur l'ARM9, avec une fonction Thumb, un Close et un Open qui rendent une erreur, et LZ77 sur l'ARM7.
+- **Cœur NDS, homebrew de démonstration** (`cores/nds/homebrew/`), qui clôt l'étape 2 :
+  - écrit en C et en assembleur pour RavenCore, sans libnds, avec une police de 5 × 7 points dessinée pour lui ;
+  - compilé pour l'ARM9 (ARM946E-S) et l'ARM7 (ARM7TDMI) par Clang et ld.lld, puis réuni en ROM `.nds` par `nds_make_rom`. Cet outil écrit l'en-tête de GBATEK, sans logo ni zone sécurisée, et le fait valider par le cœur ;
+  - à l'écran, du texte sur les deux moteurs, avec les couleurs de RavenEmu ;
+  - il compte les images par VBlankIntrWait et les secondes par l'IRQ d'un minuteur ;
+  - il reçoit la réponse de l'ARM7 par la FIFO de l'IPC, et affiche le pseudo du firmware et les touches appuyées ;
+  - option `RAVENEMU_NDS_HOMEBREW`, activée dans la CI Linux, qui installe Clang et ld.lld et publie la ROM comme artefact `raven-hello-nds`. La ROM n'est jamais versionnée.
+- Test : `nds_raven_homebrew` démarre la ROM, relit le texte des deux écrans dans la VRAM, puis vérifie les compteurs, la réponse de l'ARM7, le pseudo, les touches A et START, et les couleurs de l'image. `RAVENEMU_NDS_SCREENSHOT=chemin.ppm` enregistre les deux écrans.
 
 ### Documentation
 

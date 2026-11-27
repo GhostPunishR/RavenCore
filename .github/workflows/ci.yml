@@ -21,9 +21,14 @@ jobs:
         run: cores/gba/tests/fetch_test_roms.sh "$RUNNER_TEMP/gba-test-roms"
       - name: Fetch public GB/GBC test ROMs
         run: cores/gbc/tests/fetch_test_roms.sh "$RUNNER_TEMP/gb-test-roms"
+      # NDS demonstration homebrew: own C sources, cross-compiled for the ARM9
+      # and the ARM7 by Clang and ld.lld from Ubuntu.
+      - name: Install Clang and ld.lld for the NDS homebrew
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang lld
       - name: Configure CMake
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          -DRAVENEMU_NDS_HOMEBREW=ON
           "-DRAVENEMU_GBA_TEST_ROMS=$RUNNER_TEMP/gba-test-roms"
           "-DRAVENEMU_GB_TEST_ROMS=$RUNNER_TEMP/gb-test-roms"
       - name: Build native engines and Libretro
@@ -56,6 +61,12 @@ jobs:
         with:
           name: ravenemu-libretro-linux-x86_64
           path: ravenemu-libretro-linux-x86_64.tar.gz
+          if-no-files-found: error
+      # Built from the repository's own sources, never committed.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: raven-hello-nds
+          path: build/cores/nds/homebrew/raven_hello.nds
           if-no-files-found: error
 
   sanitizers:
