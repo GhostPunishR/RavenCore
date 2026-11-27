@@ -223,7 +223,7 @@ melonDS mélange un échantillon toutes les 1 024 cycles, soit environ 32 728 Hz
   - Flash de 256 Kio à 1 Mio ;
   - NAND de 8 à 64 Mio, pour quelques jeux.
 
-  melonDS choisit le type dans sa base de jeux. RavenCore ne la reprend pas (voir le [premier tableau](#règle-de-travail--une-carte-pas-une-source)). Il déduit le type des premières commandes du jeu et d'un fichier de sauvegarde existant, et l'hôte peut forcer le type, comme pour le GBA (`ravenemu_set_gba_save_type`).
+  melonDS choisit le type dans sa base de jeux. RavenCore ne la reprend pas (voir le [premier tableau](#règle-de-travail--une-carte-pas-une-source)). Il déduit déjà le type de la taille d'un fichier de sauvegarde existant, et l'hôte peut le forcer, comme pour le GBA (`ravenemu_set_gba_save_type`) ; la détection par les premières commandes du jeu reste à écrire.
 - **Variantes :** cartouche à infrarouge (Pokémon HeartGold et SoulSilver), cartouche à NAND, cartouche Bluetooth, et homebrew avec un pilote DLDI (`melonDLDI`). Elles restent hors de la première version.
 
 ### SPI, horloge, Wi-Fi, micro
@@ -312,7 +312,7 @@ Chaque étape se termine par des tests automatisés et un résultat montrable.
 
 La DMA et les décompressions du BIOS sans fonction de rappel sont faites aussi. Les objets (sprites) normaux et affines aussi. Les fonds affines, étendus et bitmap aussi. Les fenêtres et les effets de couleur aussi. Les palettes étendues, les objets bitmap et la mosaïque aussi. Les décompressions par fonctions de rappel aussi, en code ARM du BIOS de RavenCore. L'étape 2 se clôt sur son résultat montrable : `cores/nds/homebrew/`, un homebrew en mode texte écrit en C pour RavenCore, sans libnds, et compilé par Clang et ld.lld. Il affiche du texte sur les deux écrans, compte les images et les secondes par IRQ, échange avec l'ARM7 par l'IPC, lit le pseudo du firmware et les touches ; `nds_raven_homebrew` le vérifie à chaque CI.
 
-L'étape 3 commence par le bus de la cartouche (`cartridge/game_card.cpp`) : registres AUXSPICNT, ROMCTRL et commande, commandes B7 (données) et B8 (identifiant de la puce) du mode principal, temps de transfert, DMA « cartouche », IRQ de fin et attribution du slot par EXMEMCNT. Le homebrew y lit un message dans sa ROM. Restent pour l'étape 3 les sauvegardes, l'écran tactile, l'horloge et le son.
+L'étape 3 commence par le bus de la cartouche (`cartridge/game_card.cpp`) : registres AUXSPICNT, ROMCTRL et commande, commandes B7 (données) et B8 (identifiant de la puce) du mode principal, temps de transfert, DMA « cartouche », IRQ de fin et attribution du slot par EXMEMCNT. Le homebrew y lit un message dans sa ROM. Les sauvegardes suivent (`cartridge/save_memory.cpp`) : EEPROM de 0,5 à 128 Kio, FRAM de 8 et 32 Kio et Flash de 256 Kio à 8 Mio, sur le SPI de la cartouche. Leur type vient de l'hôte ou de la taille d'un fichier de sauvegarde ; le homebrew y compte ses démarrages. Restent pour l'étape 3 la détection du type par les commandes du jeu, l'écran tactile, l'horloge et le son.
 
 1. **Fondations :**
    - le CPU ARM partagé ;

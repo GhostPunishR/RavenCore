@@ -26,7 +26,7 @@ std::uint32_t Bus7::io_word(std::uint32_t address) {
     const auto offset = address & 0xfffU;
     if (offset >= 0x100 && offset < 0x110) return hw.timers7.read(offset - 0x100, now);
     if (offset >= 0x0b0 && offset < 0x0e0) return dma_register(hw.dma7, offset);
-    if (offset >= 0x1a0 && offset < 0x1c0) return hw.card_arm7() ? hw.card.read(offset - 0x1a0) : 0U;
+    if (offset >= 0x1a0 && offset < 0x1c0) return hw.card_arm7() ? hw.card.read(offset - 0x1a0, now) : 0U;
     switch (offset) {
     case 0x004: return hw.lcd.read(1);
     case 0x130: return hw.keys | (hw.key_control[1] << 16U);

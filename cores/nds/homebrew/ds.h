@@ -51,6 +51,7 @@
 /* Bus de la cartouche : AUXSPICNT, ROMCTRL, commande de 8 octets (premier
  * octet à l'adresse basse), mots reçus. */
 #define AUXSPICNT REG16(0x040001a0u)
+#define AUXSPIDATA REG16(0x040001a2u)
 #define ROMCTRL REG32(0x040001a4u)
 #define CARD_COMMAND ((volatile uint32_t*)0x040001a8u)
 #define CARD_DATA 0x04100010u
