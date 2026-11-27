@@ -36,6 +36,7 @@ Les tests GB/GBC disposent aussi d'un [runner de conformité](cores/gbc/tests/RE
 | `cores/gbc/` | Moteur Game Boy Color, qui émule aussi la Game Boy : un seul cœur pour les deux consoles |
 | `cores/gba/` | Moteur Game Boy Advance |
 | `cores/nds/` | Moteur Nintendo DS, en construction : pas encore d'API ni de cœur Libretro ([plan](docs/nds_melonds_map.md)) |
+| `cores/nds/homebrew/` | Homebrew de démonstration du cœur NDS, en C sans libnds, compilé par Clang et ld.lld avec `-DRAVENEMU_NDS_HOMEBREW=ON` ; la ROM `raven_hello.nds` reste dans le répertoire de build |
 | `libretro/` | Adaptateurs, métadonnées et tests Libretro |
 | `sdk/` | API C (`bridge.h`), fabrique C++ et paquet CMake |
 

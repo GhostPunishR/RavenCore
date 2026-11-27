@@ -301,7 +301,7 @@ Le dossier `cores/nds/` suivrait les règles du dépôt : un dossier par composa
 
 Chaque étape se termine par des tests automatisés et un résultat montrable.
 
-**Avancement.** L'étape 1 est faite, avec une partie de l'étape 2 :
+**Avancement.** Les étapes 1 et 2 sont faites :
 - le CPU ARM commun (`cores/common/arm/`), en ARMv4T et ARMv5TE ;
 - dans `cores/nds/` : l'ordonnanceur à deux CPU, CP15 et les TCM, les deux bus et leurs temps d'accès d'après GBATEK ;
 - les interruptions, l'IPC, le diviseur et la racine carrée, les timers, le balayage de l'écran et le clavier ;
@@ -310,7 +310,7 @@ Chaque étape se termine par des tests automatisés et un résultat montrable.
 - la VRAM et sa projection, les deux moteurs 2D en mode texte et l'image des deux écrans ;
 - les réglages utilisateur du firmware, générés.
 
-La DMA et les décompressions du BIOS sans fonction de rappel sont faites aussi. Les objets (sprites) normaux et affines aussi. Les fonds affines, étendus et bitmap aussi. Les fenêtres et les effets de couleur aussi. Les palettes étendues, les objets bitmap et la mosaïque aussi. Les décompressions par fonctions de rappel aussi, en code ARM du BIOS de RavenCore. Reste pour clore l'étape 2 son résultat montrable : un homebrew en mode texte, écrit pour RavenCore avec une chaîne libre.
+La DMA et les décompressions du BIOS sans fonction de rappel sont faites aussi. Les objets (sprites) normaux et affines aussi. Les fonds affines, étendus et bitmap aussi. Les fenêtres et les effets de couleur aussi. Les palettes étendues, les objets bitmap et la mosaïque aussi. Les décompressions par fonctions de rappel aussi, en code ARM du BIOS de RavenCore. L'étape 2 se clôt sur son résultat montrable : `cores/nds/homebrew/`, un homebrew en mode texte écrit en C pour RavenCore, sans libnds, et compilé par Clang et ld.lld. Il affiche du texte sur les deux écrans, compte les images et les secondes par IRQ, échange avec l'ARM7 par l'IPC, lit le pseudo du firmware et les touches ; `nds_raven_homebrew` le vérifie à chaque CI.
 
 1. **Fondations :**
    - le CPU ARM partagé ;

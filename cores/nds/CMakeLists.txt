@@ -28,3 +28,10 @@ if(BUILD_TESTING)
     target_link_libraries(nds_raven_machine_tests PRIVATE nds_raven_core)
     add_test(NAME nds_raven_machine COMMAND nds_raven_machine_tests)
 endif()
+
+# Homebrew de démonstration, écrit pour RavenCore : il faut Clang et ld.lld
+# (cibles ARM), d'où une option, activée par la CI Linux.
+option(RAVENEMU_NDS_HOMEBREW "Construire et tester le homebrew de démonstration du cœur NDS (Clang et ld.lld)" OFF)
+if(RAVENEMU_NDS_HOMEBREW)
+    add_subdirectory(homebrew)
+endif()
