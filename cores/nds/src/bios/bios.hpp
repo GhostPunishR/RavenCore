@@ -46,7 +46,10 @@ public:
             if (Arm9) ++unsupported;
             else halt();
             break;
-        case 0x08: break;  // SoundBias (ARM7) : le biais du son n'est pas modélisé
+        case 0x08:  // SoundBias (ARM7) : biais à 0 ou 200h, sans la rampe
+            if (Arm9) ++unsupported;
+            else hw_.sound.set_bias_level(r[0] != 0);
+            break;
         case 0x09: divide(); break;
         case 0x0b: copy_or_fill(false); break;
         case 0x0c: copy_or_fill(true); break;
