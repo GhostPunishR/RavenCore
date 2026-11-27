@@ -59,7 +59,6 @@ int main(int argc, char** argv) {
     std::ifstream file{argv[1], std::ios::binary};
     std::vector<std::uint8_t> rom{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}};
     Machine machine{rom};
-    machine.hw.card.save().set_type(SaveType::eeprom_8k);
     for (int frame = 0; frame < 70; ++frame) machine.run_frame();
 
     check(row_text(machine, 0, 1) == " RAVENCORE - COEUR NDS" && row_text(machine, 0, 3) == " BONJOUR DEPUIS LE DS !",
@@ -72,6 +71,7 @@ int main(int argc, char** argv) {
     check(row_text(machine, 0, 9) == " PSEUDO     RAVENEMU", "pseudo des réglages du firmware");
     check(number_at(machine, 10) == 1, "premier démarrage compté dans l'EEPROM");
     const auto& save = machine.hw.card.save();
+    check(save.type() == SaveType::eeprom_64k, "puce reconnue seule : adresse de 2 octets, EEPROM de 64 Kio");
     check(save.dirty() && save.data()[0] == 'R' && save.data()[1] == 1, "sauvegarde écrite par le SPI de la cartouche");
     check(row_text(machine, 0, 13) == " AUCUNE", "aucune touche appuyée");
     check(row_text(machine, 0, 16) == " LU SUR LA CARTOUCHE PAR DMA",
@@ -94,11 +94,11 @@ int main(int argc, char** argv) {
     if (const char* path = std::getenv("RAVENEMU_NDS_SCREENSHOT")) write_screenshot(machine, path);
 
     // Deuxième démarrage avec le fichier de sauvegarde du premier : son type
-    // vient de sa taille (8 Kio).
+    // vient de sa taille (64 Kio).
     const std::vector<std::uint8_t> file_data{save.data().begin(), save.data().end()};
     Machine again{rom};
-    check(again.hw.card.save().load(file_data) && again.hw.card.save().type() == SaveType::eeprom_8k,
-          "fichier de 8 Kio : EEPROM de 8 Kio");
+    check(again.hw.card.save().load(file_data) && again.hw.card.save().type() == SaveType::eeprom_64k,
+          "fichier de 64 Kio : EEPROM de 64 Kio");
     for (int frame = 0; frame < 10; ++frame) again.run_frame();
     check(number_at(again, 10) == 2, "deuxième démarrage : le compte repris de la sauvegarde");
     return 0;

@@ -57,7 +57,7 @@ void Bus7::io_write_word(std::uint32_t address, std::uint32_t value, std::uint32
     const auto offset = address & 0xfffU;
     if (offset >= 0x100 && offset < 0x110) return hw.timers7.write(offset - 0x100, value, mask, now);
     if (offset >= 0x1a0 && offset < 0x1c0) {
-        if (hw.card_arm7()) hw.card.write(offset - 0x1a0, value, mask, now, hw.scheduler);
+        if (hw.card_arm7()) hw.card.write(offset - 0x1a0, value, mask, now, hw.scheduler, instruction());
         return;
     }
     if (offset >= 0x0b0 && offset < 0x0e0) {

@@ -65,6 +65,7 @@ public:
     }
 
     SwiHook swi;
+    InstructionHook instruction;
 
 private:
     struct Sequence {

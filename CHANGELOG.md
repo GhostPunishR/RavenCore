@@ -101,6 +101,13 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
   - type choisi par l'hôte (`SaveType`) ou déduit de la taille d'un fichier de sauvegarde ; `dirty()` signale à l'hôte une écriture à enregistrer. La détection par les commandes du jeu reste à écrire.
 - Homebrew : il compte ses démarrages dans une EEPROM de 8 Kio.
 - Tests : `save_memory_test` et `card_spi_test` dans `nds_raven_hardware` ; dans `nds_raven_homebrew`, un premier démarrage compté, puis un second démarrage depuis le fichier de sauvegarde du premier.
+- **Cœur NDS, détection du type de la puce de sauvegarde** (GBATEK, « DS Cartridge Backup », « Detection (in emulators) ») :
+  - une cartouche neuve a une puce de type `automatic`. Le SDK envoie la commande et l'adresse depuis une fonction, les données depuis une autre : les octets écrits par l'instruction de la commande donnent la largeur d'adresse, dès le premier octet de données ;
+  - 1 octet : EEPROM de 0,5 Kio ; 2 octets : EEPROM de 64 Kio (qui garde aussi les données des puces de 8 Kio et des FRAM) ; 3 octets : EEPROM de 128 Kio sur WR (02h), Flash de 1 Mio sur PW, PE, SE ou une lecture. Une Flash choisie par une lecture devient l'EEPROM de 128 Kio si la première écriture est WR ;
+  - la commande en cours est rejouée sur la puce choisie ; un effacement se décide en fin de commande ; un fichier de sauvegarde garde la priorité (type d'après sa taille) ;
+  - les bus donnent à la cartouche l'adresse de l'instruction qui écrit AUXSPIDATA (`InstructionHook`, `Cpu::instruction_address`).
+- Homebrew : commande et adresse de l'EEPROM partent d'une fonction, les données d'une autre ; son type est reconnu seul.
+- Tests : `save_detection_test` dans `nds_raven_hardware` (largeurs de 1, 2 et 3 octets, instruction unique, bascule vers l'EEPROM de 128 Kio, Flash confirmée, effacement, fichier) ; `nds_raven_homebrew` démarre sans type imposé.
 
 ### Documentation
 

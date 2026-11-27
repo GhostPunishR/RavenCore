@@ -6,6 +6,10 @@ namespace ravenemu::nds {
 
 namespace {
 
+constexpr bool addressed_command(std::uint8_t command) noexcept {
+    return command == 0x02 || command == 0x03 || command == 0x0a || command == 0x0b || command == 0xd8 || command == 0xdb;
+}
+
 // Identifiants JEDEC des puces Flash de GBATEK : ST M45PE20, 45PE40, 45PE80,
 // Macronix MX25L6445E.
 constexpr std::array<std::uint8_t, 3> flash_id(SaveType type) noexcept {
@@ -21,7 +25,8 @@ constexpr std::array<std::uint8_t, 3> flash_id(SaveType type) noexcept {
 
 std::size_t save_size(SaveType type) noexcept {
     switch (type) {
-    case SaveType::none: return 0;
+    case SaveType::none:
+    case SaveType::automatic: return 0;
     case SaveType::eeprom_512: return 512;
     case SaveType::eeprom_8k:
     case SaveType::fram_8k: return 8 * 1024;
@@ -48,13 +53,20 @@ SaveType save_type_for_size(std::size_t size) noexcept {
 void SaveMemory::set_type(SaveType type) {
     type_ = type;
     data_.assign(save_size(type), 0xff);
-    selected_ = powered_down_ = write_enable_ = false;
+    selected_ = powered_down_ = write_enable_ = provisional_ = false;
     protect_ = 0;
     dirty_ = false;
 }
 
+// Change de puce au milieu d'une commande : WEL et la sélection restent.
+void SaveMemory::become(SaveType type) {
+    type_ = type;
+    data_.assign(save_size(type), 0xff);
+    provisional_ = false;
+}
+
 bool SaveMemory::load(std::span<const std::uint8_t> data) {
-    if (type_ == SaveType::none) {
+    if (type_ == SaveType::none || type_ == SaveType::automatic) {
         const auto type = save_type_for_size(data.size());
         if (type == SaveType::none) return false;
         set_type(type);
@@ -110,21 +122,66 @@ void SaveMemory::start(std::uint8_t command) noexcept {
     command_ = command;
     received_ = 0;
     address_ = 0;
+    pending_count_ = 0;
     if (powered_down_) return;
+    // Flash choisie par une lecture : la première écriture tranche.
+    if (provisional_ && (command == 0x02 || command == 0x0a || command == 0xdb || command == 0xd8)) {
+        if (command == 0x02) become(SaveType::eeprom_128k);
+        provisional_ = false;
+    }
     if (command == 0x06) write_enable_ = true;
     if (command == 0x04) write_enable_ = false;
     if (command == 0xb9 && flash()) powered_down_ = true;
 }
 
-std::uint8_t SaveMemory::transfer(std::uint8_t value) {
+std::uint8_t SaveMemory::transfer(std::uint8_t value, std::uint32_t instruction) {
     if (type_ == SaveType::none) return 0xff;
     if (!selected_) {
         start(value);
+        command_instruction_ = instruction;
         return 0xff;
     }
     if (powered_down_) return 0xff;
+    if (type_ == SaveType::automatic) return detect(value, instruction);
     ++received_;
     return data_byte(value);
+}
+
+// Type inconnu : les octets d'adresse s'accumulent tant que l'instruction de
+// la commande les écrit ; le premier octet venu d'ailleurs fixe la largeur
+// d'adresse, puis la commande est rejouée sur la puce choisie.
+std::uint8_t SaveMemory::detect(std::uint8_t value, std::uint32_t instruction) {
+    if (!addressed_command(command_)) {
+        ++received_;
+        return data_byte(value);  // RDSR, RDID, WRSR : réponses communes
+    }
+    if (instruction == command_instruction_ && pending_count_ < pending_.size()) {
+        pending_[pending_count_++] = value;
+        return 0xff;
+    }
+    if (!decide()) return 0xff;  // largeur inconnue : rien n'est choisi
+    ++received_;
+    return data_byte(value);
+}
+
+// Choisit la puce d'après la largeur d'adresse retenue, puis rejoue la
+// commande et son adresse. Rend false si la largeur ne dit rien.
+bool SaveMemory::decide() {
+    const auto width = pending_count_;
+    if (width == 0 || width > 3) return false;
+    const auto address = pending_;
+    if (width == 1) become(SaveType::eeprom_512);
+    else if (width == 2) become(SaveType::eeprom_64k);
+    else if (command_ == 0x02) become(SaveType::eeprom_128k);
+    else {
+        become(SaveType::flash_1m);
+        provisional_ = command_ == 0x03 || command_ == 0x0b;
+    }
+    for (unsigned index = 0; index < width; ++index) {
+        ++received_;
+        static_cast<void>(data_byte(address[index]));
+    }
+    return true;
 }
 
 // Octet suivant la commande : adresse, octet muet, puis données.
@@ -184,6 +241,7 @@ void SaveMemory::erase(std::uint32_t size) {
 // réveille la Flash.
 void SaveMemory::deselect() noexcept {
     if (!selected_) return;
+    if (type_ == SaveType::automatic && (command_ == 0xdb || command_ == 0xd8)) static_cast<void>(decide());
     selected_ = false;
     if (powered_down_) {
         if (command_ == 0xab) powered_down_ = false;

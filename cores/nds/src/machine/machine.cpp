@@ -15,6 +15,8 @@ Machine::Machine(std::vector<std::uint8_t> rom) : header(parse_header(rom)) {
                     return static_cast<Bios<Arm7, Bus7, false>*>(bios)->call(comment, thumb);
                 },
                 &bios7};
+    bus9.instruction = {[](const void* cpu) { return static_cast<const Arm9*>(cpu)->instruction_address(); }, &arm9};
+    bus7.instruction = {[](const void* cpu) { return static_cast<const Arm7*>(cpu)->instruction_address(); }, &arm7};
     direct_boot();
     hw.lcd.start(hw.scheduler, hw.now);
 }

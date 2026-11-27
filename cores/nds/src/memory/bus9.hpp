@@ -19,6 +19,15 @@ struct SwiHook {
     void* context{};
 };
 
+// Adresse de l'instruction qui accède au bus, donnée par la machine : la
+// cartouche s'en sert pour reconnaître la largeur d'adresse de sa puce de
+// sauvegarde (save_memory.hpp).
+struct InstructionHook {
+    std::uint32_t (*address)(const void* cpu){};
+    const void* cpu{};
+    [[nodiscard]] std::uint32_t operator()() const { return address != nullptr ? address(cpu) : 0U; }
+};
+
 class Bus9 {
 public:
     explicit Bus9(Hardware& hardware) : hw_(hardware), bios_(bios_image(arm9_bios_code, arm9_bios_size)) {}
@@ -91,6 +100,7 @@ public:
     }
 
     SwiHook swi;
+    InstructionHook instruction;
     // Levé à chaque écriture dans CP15 : la machine en recopie les réglages
     // (vecteurs, changement d'état par LDR PC) dans le CPU.
     bool cp15_changed{};
