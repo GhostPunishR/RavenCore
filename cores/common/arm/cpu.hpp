@@ -110,6 +110,8 @@ public:
 
     // Adresse de la prochaine instruction.
     [[nodiscard]] std::uint32_t pc() const noexcept { return branch_target_; }
+    // Adresse de l'instruction en cours d'exécution (pendant un accès au bus).
+    [[nodiscard]] std::uint32_t instruction_address() const noexcept { return current_; }
 
     // Pendant un appel de `software_interrupt` : refaire la même instruction
     // ensuite. Un BIOS pris par l'hôte s'en sert pour attendre (IntrWait).

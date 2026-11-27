@@ -596,6 +596,52 @@ void save_memory_test() {
           "fichier de 64 Kio : EEPROM de 64 Kio ; taille inconnue refusée");
 }
 
+// Détection du type de la puce de sauvegarde, d'après GBATEK (« Detection (in
+// emulators) ») : commande et adresse viennent d'une instruction, les données
+// d'une autre.
+void save_detection_test() {
+    constexpr std::uint32_t command_instruction = 0x0380'0670U;
+    constexpr std::uint32_t data_instruction = 0x0380'06b4U;
+    SaveMemory chip;
+    const auto command = [&](std::initializer_list<std::uint8_t> head, std::initializer_list<std::uint8_t> data) {
+        std::vector<std::uint8_t> replies;
+        for (const auto byte : head) replies.push_back(chip.transfer(byte, command_instruction));
+        for (const auto byte : data) replies.push_back(chip.transfer(byte, data_instruction));
+        chip.deselect();
+        return replies;
+    };
+    chip.set_type(SaveType::automatic);
+    check(command({0x05}, {0})[1] == 0x00 && chip.type() == SaveType::automatic, "RDSR avant détection : 00h");
+    command({0x03, 0x00, 0x00, 0x00, 0x00}, {});
+    check(chip.type() == SaveType::automatic, "tout depuis la même instruction : type encore inconnu");
+    command({0x0b, 0x05}, {0x00});
+    check(chip.type() == SaveType::eeprom_512, "1 octet d'adresse : EEPROM de 0,5 Kio");
+    chip.set_type(SaveType::automatic);
+    command({0x06}, {});
+    command({0x02, 0x01, 0x23}, {0x5a});
+    check(chip.type() == SaveType::eeprom_64k && chip.data()[0x0123] == 0x5a, "2 octets d'adresse : EEPROM de 64 Kio, écriture rejouée");
+    chip.set_type(SaveType::automatic);
+    command({0x03, 0x00, 0x00, 0x10}, {0x00});
+    check(chip.type() == SaveType::flash_1m, "3 octets, lecture : Flash de 1 Mio en attendant une écriture");
+    command({0x06}, {});
+    command({0x02, 0x00, 0x00, 0x10}, {0x0f});
+    command({0x06}, {});
+    command({0x02, 0x00, 0x00, 0x10}, {0xf0});
+    check(chip.type() == SaveType::eeprom_128k && chip.data()[0x10] == 0xf0, "puis WR : EEPROM de 128 Kio, qui écrit sans effacer");
+    chip.set_type(SaveType::automatic);
+    command({0x03, 0x00, 0x00, 0x10}, {0x00});
+    command({0x06}, {});
+    command({0x0a, 0x00, 0x00, 0x10}, {0x3c});
+    check(chip.type() == SaveType::flash_1m && chip.data()[0x10] == 0x3c, "puis PW : la Flash se confirme");
+    chip.set_type(SaveType::automatic);
+    command({0x06}, {});
+    command({0xd8, 0x01, 0x00, 0x00}, {});
+    check(chip.type() == SaveType::flash_1m, "effacement sans données : décidé en fin de commande, Flash");
+    chip.set_type(SaveType::automatic);
+    check(chip.load(std::vector<std::uint8_t>(512 * 1024, 0)) && chip.type() == SaveType::flash_512k,
+          "fichier de 512 Kio sur une puce inconnue : Flash de 512 Kio");
+}
+
 // SPI de la cartouche : AUXSPIDATA échange un octet ; bit 6 maintient la puce
 // sélectionnée ; le bus reste occupé 64 << débit cycles.
 void card_spi_test() {
@@ -815,6 +861,7 @@ int main() {
     windows_and_effects_test();
     game_card_test();
     save_memory_test();
+    save_detection_test();
     card_spi_test();
     extended_palettes_test();
     bitmap_objects_test();

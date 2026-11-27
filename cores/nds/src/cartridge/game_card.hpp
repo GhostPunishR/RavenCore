@@ -53,7 +53,10 @@ public:
 
     // Mots d'E/S de 0x040001A0 à 0x040001BF, `offset` depuis 0x040001A0.
     [[nodiscard]] std::uint32_t read(std::uint32_t offset, Cycles now) const noexcept;
-    void write(std::uint32_t offset, std::uint32_t value, std::uint32_t mask, Cycles now, Scheduler& scheduler);
+    // `instruction` : adresse de l'instruction qui écrit (détection du type
+    // de la puce de sauvegarde).
+    void write(std::uint32_t offset, std::uint32_t value, std::uint32_t mask, Cycles now, Scheduler& scheduler,
+               std::uint32_t instruction = 0);
     // 0x04100010 : le mot reçu. Lire un mot prêt lance le suivant, ou finit
     // le transfert.
     std::uint32_t read_data(Cycles now, Scheduler& scheduler, InterruptController& irq);
@@ -67,7 +70,7 @@ private:
     void start(Cycles now, Scheduler& scheduler);
     void finish(InterruptController& irq) noexcept;
     void write_spi_control(std::uint32_t value, std::uint32_t mask);
-    void spi_transfer(std::uint8_t value, Cycles now);
+    void spi_transfer(std::uint8_t value, Cycles now, std::uint32_t instruction);
 
     std::vector<std::uint8_t> rom_;
     std::uint32_t chip_id_{};

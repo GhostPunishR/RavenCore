@@ -124,7 +124,7 @@ void Bus9::io_write_word(std::uint32_t address, std::uint32_t value, std::uint32
     if (offset >= 0x280 && offset < 0x2b0) return hw.divider.write(offset, value, mask, now);
     if (offset >= 0x2b0 && offset < 0x2c0) return hw.square_root.write(offset, value, mask, now);
     if (offset >= 0x1a0 && offset < 0x1c0) {
-        if (!hw.card_arm7()) hw.card.write(offset - 0x1a0, value, mask, now, hw.scheduler);
+        if (!hw.card_arm7()) hw.card.write(offset - 0x1a0, value, mask, now, hw.scheduler, instruction());
         return;
     }
     switch (offset) {

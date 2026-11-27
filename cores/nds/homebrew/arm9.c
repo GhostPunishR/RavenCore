@@ -9,7 +9,8 @@
  * - les touches appuyées ;
  * - un message lu dans la ROM par le bus de la cartouche (commande B7, DMA
  *   « cartouche », IRQ de fin de transfert attendue par IntrWait) ;
- * - le nombre de démarrages, gardé dans l'EEPROM de sauvegarde de 8 Kio.
+ * - le nombre de démarrages, gardé dans l'EEPROM de sauvegarde, dont le cœur
+ *   reconnaît seul le type.
  */
 #include "ds.h"
 #include "font.h"
@@ -95,35 +96,50 @@ static void card_read_block(uint32_t address, uint32_t* destination) {
     cache_invalidate(destination, BLOCK_WORDS * 4u);
 }
 
-/* Un octet sur le SPI de la cartouche (mode sauvegarde) ; `last` relâche la
- * puce après lui (AUXSPICNT bit 6 à 0, GBATEK, « DS Cartridge I/O Ports »). */
-static uint8_t spi_byte(uint8_t value, int last) {
+/* Le SPI de la cartouche, en mode sauvegarde : `last` relâche la puce après
+ * l'octet (AUXSPICNT bit 6 à 0, GBATEK, « DS Cartridge I/O Ports »). Comme
+ * le SDK, la commande et l'adresse partent d'une fonction, les données d'une
+ * autre : le cœur en déduit la largeur d'adresse de la puce. */
+static void spi_select(int last) {
     AUXSPICNT = (uint16_t)(0xa000u | (last ? 0u : 0x40u)); /* slot activé, mode SPI */
-    AUXSPIDATA = value;
+}
+static void spi_wait(void) {
     while ((AUXSPICNT & 0x80u) != 0) {
     }
+}
+__attribute__((noinline)) static void spi_command(const uint8_t* bytes, unsigned count, int last) {
+    for (unsigned index = 0; index < count; ++index) {
+        spi_select(last && index + 1u == count);
+        AUXSPIDATA = bytes[index];
+        spi_wait();
+    }
+}
+__attribute__((noinline)) static uint8_t spi_data(uint8_t value, int last) {
+    spi_select(last);
+    AUXSPIDATA = value;
+    spi_wait();
     return (uint8_t)AUXSPIDATA;
 }
 
-/* Compteur de démarrages dans l'EEPROM de 8 Kio (adresse de 2 octets) : « R »
- * puis le compte, à l'adresse 0 (GBATEK, « DS Cartridge Backup »). */
+/* Compteur de démarrages dans une EEPROM à adresse de 2 octets : « R » puis le
+ * compte, à l'adresse 0 (GBATEK, « DS Cartridge Backup »). */
 static unsigned count_boot(void) {
-    spi_byte(0x03, 0); /* RD, adresse 0000h */
-    spi_byte(0x00, 0);
-    spi_byte(0x00, 0);
-    const uint8_t marker = spi_byte(0, 0);
-    const uint8_t stored = spi_byte(0, 1);
+    static const uint8_t read[] = {0x03, 0x00, 0x00};  /* RD, adresse 0000h */
+    static const uint8_t enable[] = {0x06};            /* WREN */
+    static const uint8_t write[] = {0x02, 0x00, 0x00}; /* WR, adresse 0000h */
+    static const uint8_t status[] = {0x05};            /* RDSR */
+    spi_command(read, 3, 0);
+    const uint8_t marker = spi_data(0, 0);
+    const uint8_t stored = spi_data(0, 1);
     const unsigned count = (marker == 'R' ? stored : 0u) + 1u;
-    spi_byte(0x06, 1); /* WREN */
-    spi_byte(0x02, 0); /* WR, adresse 0000h */
-    spi_byte(0x00, 0);
-    spi_byte(0x00, 0);
-    spi_byte('R', 0);
-    spi_byte((uint8_t)count, 1);
-    spi_byte(0x05, 0); /* RDSR jusqu'à la fin de l'écriture (WIP) */
-    while ((spi_byte(0, 0) & 1u) != 0) {
+    spi_command(enable, 1, 1);
+    spi_command(write, 3, 0);
+    spi_data('R', 0);
+    spi_data((uint8_t)count, 1);
+    spi_command(status, 1, 0); /* jusqu'à la fin de l'écriture (WIP) */
+    while ((spi_data(0, 0) & 1u) != 0) {
     }
-    spi_byte(0, 1);
+    spi_data(0, 1);
     return count & 0xffu;
 }
 

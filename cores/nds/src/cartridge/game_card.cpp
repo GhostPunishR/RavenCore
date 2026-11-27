@@ -30,6 +30,7 @@ std::uint32_t cartridge_chip_id(const CartridgeHeader& header) noexcept {
 void GameCard::insert(std::vector<std::uint8_t> rom, std::uint32_t chip_id) {
     rom_ = std::move(rom);
     chip_id_ = chip_id;
+    save_.set_type(SaveType::automatic);
     const auto megabytes = ((chip_id >> 8U) & 0x7fU) + 1U;
     chip_mask_ = std::bit_ceil(megabytes << 20U) - 1U;
     // État laissé par le BIOS : ROMCTRL des commandes normales (en-tête,
@@ -48,11 +49,12 @@ std::uint32_t GameCard::read(std::uint32_t offset, Cycles now) const noexcept {
     }
 }
 
-void GameCard::write(std::uint32_t offset, std::uint32_t value, std::uint32_t mask, Cycles now, Scheduler& scheduler) {
+void GameCard::write(std::uint32_t offset, std::uint32_t value, std::uint32_t mask, Cycles now, Scheduler& scheduler,
+                     std::uint32_t instruction) {
     switch (offset) {
     case 0x00:
         write_spi_control(value, mask);
-        if ((mask & 0x00ff'0000U) != 0) spi_transfer(static_cast<std::uint8_t>(value >> 16U), now);
+        if ((mask & 0x00ff'0000U) != 0) spi_transfer(static_cast<std::uint8_t>(value >> 16U), now, instruction);
         break;
     case 0x04:
         // Bits 15 (graine) et 31 (départ) en écriture seule, 23 en lecture
@@ -80,9 +82,9 @@ void GameCard::write_spi_control(std::uint32_t value, std::uint32_t mask) {
 
 // AUXSPIDATA : un octet échangé avec la puce, en mode SPI seulement. Sans
 // AUXSPICNT bit 6, la puce est relâchée après l'octet.
-void GameCard::spi_transfer(std::uint8_t value, Cycles now) {
+void GameCard::spi_transfer(std::uint8_t value, Cycles now, std::uint32_t instruction) {
     if ((spi_control_ & (slot_enabled | spi_mode)) != (slot_enabled | spi_mode)) return;
-    spi_data_ = save_.transfer(value);
+    spi_data_ = save_.transfer(value, instruction);
     if ((spi_control_ & spi_hold) == 0) save_.deselect();
     spi_busy_until_ = now + (Cycles{64} << (spi_control_ & 3U));
 }

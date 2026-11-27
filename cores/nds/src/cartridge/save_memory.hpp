@@ -23,10 +23,27 @@
 // de la commande remet à 0. Les adresses bouclent sur la taille de la puce.
 // L'EEPROM de 128 Kio a des pages de 256 octets : GBATEK n'en donne pas la
 // taille, choix de RavenCore.
+//
+// Type inconnu (`automatic`, celui d'une cartouche neuve) : GBATEK (« DS
+// Cartridge Backup », « Detection (in emulators) ») note que le SDK envoie la
+// commande et l'adresse depuis une fonction, les données depuis une autre. Les
+// octets écrits par l'instruction de la commande, après elle, donnent donc la
+// largeur d'adresse, dès le premier octet de données d'une lecture, d'une
+// écriture ou d'un effacement :
+// - 1 octet : EEPROM de 0,5 Kio ;
+// - 2 octets : EEPROM de 64 Kio (8 Kio, 64 Kio et FRAM parlent de même ; la
+//   plus grande garde toutes les données) ;
+// - 3 octets : WR (02h) désigne l'EEPROM de 128 Kio, PW, PE ou SE (0Ah, DBh,
+//   D8h) la Flash ; une lecture (03h, 0Bh) choisit la Flash, de 1 Mio, jusqu'à
+//   la première commande d'écriture, qui tranche.
+// Un effacement, sans données, se décide à la fin de la commande. La commande
+// en cours est alors rejouée sur la puce choisie. D'ici là, RDSR rend 00h
+// (sauf WEL) et le reste FFh.
 namespace ravenemu::nds {
 
 enum class SaveType : std::uint8_t {
     none,
+    automatic,
     eeprom_512,
     eeprom_8k,
     eeprom_64k,
@@ -57,8 +74,9 @@ public:
     [[nodiscard]] bool dirty() const noexcept { return dirty_; }
     void clear_dirty() noexcept { dirty_ = false; }
 
-    // Un octet sur le bus : rend l'octet reçu de la puce.
-    std::uint8_t transfer(std::uint8_t value);
+    // Un octet sur le bus : rend l'octet reçu de la puce. `instruction` :
+    // adresse de l'instruction qui l'écrit (détection du type).
+    std::uint8_t transfer(std::uint8_t value, std::uint32_t instruction = 0);
     // Fin de la commande (chip select relâché).
     void deselect() noexcept;
 
@@ -72,6 +90,10 @@ private:
     std::uint8_t data_byte(std::uint8_t value);
     void write_byte(std::uint8_t value, bool program_only);
     void erase(std::uint32_t size);
+    // Détection du type (`automatic`).
+    std::uint8_t detect(std::uint8_t value, std::uint32_t instruction);
+    bool decide();
+    void become(SaveType type);
 
     SaveType type_{SaveType::none};
     std::vector<std::uint8_t> data_;
@@ -83,6 +105,12 @@ private:
     unsigned received_{};    // octets reçus après la commande
     std::uint32_t address_{};
     bool dirty_{};
+    // Détection : instruction de la commande, octets d'adresse retenus, et
+    // Flash choisie par une lecture, que la première écriture confirme.
+    std::uint32_t command_instruction_{};
+    std::array<std::uint8_t, 4> pending_{};
+    unsigned pending_count_{};
+    bool provisional_{};
 };
 
 } // namespace ravenemu::nds
