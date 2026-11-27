@@ -6,8 +6,8 @@
 // Decompression Functions ») : BitUnPack (10h), LZ77 et RL vers des octets
 // (11h, 14h), filtres différentiels de 8 et 16 bits (16h, 18h). Toutes passent
 // par le bus du CPU, qui en compte les accès. Les variantes qui lisent la
-// source par des fonctions de rappel du jeu (12h, 13h, 15h) ne sont pas
-// encore écrites.
+// source par des fonctions de rappel du jeu (12h, 13h, 15h) sont du code ARM
+// du BIOS de RavenCore (callback_decompression.hpp).
 namespace ravenemu::nds::decompression {
 
 // En-tête : bits 4-7 type, bits 8-31 taille décompressée en octets.

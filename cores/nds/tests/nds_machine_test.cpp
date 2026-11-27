@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <initializer_list>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -14,7 +15,8 @@
  * - l'ARM9 divise 100 par 7 avec le diviseur matériel ;
  * - l'ARM7 appelle Div du BIOS (SWI 09h) : -100 / 7 ;
  * - l'ARM9 installe son gestionnaire d'IRQ à DTCM + 0x3FFC, permet l'IRQ
- *   de V-Blank, puis compte les images par VBlankIntrWait (SWI 05h).
+ *   de V-Blank, puis compte les images par VBlankIntrWait (SWI 05h) ;
+ * - décompressions par fonctions de rappel (callback_decompression_test).
  * Résultats en RAM principale à 0x02200000.
  */
 namespace {
@@ -251,6 +253,142 @@ void dma_test() {
     check(main_word(machine, 0x0214'000cU) == 9, "DMA immédiate de l'ARM7");
 }
 
+// Programmes du test des décompressions par fonctions de rappel : ils
+// remplissent la structure des fonctions, puis appellent les SWI.
+const std::initializer_list<std::uint32_t> callback_arm9_program{
+    0xe3a07622U,  // mov r7, #0x02200000
+    0xe28f40d4U,  // adr r4, .Lcallbacks
+    0xe28f00acU,  // adr r0, .Lopen
+    0xe5840000U,  // str r0, [r4]
+    0xe28f00c4U,  // adr r0, .Lget8
+    0xe2800001U,  // add r0, r0, #1           ; Get_8bit en Thumb
+    0xe5840008U,  // str r0, [r4, #8]
+    0xe28f00a0U,  // adr r0, .Lget32
+    0xe5840010U,  // str r0, [r4, #16]
+    0xe3a00621U,  // mov r0, #0x02100000
+    0xe3a01623U,  // mov r1, #0x02300000
+    0xe1a03004U,  // mov r3, r4
+    0xef120000U,  // swi #0x120000          ; LZ77 par fonctions de rappel
+    0xe5870000U,  // str r0, [r7]
+    0xe3a00621U,  // mov r0, #0x02100000
+    0xe3800a01U,  // orr r0, r0, #0x1000
+    0xe3a01623U,  // mov r1, #0x02300000
+    0xe3811a01U,  // orr r1, r1, #0x1000
+    0xe1a03004U,  // mov r3, r4
+    0xef150000U,  // swi #0x150000          ; RL
+    0xe5870004U,  // str r0, [r7, #4]
+    0xe3a00621U,  // mov r0, #0x02100000
+    0xe3800a02U,  // orr r0, r0, #0x2000
+    0xe3a01623U,  // mov r1, #0x02300000
+    0xe3811a02U,  // orr r1, r1, #0x2000
+    0xe3a02785U,  // mov r2, #0x02140000
+    0xe1a03004U,  // mov r3, r4
+    0xef130000U,  // swi #0x130000          ; Huffman, arbre recopié à 0x02140000
+    0xe5870008U,  // str r0, [r7, #8]
+    0xe28f0050U,  // adr r0, .Lclose
+    0xe5840004U,  // str r0, [r4, #4]         ; Close : -3
+    0xe3a00621U,  // mov r0, #0x02100000
+    0xe3800a01U,  // orr r0, r0, #0x1000
+    0xe3a01623U,  // mov r1, #0x02300000
+    0xe3811a03U,  // orr r1, r1, #0x3000
+    0xe1a03004U,  // mov r3, r4
+    0xef150000U,  // swi #0x150000
+    0xe587000cU,  // str r0, [r7, #12]
+    0xe28f0034U,  // adr r0, .Lrefuse
+    0xe5840000U,  // str r0, [r4]              ; Open : -5
+    0xe3a00621U,  // mov r0, #0x02100000
+    0xe3a01623U,  // mov r1, #0x02300000
+    0xe3811901U,  // orr r1, r1, #0x4000
+    0xe1a03004U,  // mov r3, r4
+    0xef120000U,  // swi #0x120000
+    0xe5870010U,  // str r0, [r7, #16]
+    0xeafffffeU,  // b .
+    // .Lopen:
+    0xe5900000U,  // ldr r0, [r0]
+    0xe12fff1eU,  // bx lr
+    // .Lget32:
+    0xe5900000U,  // ldr r0, [r0]
+    0xe12fff1eU,  // bx lr
+    // .Lclose:
+    0xe3e00002U,  // mvn r0, #2
+    0xe12fff1eU,  // bx lr
+    // .Lrefuse:
+    0xe3e00004U,  // mvn r0, #4
+    0xe12fff1eU,  // bx lr
+    // .Lget8:
+    0x47707800U,  // ldrb r0, [r0] ; bx lr      (Thumb)
+    // .Lcallbacks:
+    0x00000000U,  // .word 0
+    0x00000000U,  // .word 0
+    0x00000000U,  // .word 0
+    0x00000000U,  // .word 0
+    0x00000000U,  // .word 0
+};
+
+const std::initializer_list<std::uint32_t> callback_arm7_program{
+    0xe3a07622U,  // mov r7, #0x02200000
+    0xe3877c01U,  // orr r7, r7, #0x100
+    0xe28f4038U,  // adr r4, .Lcallbacks
+    0xe28f0024U,  // adr r0, .Lopen
+    0xe5840000U,  // str r0, [r4]
+    0xe28f0024U,  // adr r0, .Lget8
+    0xe5840008U,  // str r0, [r4, #8]
+    0xe3a00621U,  // mov r0, #0x02100000
+    0xe3a01623U,  // mov r1, #0x02300000
+    0xe3811a05U,  // orr r1, r1, #0x5000
+    0xe1a03004U,  // mov r3, r4
+    0xef120000U,  // swi #0x120000          ; LZ77 sur l'ARM7 (ARMv4T)
+    0xe5870000U,  // str r0, [r7]
+    0xeafffffeU,  // b .
+    // .Lopen:
+    0xe5900000U,  // ldr r0, [r0]
+    0xe12fff1eU,  // bx lr
+    // .Lget8:
+    0xe5d00000U,  // ldrb r0, [r0]
+    0xe12fff1eU,  // bx lr
+    // .Lcallbacks:
+    0x00000000U,  // .word 0
+    0x00000000U,  // .word 0
+    0x00000000U,  // .word 0
+    0x00000000U,  // .word 0
+    0x00000000U,  // .word 0
+};
+
+// Décompressions par fonctions de rappel (SWI 12h, 13h, 15h), exécutées par
+// le code ARM du BIOS de RavenCore. Les fonctions du jeu lisent la mémoire ;
+// Get_8bit est en Thumb sur l'ARM9. Données compressées écrites à la main
+// d'après GBATEK (« BIOS Decompression Functions »).
+void callback_decompression_test() {
+    Machine machine{test_rom("####", callback_arm9_program, callback_arm7_program)};
+    const auto put = [&](std::uint32_t address, std::initializer_list<std::uint8_t> bytes) {
+        for (const auto byte : bytes) *machine.hw.memory.main(address++) = byte;
+    };
+    // LZ77, 10 octets : « ABC », copie de 6 octets à 3 en arrière, « D ».
+    put(0x0210'0000U, {0x10, 0x0a, 0x00, 0x00, 0x10, 'A', 'B', 'C', 0x30, 0x02, 'D'});
+    // RL, 8 octets : 3 octets tels quels, puis « Q » répété 5 fois.
+    put(0x0210'1000U, {0x30, 0x08, 0x00, 0x00, 0x02, 'x', 'y', 'z', 0x82, 'Q'});
+    // Huffman sur 8 bits, 8 octets : racine (nœud 0 « A », nœud 1 vers « B » et
+    // « C »), codes A = 0, B = 10, C = 11 ; « ABACABAA » = 01001101000.
+    put(0x0210'2000U, {0x28, 0x08, 0x00, 0x00, 0x03, 0x80, 'A', 0xc0, 'B', 'C', 0x00, 0x00, 0x00, 0x00, 0x00, 0x4d});
+    machine.run_frame();
+    machine.run_frame();
+    const auto text = [&](std::uint32_t address, std::size_t length) {
+        return std::string{reinterpret_cast<const char*>(machine.hw.memory.main(address)), length};
+    };
+    const auto result = [&](unsigned index) { return main_word(machine, results + index * 4); };
+    check(result(0) == 10 && text(0x0230'0000U, 10) == "ABCABCABCD", "LZ77 par fonctions de rappel, écrit par demi-mots");
+    check(result(1) == 8 && text(0x0230'1000U, 8) == "xyzQQQQQ", "RL par fonctions de rappel");
+    check(result(2) == 8 && text(0x0230'2000U, 8) == "ABACABAA", "Huffman par fonctions de rappel");
+    check(*machine.hw.memory.main(0x0214'0000U) == 3 && *machine.hw.memory.main(0x0214'0003U) == 0xc0,
+          "Huffman : arbre recopié dans le tampon de r2");
+    check(result(3) == static_cast<std::uint32_t>(-3) && text(0x0230'3000U, 8) == "xyzQQQQQ",
+          "Close rend son code d'erreur, après la décompression");
+    check(result(4) == static_cast<std::uint32_t>(-5) && main_word(machine, 0x0230'4000U) == 0,
+          "Open refuse : code d'erreur, rien d'écrit");
+    check(main_word(machine, results + 0x100) == 10 && text(0x0230'5000U, 10) == "ABCABCABCD", "LZ77 sur l'ARM7");
+    check(machine.bios9.unsupported == 0 && machine.bios7.unsupported == 0, "aucune SWI inconnue");
+}
+
 } // namespace
 
 int main() {
@@ -259,5 +397,6 @@ int main() {
     dma_test();
     two_processors_test();
     refused_rom_test();
+    callback_decompression_test();
     return 0;
 }

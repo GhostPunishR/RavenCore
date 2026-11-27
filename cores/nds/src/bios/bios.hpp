@@ -12,9 +12,13 @@
 // bas en Thumb. Écrites pour RavenCore d'après leur description ; aucun code
 // des BIOS de Nintendo.
 //
-// Pas encore écrites : décompressions par fonctions de rappel (0x12, 0x13,
-// 0x15), tables du son de l'ARM7 (0x1A-0x1C), GetBootProcs, CustomPost,
-// SoftReset. Elles ne font rien et sont comptées dans `unsupported`.
+// Les décompressions par fonctions de rappel (0x12, 0x13, 0x15) appellent du
+// code du jeu : l'hôte les laisse au vecteur SWI, où le code ARM du BIOS de
+// RavenCore les exécute (callback_decompression.hpp).
+//
+// Pas encore écrites : tables du son de l'ARM7 (0x1A-0x1C), GetBootProcs,
+// CustomPost, SoftReset. Elles ne font rien et sont comptées dans
+// `unsupported`.
 namespace ravenemu::nds {
 
 template <typename CpuType, typename BusType, bool Arm9>
@@ -48,6 +52,9 @@ public:
         case 0x0f: r[0] = 0; break;  // IsDebugger : console de détail
         case 0x10: decompression::bit_unpack(bus_, r[0], r[1], r[2]); break;
         case 0x11: decompression::lz77(bus_, r[0], r[1]); break;
+        case 0x12:
+        case 0x13:
+        case 0x15: return false;  // par fonctions de rappel : au vecteur SWI
         case 0x14: decompression::run_length(bus_, r[0], r[1]); break;
         case 0x16:
         case 0x18:  // filtres différentiels : ARM9 seul
