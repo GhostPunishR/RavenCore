@@ -100,29 +100,18 @@ static void card_read_block(uint32_t address, uint32_t* destination) {
     cache_invalidate(destination, BLOCK_WORDS * 4u);
 }
 
-/* Le SPI de la cartouche, en mode sauvegarde : `last` relâche la puce après
- * l'octet (AUXSPICNT bit 6 à 0, GBATEK, « DS Cartridge I/O Ports »). Comme
- * le SDK, la commande et l'adresse partent d'une fonction, les données d'une
- * autre : le cœur en déduit la largeur d'adresse de la puce. */
-static void spi_select(int last) {
-    AUXSPICNT = (uint16_t)(0xa000u | (last ? 0u : 0x40u)); /* slot activé, mode SPI */
+/* Le SPI de la cartouche, en mode sauvegarde (card_spi.s) : `last` relâche
+ * la puce après l'octet. La commande et l'adresse partent de
+ * card_spi_command, les données de card_spi_data : le cœur en déduit la
+ * largeur d'adresse de la puce. */
+uint8_t card_spi_command(uint8_t value, int last);
+uint8_t card_spi_data(uint8_t value, int last);
+
+static void spi_command(const uint8_t* bytes, unsigned count, int last) {
+    for (unsigned index = 0; index < count; ++index) card_spi_command(bytes[index], last && index + 1u == count);
 }
-static void spi_wait(void) {
-    while ((AUXSPICNT & 0x80u) != 0) {
-    }
-}
-__attribute__((noinline)) static void spi_command(const uint8_t* bytes, unsigned count, int last) {
-    for (unsigned index = 0; index < count; ++index) {
-        spi_select(last && index + 1u == count);
-        AUXSPIDATA = bytes[index];
-        spi_wait();
-    }
-}
-__attribute__((noinline)) static uint8_t spi_data(uint8_t value, int last) {
-    spi_select(last);
-    AUXSPIDATA = value;
-    spi_wait();
-    return (uint8_t)AUXSPIDATA;
+static uint8_t spi_data(uint8_t value, int last) {
+    return card_spi_data(value, last);
 }
 
 /* Compteur de démarrages dans une EEPROM à adresse de 2 octets : « R » puis le

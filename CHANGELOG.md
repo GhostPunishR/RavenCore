@@ -106,7 +106,7 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
   - 1 octet : EEPROM de 0,5 Kio ; 2 octets : EEPROM de 64 Kio (qui garde aussi les données des puces de 8 Kio et des FRAM) ; 3 octets : EEPROM de 128 Kio sur WR (02h), Flash de 1 Mio sur PW, PE, SE ou une lecture. Une Flash choisie par une lecture devient l'EEPROM de 128 Kio si la première écriture est WR ;
   - la commande en cours est rejouée sur la puce choisie ; un effacement se décide en fin de commande ; un fichier de sauvegarde garde la priorité (type d'après sa taille) ;
   - les bus donnent à la cartouche l'adresse de l'instruction qui écrit AUXSPIDATA (`InstructionHook`, `Cpu::instruction_address`).
-- Homebrew : commande et adresse de l'EEPROM partent d'une fonction, les données d'une autre ; son type est reconnu seul.
+- Homebrew : commande et adresse de l'EEPROM partent d'une fonction, les données d'une autre ; son type est reconnu seul. Ces deux fonctions sont en assembleur (`card_spi.s`), chacune avec une seule écriture d'AUXSPIDATA : en C, le Clang de la CI répartissait autrement ces écritures, et le test échouait sur `main`.
 - Tests : `save_detection_test` dans `nds_raven_hardware` (largeurs de 1, 2 et 3 octets, instruction unique, bascule vers l'EEPROM de 128 Kio, Flash confirmée, effacement, fichier) ; `nds_raven_homebrew` démarre sans type imposé.
 - **Cœur NDS, SPI de l'ARM7** (GBATEK, « DS Serial Peripheral Interface Bus (SPI) », « DS Power Management Device », « DS Touch Screen Controller (TSC) », « DS Firmware Header », « DS Firmware User Settings ») :
   - SPICNT et SPIDATA : choix de l'appareil, maintien du chip select (bit 11), occupation de 64 << débit cycles, IRQ 23 en fin de transfert (bit 14) ;
