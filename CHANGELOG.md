@@ -71,6 +71,13 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
   La valeur alpha de l'OAM des objets bitmap n'est pas appliquée : GBATEK la nomme sans en décrire l'effet.
 - Test : palettes étendues, objets bitmap et mosaïque dans `nds_raven_hardware`. Il couvre les emplacements 0 à 3, les banques E, F et G, la palette standard quand les palettes étendues sont coupées, les correspondances 2D et 1D des objets bitmap, et la mosaïque horizontale et verticale des fonds et des objets.
+- **Cœur NDS, décompressions par fonctions de rappel** (GBATEK, « BIOS Decompression Functions », « NDS/DSi Decompression Callbacks ») :
+  - LZ77 (SWI 12h) et RL (15h), écrits par demi-mots, et Huffman (13h), écrit par mots ;
+  - c'est du code ARM écrit pour RavenCore et placé dans ses BIOS. Il ne demande que l'ARMv4T, donc sert aux deux CPU. L'hôte laisse ces trois SWI au vecteur, et le CPU les exécute en mode superviseur ;
+  - les fonctions du jeu (Open, Close, Get_8bit, Get_32bit), en ARM ou en Thumb, reçoivent l'adresse source courante ;
+  - la SWI rend la taille décompressée, ou le code d'erreur négatif de Open ou de Close. Huffman recopie son arbre dans le tampon fourni par le jeu ;
+  - comme le décrit GBATEK, l'écriture par demi-mots empêche LZ77 de relire l'octet qui vient d'être produit (déplacement 0).
+- Test : décompressions par fonctions de rappel dans `nds_raven_machine`. Il couvre les trois SWI sur l'ARM9, avec une fonction Thumb, un Close et un Open qui rendent une erreur, et LZ77 sur l'ARM7.
 
 ### Documentation
 

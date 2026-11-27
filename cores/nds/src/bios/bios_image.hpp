@@ -1,5 +1,7 @@
 #pragma once
 
+#include "bios/callback_decompression.hpp"
+
 #include <array>
 #include <cstdint>
 #include <vector>
@@ -7,7 +9,9 @@
 // Contenu des BIOS de RavenCore : des vecteurs d'exception écrits pour ce
 // dépôt (assemblés par llvm-mc, source en commentaire), aucun octet des BIOS
 // de Nintendo. Les fonctions SWI ne passent pas par là : l'hôte les exécute
-// (bios.hpp). Le vecteur d'IRQ appelle le gestionnaire du jeu, rangé à
+// (bios.hpp), sauf les décompressions par fonctions de rappel, dont le code
+// suit les vecteurs (callback_decompression.hpp). Le vecteur d'IRQ appelle le
+// gestionnaire du jeu, rangé à
 // DTCM + 0x3FFC (ARM9, ARM ou Thumb) ou à 0x0380FFFC (ARM7, ARM seul),
 // comme le décrit GBATEK (« DS Interrupts »).
 namespace ravenemu::nds {
@@ -18,7 +22,7 @@ inline constexpr std::size_t arm7_bios_size = 16 * 1024;  // vu à 0x00000000
 inline constexpr std::array<std::uint32_t, 17> arm9_bios_code{
     0xeafffffeU,  // b .            reset
     0xeafffffeU,  // b .            instruction indéfinie
-    0xeafffffeU,  // b .            SWI (pris par l'hôte)
+    0xea00003cU,  // b .Lswi        SWI : l'hôte, sauf 12h, 13h, 15h (à 0x100)
     0xeafffffeU,  // b .            abandon de préchargement
     0xeafffffeU,  // b .            abandon de données
     0xeafffffeU,  // b .            réservé
@@ -39,7 +43,7 @@ inline constexpr std::array<std::uint32_t, 17> arm9_bios_code{
 inline constexpr std::array<std::uint32_t, 14> arm7_bios_code{
     0xeafffffeU,  // b .
     0xeafffffeU,  // b .
-    0xeafffffeU,  // b .
+    0xea00003cU,  // b .Lswi        SWI : l'hôte, sauf 12h, 13h, 15h (à 0x100)
     0xeafffffeU,  // b .
     0xeafffffeU,  // b .
     0xeafffffeU,  // b .
@@ -56,10 +60,14 @@ inline constexpr std::array<std::uint32_t, 14> arm7_bios_code{
 
 template <std::size_t Words>
 std::vector<std::uint8_t> bios_image(const std::array<std::uint32_t, Words>& code, std::size_t size) {
+    static_assert(Words * 4 <= swi_code_offset, "les vecteurs débordent sur le code des SWI");
     std::vector<std::uint8_t> image(size);
-    for (std::size_t index = 0; index < Words; ++index)
-        for (unsigned byte = 0; byte < 4; ++byte)
-            image[index * 4 + byte] = static_cast<std::uint8_t>(code[index] >> (8U * byte));
+    const auto place = [&](std::size_t offset, std::uint32_t word) {
+        for (unsigned byte = 0; byte < 4; ++byte) image[offset + byte] = static_cast<std::uint8_t>(word >> (8U * byte));
+    };
+    for (std::size_t index = 0; index < Words; ++index) place(index * 4, code[index]);
+    for (std::size_t index = 0; index < callback_decompression_code.size(); ++index)
+        place(swi_code_offset + index * 4, callback_decompression_code[index]);
     return image;
 }
 
