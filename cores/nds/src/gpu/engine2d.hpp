@@ -19,9 +19,10 @@
 //   couleurs directes) et grand bitmap (mode 6), avec ou sans répétition.
 // - fenêtres WIN0, WIN1 et d'objets, effets de couleur : transparence,
 //   éclaircissement, assombrissement (compositor.cpp).
-// Pas encore :
-// mosaïque, palettes étendues, calque 3D, affichage depuis la RAM principale
-// (mode 3, rendu noir).
+// - palettes étendues (DISPCNT bit 30) des tuiles de 256 couleurs à carte de
+//   16 bits, en mode texte ou étendu ; mosaïque des fonds et des objets.
+// Pas encore : calque 3D, affichage depuis la RAM principale (mode 3, rendu
+// noir).
 namespace ravenemu::nds {
 
 class Engine2d {
@@ -76,11 +77,19 @@ private:
     [[nodiscard]] std::uint16_t half(unsigned offset) const noexcept {
         return static_cast<std::uint16_t>(registers_[offset / 4] >> ((offset & 2U) * 8U));
     }
+    // Couleur `entry` (palette × 256 + indice) de l'emplacement `slot` des
+    // palettes étendues des fonds.
+    [[nodiscard]] std::uint16_t extended_color(const Vram& vram, unsigned slot, std::uint32_t entry) const noexcept;
+    // MOSAIC (0x4C) : taille verticale des blocs des fonds, en lignes.
+    [[nodiscard]] unsigned bg_mosaic_height() const noexcept { return ((half(0x4c) >> 4U) & 15U) + 1U; }
 
     bool main_;
     std::array<std::uint32_t, 0x70 / 4> registers_{};
     std::array<std::int32_t, 2> reference_x_{};
     std::array<std::int32_t, 2> reference_y_{};
+    // Points de référence de la première ligne du bloc de mosaïque en cours.
+    std::array<std::int32_t, 2> mosaic_x_{};
+    std::array<std::int32_t, 2> mosaic_y_{};
 };
 
 // BGR555 vers ARGB8888, après la luminosité maîtresse (GBATEK : sur des

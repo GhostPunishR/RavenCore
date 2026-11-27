@@ -29,6 +29,17 @@ public:
 
     std::uint32_t oam16(unsigned offset) const noexcept { return load(&memory_.oam[oam_ + offset], 2); }
 
+    // Couleur du point (x, y) de l'objet, ou ObjectLine::transparent.
+    std::uint16_t pixel(const Object& object, unsigned x, unsigned y) const noexcept {
+        if (((object.attribute0 >> 10U) & 3U) == 3) return bitmap_pixel(object, x, y);
+        const auto index = texel(object, x, y);
+        return index == 0 ? ObjectLine::transparent : color(object, index);
+    }
+
+private:
+    [[nodiscard]] Vram::Area area() const noexcept { return main_ ? Vram::obj_a : Vram::obj_b; }
+    [[nodiscard]] std::uint32_t area_mask() const noexcept { return main_ ? 0x3ffffU : 0x1ffffU; }
+
     // Indice de couleur du point (x, y) de l'objet, 0 pour transparent.
     unsigned texel(const Object& object, unsigned x, unsigned y) const noexcept {
         const auto colors256 = (object.attribute0 & 0x2000U) != 0;
@@ -42,20 +53,40 @@ public:
             address = tile * 32U + (y / 8U) * 1024U + (x / 8U) * tile_bytes;
         }
         address += colors256 ? (y % 8U) * 8U + x % 8U : (y % 8U) * 4U + (x % 8U) / 2U;
-        const auto area = main_ ? Vram::obj_a : Vram::obj_b;
-        const auto value = vram_.read(area, address & (main_ ? 0x3ffffU : 0x1ffffU), 1);
+        const auto value = vram_.read(area(), address & area_mask(), 1);
         if (colors256) return value;
         return (x & 1U) != 0 ? value >> 4U : value & 15U;
     }
 
     std::uint16_t color(const Object& object, unsigned index) const noexcept {
         const auto colors256 = (object.attribute0 & 0x2000U) != 0;
-        const auto entry = colors256 ? index : (object.attribute2 >> 12U) * 16U + index;
+        const auto palette = object.attribute2 >> 12U;
+        if (colors256 && (control_ & 0x8000'0000U) != 0) {  // palette étendue : 16 palettes de 256 couleurs
+            const auto ext = main_ ? Vram::obj_ext_a : Vram::obj_ext_b;
+            return static_cast<std::uint16_t>(vram_.read(ext, (palette * 256U + index) * 2U, 2) & 0x7fffU);
+        }
+        const auto entry = colors256 ? index : palette * 16U + index;
         const auto base = (main_ ? 0x200U : 0x600U) + entry * 2U;
         return static_cast<std::uint16_t>(load(&memory_.palette[base & 0x7feU], 2) & 0x7fffU);
     }
 
-private:
+    // GBATEK, « DS Video OBJs », « Bitmap OBJ Mapping » (DISPCNT bits 5, 6, 22).
+    std::uint16_t bitmap_pixel(const Object& object, unsigned x, unsigned y) const noexcept {
+        const auto tile = object.attribute2 & 0x3ffU;
+        const auto wide = (control_ & 0x20U) != 0;
+        std::uint32_t address{};
+        if ((control_ & 0x40U) != 0) {  // 1D : la largeur source est celle de l'objet
+            if (wide) return ObjectLine::transparent;  // combinaison réservée
+            const auto boundary = main_ && (control_ & 0x40'0000U) != 0 ? 256U : 128U;
+            address = tile * boundary + (y * object.width + x) * 2U;
+        } else {  // 2D : bitmap source de 128 ou 256 points de large
+            const auto mask_x = wide ? 0x1fU : 0x0fU;
+            address = (tile & mask_x) * 0x10U + (tile & ~mask_x) * 0x80U + (y * (wide ? 256U : 128U) + x) * 2U;
+        }
+        const auto value = vram_.read(area(), address & area_mask(), 2);
+        return (value & 0x8000U) != 0 ? static_cast<std::uint16_t>(value & 0x7fffU) : ObjectLine::transparent;
+    }
+
     bool main_;
     std::uint32_t control_;
     const Vram& vram_;
@@ -63,76 +94,96 @@ private:
     unsigned oam_;
 };
 
-void plot(ObjectLine& out, int x, std::uint16_t color, unsigned priority, unsigned mode) noexcept {
-    if (x < 0 || x >= 256) return;
-    const auto at = static_cast<std::size_t>(x);
+void plot(ObjectLine& out, unsigned x, std::uint16_t color, unsigned priority, unsigned mode) noexcept {
     if (mode == 2) {  // fenêtre d'objets : rien n'est dessiné
-        out.window[at] = true;
+        out.window[x] = true;
         return;
     }
     // Le premier objet dessiné (plus petit numéro) garde sa place à priorité égale.
-    if ((out.color[at] & ObjectLine::transparent) == 0 && out.priority[at] <= priority) return;
-    out.color[at] = color;
-    out.priority[at] = static_cast<std::uint8_t>(priority);
-    out.semi_transparent[at] = mode == 1;
+    if ((out.color[x] & ObjectLine::transparent) == 0 && out.priority[x] <= priority) return;
+    out.color[x] = color;
+    out.priority[x] = static_cast<std::uint8_t>(priority);
+    out.semi_transparent[x] = mode == 1;
 }
 
-void draw_object(const ObjectDrawer& drawer, const Object& object, unsigned line, ObjectLine& out) {
+// Taille des blocs de mosaïque des objets, en points et en lignes.
+struct Mosaic {
+    unsigned width;
+    unsigned height;
+};
+
+// Mosaïque (GBATEK, « LCD I/O Mosaic Function ») : la grille est celle de
+// l'écran ; un bloc prend le point de l'objet sous son coin haut gauche, et
+// reste vide quand ce coin tombe hors de l'objet.
+void draw_object(const ObjectDrawer& drawer, const Object& object, Mosaic mosaic, unsigned line, ObjectLine& out) {
     const auto affine = (object.attribute0 & 0x100U) != 0;
     const auto doubled = affine && (object.attribute0 & 0x200U) != 0;
+    const auto mosaic_on = (object.attribute0 & 0x1000U) != 0;
     const auto box_width = object.width << (doubled ? 1U : 0U);
     const auto box_height = object.height << (doubled ? 1U : 0U);
-    const auto row = (line - (object.attribute0 & 0xffU)) & 0xffU;
+    const auto sampled_line = mosaic_on ? line - line % mosaic.height : line;
+    const auto row = (sampled_line - (object.attribute0 & 0xffU)) & 0xffU;
     if (row >= box_height) return;
     auto left = static_cast<int>(object.attribute1 & 0x1ffU);
     if (left >= 256) left -= 512;
-    const auto priority = (object.attribute2 >> 10U) & 3U;
-    const auto mode = (object.attribute0 >> 10U) & 3U;
+    // Points de la rangée, de gauche à droite dans la boîte de l'objet.
+    std::array<std::uint16_t, 128> samples{};
     if (!affine) {
         const auto y = (object.attribute1 & 0x2000U) != 0 ? object.height - 1 - row : row;
         for (unsigned column = 0; column < object.width; ++column) {
             const auto x = (object.attribute1 & 0x1000U) != 0 ? object.width - 1 - column : column;
-            const auto index = drawer.texel(object, x, y);
-            if (index != 0) plot(out, left + static_cast<int>(column), drawer.color(object, index), priority, mode);
+            samples[column] = drawer.pixel(object, x, y);
         }
-        return;
+    } else {
+        // Paramètres affines PA, PB, PC, PD (8.8 signés) : attribut 3 des objets 4n à 4n+3.
+        const auto group = ((object.attribute1 >> 9U) & 31U) * 32U;
+        const auto parameter = [&](unsigned slot) {
+            return static_cast<std::int32_t>(static_cast<std::int16_t>(drawer.oam16(group + slot * 8U + 6U)));
+        };
+        const auto pa = parameter(0), pb = parameter(1), pc = parameter(2), pd = parameter(3);
+        const auto width = static_cast<std::int32_t>(object.width);
+        const auto height = static_cast<std::int32_t>(object.height);
+        const auto dy = static_cast<std::int32_t>(row) - static_cast<std::int32_t>(box_height / 2);
+        for (unsigned column = 0; column < box_width; ++column) {
+            const auto dx = static_cast<std::int32_t>(column) - static_cast<std::int32_t>(box_width / 2);
+            const auto tx = ((pa * dx + pb * dy) >> 8) + width / 2;
+            const auto ty = ((pc * dx + pd * dy) >> 8) + height / 2;
+            const auto inside = tx >= 0 && ty >= 0 && tx < width && ty < height;
+            samples[column] = inside ? drawer.pixel(object, static_cast<unsigned>(tx), static_cast<unsigned>(ty))
+                                     : ObjectLine::transparent;
+        }
     }
-    // Paramètres affines PA, PB, PC, PD (8.8 signés) : attribut 3 des objets 4n à 4n+3.
-    const auto group = ((object.attribute1 >> 9U) & 31U) * 32U;
-    const auto parameter = [&](unsigned slot) {
-        return static_cast<std::int32_t>(static_cast<std::int16_t>(drawer.oam16(group + slot * 8U + 6U)));
-    };
-    const auto pa = parameter(0), pb = parameter(1), pc = parameter(2), pd = parameter(3);
-    const auto dy = static_cast<std::int32_t>(row) - static_cast<std::int32_t>(box_height / 2);
+    const auto priority = (object.attribute2 >> 10U) & 3U;
+    const auto mode = (object.attribute0 >> 10U) & 3U;
     for (unsigned column = 0; column < box_width; ++column) {
-        const auto dx = static_cast<std::int32_t>(column) - static_cast<std::int32_t>(box_width / 2);
-        const auto tx = ((pa * dx + pb * dy) >> 8) + static_cast<std::int32_t>(object.width / 2);
-        const auto ty = ((pc * dx + pd * dy) >> 8) + static_cast<std::int32_t>(object.height / 2);
-        if (tx < 0 || ty < 0 || tx >= static_cast<std::int32_t>(object.width) || ty >= static_cast<std::int32_t>(object.height))
-            continue;
-        const auto index = drawer.texel(object, static_cast<unsigned>(tx), static_cast<unsigned>(ty));
-        if (index != 0) plot(out, left + static_cast<int>(column), drawer.color(object, index), priority, mode);
+        const auto x = left + static_cast<int>(column);
+        if (x < 0 || x >= 256) continue;
+        auto source = static_cast<int>(column);
+        if (mosaic_on) source = x - x % static_cast<int>(mosaic.width) - left;
+        if (source < 0) continue;
+        const auto color = samples[static_cast<std::size_t>(source)];
+        if (color != ObjectLine::transparent) plot(out, static_cast<unsigned>(x), color, priority, mode);
     }
 }
 
 } // namespace
 
-void draw_objects(bool main, std::uint32_t display_control, unsigned line, const Vram& vram, const Memory& memory,
-                  ObjectLine& out) {
+void draw_objects(bool main, std::uint32_t display_control, std::uint32_t mosaic, unsigned line, const Vram& vram,
+                  const Memory& memory, ObjectLine& out) {
     std::fill(out.color.begin(), out.color.end(), ObjectLine::transparent);
     std::fill(out.priority.begin(), out.priority.end(), std::uint8_t{4});
     out.semi_transparent.fill(false);
     out.window.fill(false);
     const ObjectDrawer drawer{main, display_control, vram, memory};
+    const Mosaic blocks{((mosaic >> 8U) & 15U) + 1U, ((mosaic >> 12U) & 15U) + 1U};
     for (unsigned index = 0; index < 128; ++index) {
         const Object probe{index, drawer.oam16(index * 8U), drawer.oam16(index * 8U + 2U), drawer.oam16(index * 8U + 4U), 0, 0};
         const auto affine = (probe.attribute0 & 0x100U) != 0;
         if (!affine && (probe.attribute0 & 0x200U) != 0) continue;  // objet masqué
-        const auto mode = (probe.attribute0 >> 10U) & 3U;
         const auto shape = probe.attribute0 >> 14U;
-        if (mode == 3 || shape == 3) continue;  // objet bitmap (pas encore), forme interdite
+        if (shape == 3) continue;  // forme interdite
         const auto size = object_sizes[shape][probe.attribute1 >> 14U];
-        draw_object(drawer, {index, probe.attribute0, probe.attribute1, probe.attribute2, size[0], size[1]}, line, out);
+        draw_object(drawer, {index, probe.attribute0, probe.attribute1, probe.attribute2, size[0], size[1]}, blocks, line, out);
     }
 }
 

@@ -14,6 +14,13 @@ std::uint16_t palette_color(const Memory& memory, std::uint32_t offset) noexcept
     return static_cast<std::uint16_t>(load(&memory.palette[offset & 0x7feU], 2) & 0x7fffU);
 }
 
+// Mosaïque horizontale (GBATEK, « LCD I/O Mosaic Function ») : chaque bloc de
+// `size` points prend la couleur de son premier point.
+void apply_mosaic(std::span<std::uint16_t, Engine2d::width> colors, unsigned size) noexcept {
+    if (size <= 1) return;
+    for (unsigned x = 0; x < Engine2d::width; ++x) colors[x] = colors[x - x % size];
+}
+
 } // namespace
 
 std::uint32_t Engine2d::read(std::uint32_t offset) const noexcept {
@@ -57,6 +64,10 @@ void Engine2d::render_line(unsigned line, const Vram& vram, const Memory& memory
         reload_reference(2);
         reload_reference(3);
     }
+    if (line % bg_mosaic_height() == 0) {
+        mosaic_x_ = reference_x_;
+        mosaic_y_ = reference_y_;
+    }
     compose_line(line, vram, memory, out);
     advance_references();
 }
@@ -85,16 +96,25 @@ void Engine2d::compose_line(unsigned line, const Vram& vram, const Memory& memor
         layers.present[bg] = true;
         if (kind == Layer::text) draw_text_layer(bg, line, vram, memory, layers.colors[bg]);
         else draw_affine_layer(bg, kind, vram, memory, layers.colors[bg]);
+        if ((bg_control(bg) & 0x40U) != 0) apply_mosaic(layers.colors[bg], (half(0x4c) & 15U) + 1U);
     }
     // Les objets servent aussi à la fenêtre d'objets (DISPCNT bit 15).
     ObjectLine objects;
     const auto use_objects = (control & 0x9000U) != 0;
-    if (use_objects) draw_objects(main_, control, line, vram, memory, objects);
+    if (use_objects) draw_objects(main_, control, half(0x4c), line, vram, memory, objects);
     compose_pixels(line, layers, use_objects ? &objects : nullptr, palette_color(memory, main_ ? 0x000U : 0x400U), out);
 }
 
+std::uint16_t Engine2d::extended_color(const Vram& vram, unsigned slot, std::uint32_t entry) const noexcept {
+    const auto area = main_ ? Vram::bg_ext_a : Vram::bg_ext_b;
+    return static_cast<std::uint16_t>(vram.read(area, slot * 0x2000U + entry * 2U, 2) & 0x7fffU);
+}
+
 // GBATEK, « LCD VRAM BG Screen Data Format » : blocs de 32 × 32 entrées de
-// 16 bits (tuile, retournements, palette), tuiles de 8 × 8 points.
+// 16 bits (tuile, retournements, palette), tuiles de 8 × 8 points. En 256
+// couleurs, la palette de l'entrée choisit une palette étendue si DISPCNT
+// bit 30 les active ; BG0 et BG1 peuvent prendre les emplacements 2 et 3
+// (BGxCNT bit 13).
 void Engine2d::draw_text_layer(unsigned bg, unsigned line, const Vram& vram, const Memory& memory,
                                std::span<std::uint16_t, width> colors) const {
     const auto control = bg_control(bg);
@@ -108,7 +128,10 @@ void Engine2d::draw_text_layer(unsigned bg, unsigned line, const Vram& vram, con
     const auto tall = (size & 2U) != 0;
     const auto colors256 = (control & 0x80U) != 0;
     const auto palette = main_ ? 0x000U : 0x400U;
-    const auto y = (line + bg_offset(bg, true)) & (tall ? 511U : 255U);
+    const auto extended = colors256 && (display & 0x4000'0000U) != 0;
+    const auto slot = bg < 2 && (control & 0x2000U) != 0 ? bg + 2U : bg;
+    const auto row = (control & 0x40U) != 0 ? line - line % bg_mosaic_height() : line;
+    const auto y = (row + bg_offset(bg, true)) & (tall ? 511U : 255U);
     const auto hofs = bg_offset(bg, false);
     for (unsigned x = 0; x < width; ++x) {
         const auto px = (x + hofs) & (wide ? 511U : 255U);
@@ -126,7 +149,9 @@ void Engine2d::draw_text_layer(unsigned bg, unsigned line, const Vram& vram, con
             index = (tx & 1U) != 0 ? pair >> 4U : pair & 15U;
             if (index != 0) index += (entry >> 12U) * 16U;
         }
-        colors[x] = index == 0 ? transparent : palette_color(memory, palette + index * 2U);
+        if (index == 0) colors[x] = transparent;
+        else if (extended) colors[x] = extended_color(vram, slot, (entry >> 12U) * 256U + index);
+        else colors[x] = palette_color(memory, palette + index * 2U);
     }
 }
 

@@ -462,6 +462,176 @@ void windows_and_effects_test() {
     check(line[20] == 0x3dE0 && line[30] == 0x03e0, "objet semi-transparent mélangé au fond dessous");
 }
 
+void extended_palettes_test() {
+    Vram vram;
+    Memory memory;
+    vram.set_control(0, 0x81);  // A : fonds
+    vram.set_control(1, 0x82);  // B : objets
+    store(&memory.palette[0], 0x001f, 2);  // fond : rouge
+    store(&memory.palette[2], 0x03e0, 2);  // palette standard, couleur 1 : vert
+    // E en LCDC (0x06880000) le temps d'écrire, puis en palettes étendues des fonds.
+    vram.set_control(4, 0x80);
+    vram.write(Vram::lcdc, 0x80000 + 2, 0x7c00, 2);                   // emplacement 0, palette 0, couleur 1
+    vram.write(Vram::lcdc, 0x80000 + (2 * 256 + 1) * 2, 0x7fff, 2);  // emplacement 0, palette 2, couleur 1
+    vram.write(Vram::lcdc, 0x80000 + 0x4000 + 2, 0x0210, 2);          // emplacement 2, palette 0, couleur 1
+    vram.set_control(4, 0x84);
+    check(vram.read(Vram::lcdc, 0x80000 + 2, 2) == 0, "E en palettes étendues : hors de l'espace du CPU");
+    // BG0 en 256 couleurs : tuile 1 pleine de l'indice 1 ; carte : palette 0, puis palette 2.
+    for (unsigned byte = 0; byte < 64; ++byte) vram.write(Vram::bg_a, 64 + byte, 1, 1);
+    vram.write(Vram::bg_a, 0x800, 0x0001, 2);
+    vram.write(Vram::bg_a, 0x802, 0x2001, 2);
+    Engine2d engine{true};
+    engine.write(0x08, (1U << 8U) | 0x80U, 0xffffU);  // BG0CNT : 256 couleurs, carte au bloc 1
+    engine.write(0x00, 0x4001'0100U, all);            // palettes étendues des fonds, BG0
+    std::array<std::uint16_t, 256> line{};
+    engine.render_line(0, vram, memory, line);
+    check(line[0] == 0x7c00 && line[8] == 0x7fff && line[16] == 0x001f, "fond texte : palettes étendues 0 et 2");
+    engine.write(0x08, (1U << 8U) | 0x80U | 0x2000U, 0xffffU);
+    engine.render_line(0, vram, memory, line);
+    check(line[0] == 0x0210, "BG0 sur l'emplacement 2 (BGxCNT bit 13)");
+    engine.write(0x00, 0x0001'0100U, all);
+    engine.render_line(0, vram, memory, line);
+    check(line[0] == 0x03e0 && line[8] == 0x03e0, "sans DISPCNT bit 30 : palette standard");
+    // F, OFS = 1 : emplacements 2 et 3, à la place de E.
+    vram.set_control(4, 0);
+    vram.set_control(5, 0x80);  // F en LCDC : 0x06890000
+    vram.write(Vram::lcdc, 0x90000 + 2, 0x1234, 2);
+    vram.write(Vram::lcdc, 0x90000 + 0x2000 + 2, 0x4210, 2);
+    vram.set_control(5, 0x84 | (1U << 3U));
+    engine.write(0x00, 0x4001'0100U, all);
+    engine.render_line(0, vram, memory, line);
+    check(line[0] == 0x1234, "F, OFS = 1 : emplacement 2");
+    // BG3 étendu (mode 5, carte de 16 bits) : emplacement 3.
+    vram.write(Vram::bg_a, 0x1000, 0x0001, 2);
+    engine.write(0x0c, (2U << 8U) << 16U, 0xffff'0000U);  // BG3CNT : carte au bloc 2, 128 × 128
+    engine.write(0x30, 0x100, 0xffffU);                   // PA = 1
+    engine.write(0x34, 0x100U << 16U, 0xffff'0000U);      // PD = 1
+    engine.write(0x00, 0x4001'0805U, all);
+    engine.render_line(0, vram, memory, line);
+    check(line[0] == 0x4210, "fond étendu : emplacement 3");
+    // Objet de 256 couleurs, palette 3, sur la palette étendue des objets (G).
+    vram.set_control(6, 0x80);  // G en LCDC : 0x06894000
+    vram.write(Vram::lcdc, 0x94000 + (3 * 256 + 1) * 2, 0x5555, 2);
+    vram.set_control(6, 0x85);
+    store(&memory.palette[0x200 + 2], 0x03ff, 2);
+    for (unsigned byte = 0; byte < 64; ++byte) vram.write(Vram::obj_a, byte, 1, 1);
+    store(&memory.oam[0], 10U | 0x2000U, 2);  // y = 10, 256 couleurs
+    store(&memory.oam[2], 20, 2);
+    store(&memory.oam[4], 0x3000U, 2);  // tuile 0, palette 3
+    engine.write(0x00, 0x8001'1010U, all);  // palettes étendues des objets, objets en 1D
+    engine.render_line(10, vram, memory, line);
+    check(line[20] == 0x5555, "objet de 256 couleurs : palette étendue 3");
+    engine.write(0x00, 0x0001'1010U, all);
+    engine.render_line(10, vram, memory, line);
+    check(line[20] == 0x03ff, "sans DISPCNT bit 31 : palette standard des objets");
+}
+
+void bitmap_objects_test() {
+    Vram vram;
+    Memory memory;
+    vram.set_control(1, 0x82);  // B : objets du moteur A
+    store(&memory.palette[0], 0x001f, 2);  // fond : rouge
+    const auto object = [&](std::uint32_t a0, std::uint32_t a1, std::uint32_t a2) {
+        store(&memory.oam[0], a0, 2);
+        store(&memory.oam[2], a1, 2);
+        store(&memory.oam[4], a2, 2);
+    };
+    // 2D de 128 points : le point (x, y) de la tuile t est à (t & 15) × 16 + (t & ~15) × 128 + (y × 128 + x) × 2.
+    vram.write(Vram::obj_a, 0, 0x8000 | 0x7c00, 2);
+    vram.write(Vram::obj_a, 3 * 2, 0x03e0, 2);  // bit 15 à 0 : invisible
+    vram.write(Vram::obj_a, (128 + 2) * 2, 0x8000 | 0x03e0, 2);
+    vram.write(Vram::obj_a, 0x10 + 0x800, 0x8000 | 0x7fff, 2);  // tuile 0x11
+    object(10U | (3U << 10U), 20, 0);  // bitmap de 8 × 8 à (20, 10)
+    Engine2d engine{true};
+    engine.write(0x00, 0x0001'1000U, all);  // objets, bitmaps en 2D de 128 points
+    std::array<std::uint16_t, 256> line{};
+    engine.render_line(10, vram, memory, line);
+    check(line[20] == 0x7c00 && line[23] == 0x001f, "objet bitmap : bit 15 = point visible");
+    engine.render_line(11, vram, memory, line);
+    check(line[22] == 0x03e0, "objet bitmap 2D : rangées de 128 points");
+    object(10U | (3U << 10U), 20, 0x11);
+    engine.render_line(10, vram, memory, line);
+    check(line[20] == 0x7fff, "objet bitmap 2D : tuile 0x11");
+    vram.write(Vram::obj_a, 0x10 + 0x20 * 0x80, 0x8000 | 0x0210, 2);  // tuile 0x21, largeur 256
+    object(10U | (3U << 10U), 20, 0x21);
+    engine.write(0x00, 0x0001'1020U, all);
+    engine.render_line(10, vram, memory, line);
+    check(line[20] == 0x0210, "objet bitmap 2D de 256 points");
+    // 1D : tuile × 128 octets (× 256 avec DISPCNT bit 22), largeur source = largeur de l'objet.
+    vram.write(Vram::obj_a, 2 * 128 + (8 + 4) * 2, 0x8000 | 0x1234, 2);
+    object(10U | (3U << 10U), 20, 2);
+    engine.write(0x00, 0x0001'1040U, all);
+    engine.render_line(11, vram, memory, line);
+    check(line[24] == 0x1234, "objet bitmap 1D, pas de 128 octets");
+    vram.write(Vram::obj_a, 2 * 256, 0x8000 | 0x4321, 2);
+    engine.write(0x00, 0x0041'1040U, all);
+    engine.render_line(10, vram, memory, line);
+    check(line[20] == 0x4321, "objet bitmap 1D, pas de 256 octets");
+    engine.write(0x00, 0x0001'1060U, all);
+    engine.render_line(10, vram, memory, line);
+    check(line[20] == 0x001f, "objet bitmap : combinaison réservée");
+}
+
+void mosaic_test() {
+    Vram vram;
+    Memory memory;
+    vram.set_control(0, 0x81);  // A : fonds
+    vram.set_control(1, 0x82);  // B : objets
+    for (unsigned index = 1; index <= 8; ++index) {  // couleurs 1 à 8 : valeurs 1 à 8
+        store(&memory.palette[index * 2], index, 2);
+        store(&memory.palette[0x200 + index * 2], index, 2);
+    }
+    store(&memory.palette[0], 0x7c00, 2);  // fond : bleu
+    // Tuile 1 du fond : le point (x, y) a l'indice 1 + ((x + y) & 7).
+    for (unsigned y = 0; y < 8; ++y) {
+        for (unsigned x = 0; x < 8; x += 2) {
+            const auto low = 1U + ((x + y) & 7U);
+            const auto high = 1U + ((x + 1U + y) & 7U);
+            vram.write(Vram::bg_a, 32 + y * 4 + x / 2, low | (high << 4U), 1);
+        }
+    }
+    for (unsigned entry = 0; entry < 32 * 32; ++entry) vram.write(Vram::bg_a, 0x800 + entry * 2, 1, 2);
+    Engine2d engine{true};
+    engine.write(0x08, (1U << 8U) | 0x40U, 0xffffU);  // BG0 : mosaïque, carte au bloc 1
+    engine.write(0x00, 0x0001'0100U, all);
+    std::array<std::uint16_t, 256> line{};
+    engine.render_line(0, vram, memory, line);
+    check(line[5] == 6, "mosaïque de 1 × 1 : sans effet");
+    engine.write(0x4c, 0x33, 0xffffU);  // blocs de 4 × 4 pour les fonds
+    engine.render_line(0, vram, memory, line);
+    check(line[3] == 1 && line[5] == 5, "mosaïque horizontale d'un fond");
+    engine.render_line(2, vram, memory, line);
+    check(line[5] == 5 && line[0] == 1, "mosaïque verticale : la ligne 2 reprend la ligne 0");
+    engine.render_line(5, vram, memory, line);
+    check(line[1] == 5, "mosaïque verticale : la ligne 5 reprend la ligne 4");
+    // BG3 bitmap de 256 couleurs (mode 5) : un seul point, en (5, 0).
+    store(&memory.palette[2], 0x03e0, 2);
+    vram.write(Vram::bg_a, 0x8000 + 5, 1, 1);
+    engine.write(0x0c, ((2U << 8U) | 0x80U | 0x40U) << 16U, 0xffff'0000U);
+    engine.write(0x30, 0x100, 0xffffU);
+    engine.write(0x34, 0x100U << 16U, 0xffff'0000U);
+    engine.write(0x00, 0x0001'0805U, all);
+    engine.write(0x4c, 0x10, 0xffffU);  // blocs de 1 × 2
+    engine.render_line(0, vram, memory, line);
+    engine.render_line(1, vram, memory, line);
+    check(line[5] == 0x03e0, "fond affine : la ligne 1 garde le point de référence de la ligne 0");
+    engine.render_line(2, vram, memory, line);
+    check(line[5] == 0x7c00, "fond affine : la ligne 2 repart de son propre point de référence");
+    // Objet de 8 × 8 à (22, 10), indice 1 + x à chaque rangée ; blocs de 4 × 4 pour les objets.
+    for (unsigned y = 0; y < 8; ++y) {
+        for (unsigned x = 0; x < 8; x += 2) vram.write(Vram::obj_a, y * 4 + x / 2, (1U + x) | ((2U + x) << 4U), 1);
+    }
+    store(&memory.oam[0], 10U | 0x1000U, 2);  // y = 10, mosaïque
+    store(&memory.oam[2], 22, 2);
+    engine.write(0x00, 0x0001'1010U, all);
+    engine.write(0x4c, 0x3300, 0xffffU);
+    engine.render_line(11, vram, memory, line);
+    check(line[24] == 0x7c00, "objet : le bloc des lignes 8 à 11 commence au-dessus de lui");
+    engine.render_line(13, vram, memory, line);
+    check(line[22] == 0x7c00 && line[24] == 3 && line[27] == 3 && line[28] == 7,
+          "objet : grille de l'écran, bloc vide quand son coin tombe hors de l'objet");
+}
+
 } // namespace
 
 int main() {
@@ -480,5 +650,8 @@ int main() {
     objects_test();
     affine_backgrounds_test();
     windows_and_effects_test();
+    extended_palettes_test();
+    bitmap_objects_test();
+    mosaic_test();
     return 0;
 }

@@ -10,17 +10,20 @@
 // Les neuf banques de VRAM (656 Kio) et leur projection par VRAMCNT_A à
 // VRAMCNT_I (GBATEK, « DS Memory Control - VRAM »), par pages de 16 Kio.
 // Deux banques projetées au même endroit : la lecture combine leurs octets
-// (OU) et l'écriture va dans les deux. Les palettes étendues et les textures
-// ne sont pas encore projetées : leurs banques sortent de l'espace du CPU.
+// (OU) et l'écriture va dans les deux. Les palettes étendues ne sont vues que
+// par les moteurs 2D, hors de l'espace du CPU ; les textures ne sont pas
+// encore projetées.
 namespace ravenemu::nds {
 
 class Vram {
 public:
-    // Zones vues par le CPU et les moteurs 2D.
-    enum Area : unsigned { lcdc, bg_a, obj_a, bg_b, obj_b, arm7, area_count };
+    // Zones vues par le CPU et les moteurs 2D, puis palettes étendues des
+    // moteurs : 4 emplacements de 8 Kio pour les fonds, 8 Kio pour les objets.
+    enum Area : unsigned { lcdc, bg_a, obj_a, bg_b, obj_b, arm7, bg_ext_a, obj_ext_a, bg_ext_b, obj_ext_b, area_count };
     static constexpr std::size_t page_size = 16 * 1024;
     static constexpr std::array<unsigned, 9> bank_pages{8, 8, 8, 8, 4, 1, 1, 2, 1};       // A à I
-    static constexpr std::array<unsigned, area_count> area_pages{41, 32, 16, 8, 8, 16};  // 656, 512, 256, 128, 128, 256 Kio
+    // 656, 512, 256, 128, 128, 256 Kio ; 32 et 16 Kio (8 Kio servent) par palette étendue.
+    static constexpr std::array<unsigned, area_count> area_pages{41, 32, 16, 8, 8, 16, 2, 1, 2, 1};
 
     Vram() {
         unsigned offset = 0;
@@ -103,21 +106,26 @@ private:
             else if (mst == 2) set(arm7, (ofs & 1U) * 8);
             else if (mst == 4) set(bank == 2 ? bg_b : obj_b, 0);
             break;
-        case 4:
+        case 4:  // E : palettes étendues des fonds, 32 Kio bas seuls
             if (mst == 1) set(bg_a, 0);
             else if (mst == 2) set(obj_a, 0);
+            else if (mst == 4) set(bg_ext_a, 0);
             break;
         case 5:
-        case 6:
+        case 6:  // F, G : emplacements 0-1 (OFS = 0) ou 2-3 (OFS = 1)
             if (mst == 1) set(bg_a, small_page);
             else if (mst == 2) set(obj_a, small_page);
+            else if (mst == 4) set(bg_ext_a, ofs & 1U);
+            else if (mst == 5) set(obj_ext_a, 0);
             break;
         case 7:
             if (mst == 1) set(bg_b, 0);
+            else if (mst == 2) set(bg_ext_b, 0);
             break;
         default:  // I
             if (mst == 1) set(bg_b, 2);
             else if (mst == 2) set(obj_b, 0);
+            else if (mst == 3) set(obj_ext_b, 0);
             break;
         }
     }

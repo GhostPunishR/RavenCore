@@ -62,6 +62,15 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 
   La composition se fait désormais point par point, dans l'ordre des priorités.
 - Test : fenêtres et effets dans `nds_raven_hardware`. Il couvre WIN0, l'assombrissement, la transparence d'un fond sur la couleur de fond, et un objet semi-transparent sur un fond.
+- **Cœur NDS, palettes étendues, objets bitmap et mosaïque** (GBATEK, « DS Video Extended Palettes », « DS Video OBJs », « LCD I/O Mosaic Function ») :
+  - **palettes étendues des fonds** (DISPCNT bit 30) : 4 emplacements de 8 Kio dans E, F, G (moteur A) ou H (moteur B). Elles servent aux tuiles de 256 couleurs à carte de 16 bits, en mode texte ou étendu. BG0 et BG1 peuvent prendre les emplacements 2 et 3 (BGxCNT bit 13) ;
+  - **palettes étendues des objets** (DISPCNT bit 31) : 16 palettes de 256 couleurs dans F, G (moteur A) ou I (moteur B) ;
+  - ces banques sortent de l'espace du CPU, comme le décrit GBATEK ;
+  - **objets bitmap** (mode 3) en couleurs directes, dont le bit 15 rend le point visible. Ils se lisent en correspondance 2D (bitmap source de 128 ou 256 points de large) ou 1D (pas de 128 octets, ou de 256 octets sur le moteur A) ;
+  - **mosaïque** des fonds et des objets : chaque bloc prend le point de son coin haut gauche, sur la grille de l'écran. Les lignes d'un bloc d'un fond affine gardent le point de référence de sa première ligne.
+
+  La valeur alpha de l'OAM des objets bitmap n'est pas appliquée : GBATEK la nomme sans en décrire l'effet.
+- Test : palettes étendues, objets bitmap et mosaïque dans `nds_raven_hardware`. Il couvre les emplacements 0 à 3, les banques E, F et G, la palette standard quand les palettes étendues sont coupées, les correspondances 2D et 1D des objets bitmap, et la mosaïque horizontale et verticale des fonds et des objets.
 
 ### Documentation
 
