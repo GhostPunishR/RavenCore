@@ -1,4 +1,5 @@
 #include "bios/decompression.hpp"
+#include "cartridge/game_card.hpp"
 #include "cartridge/header.hpp"
 #include "cpu/cp15.hpp"
 #include "gpu/engine2d.hpp"
@@ -462,6 +463,72 @@ void windows_and_effects_test() {
     check(line[20] == 0x3dE0 && line[30] == 0x03e0, "objet semi-transparent mélangé au fond dessous");
 }
 
+// Bus de la cartouche, d'après GBATEK (« DS Cartridge I/O Ports », « DS
+// Cartridge Protocol ») : chaque transfert est mené événement par événement.
+void game_card_test() {
+    std::vector<std::uint8_t> rom(0x20000);
+    for (std::size_t index = 0; index < rom.size(); ++index) rom[index] = static_cast<std::uint8_t>(index ^ (index >> 8U));
+    for (unsigned byte = 0; byte < 4; ++byte) rom[0x60 + byte] = static_cast<std::uint8_t>(0x0058'6000U >> (8U * byte));
+    GameCard card;
+    card.insert(rom, 0x0000'00c2U);  // puce de 1 Mio
+    Scheduler scheduler;
+    InterruptController irq{irq::arm9_bits};
+    check(card.read(0x04) == 0x2058'6000U, "ROMCTRL après le démarrage : celui de l'en-tête, reset relâché");
+    const auto command = [&](std::uint8_t first, std::uint32_t address) {
+        card.write(0x08, first | ((address >> 24U) << 8U) | (((address >> 16U) & 0xffU) << 16U) | (((address >> 8U) & 0xffU) << 24U),
+                   all, 0, scheduler);
+        card.write(0x0c, address & 0xffU, all, 0, scheduler);
+    };
+    // Mène le transfert : à chaque événement, le mot prêt est lu aussitôt.
+    std::vector<Cycles> times;
+    const auto transfer = [&](std::uint32_t control) {
+        std::vector<std::uint8_t> bytes;
+        times.clear();
+        card.write(0x04, control, all, 0, scheduler);
+        while ((card.read(0x04) & 0x8000'0000U) != 0) {
+            const auto at = scheduler.time_of(Event::card);
+            static_cast<void>(scheduler.take_due(at));
+            times.push_back(at);
+            if (!card.on_event(irq)) continue;
+            check((card.read(0x04) & 0x0080'0000U) != 0, "mot prêt : DRQ (ROMCTRL bit 23)");
+            const auto word = card.read_data(at, scheduler, irq);
+            check((card.read(0x04) & 0x0080'0000U) == 0, "mot lu : DRQ retombé");
+            for (unsigned byte = 0; byte < 4; ++byte) bytes.push_back(static_cast<std::uint8_t>(word >> (8U * byte)));
+        }
+        return bytes;
+    };
+    const auto rom_at = [&](std::size_t offset, std::size_t length) {
+        return std::vector<std::uint8_t>(rom.begin() + static_cast<std::ptrdiff_t>(offset),
+                                         rom.begin() + static_cast<std::ptrdiff_t>(offset + length));
+    };
+    command(0xb7, 0x8000);
+    card.write(0x04, 0xa158'6000U, all, 0, scheduler);
+    check((card.read(0x04) & 0x8000'0000U) == 0, "slot coupé (AUXSPICNT bit 15) : pas de transfert");
+    card.write(0x00, 0xc000U, 0xffffU, 0, scheduler);  // slot activé, IRQ de fin
+    check(transfer(0xa158'6000U) == rom_at(0x8000, 0x200), "B7 : 0x200 octets à 0x8000");
+    check(times.front() == (8 + 4) * 5 && times[1] == times[0] + 4 * 5, "commande, puis 4 octets par mot, à 5 cycles par octet");
+    check((irq.flags() & (1U << irq::card_done)) != 0, "IRQ de fin de transfert");
+    command(0xb7, 0x8f00);
+    const auto wrapped = transfer(0xa158'6000U);
+    check(rom_at(0x8f00, 0x100) == std::vector<std::uint8_t>(wrapped.begin(), wrapped.begin() + 0x100) &&
+              wrapped[0x100] == rom[0x8000],
+          "B7 : le flux boucle dans son bloc de 4 Kio");
+    command(0xb7, 0x0010);
+    check(transfer(0xa758'6000U) == rom_at(0x8010, 4), "B7 : 0x0010 lit 0x8010");
+    command(0xb7, 0x10'8000);
+    check(transfer(0xa758'6000U) == rom_at(0x8000, 4), "B7 : au-delà de la puce de 1 Mio, miroir");
+    command(0xb7, 0x3'0000);
+    check(transfer(0xa758'6000U) == std::vector<std::uint8_t>(4, 0xff), "B7 : dans la puce, après la ROM : 0xFF");
+    command(0xb8, 0);
+    check(transfer(0xa758'6000U) == std::vector<std::uint8_t>{0xc2, 0, 0, 0}, "B8 : identifiant de la puce");
+    command(0xb7, 0x8000);
+    check(transfer(0xa058'6000U).empty() && times == std::vector<Cycles>{8 * 5}, "transfert sans données : fini après la commande");
+    command(0xb7, 0x8000);
+    static_cast<void>(transfer(0xaa58'6000U));  // 0x400 octets, horloge de 8 cycles
+    check(times[0x80] == times[0x7f] + (4 + 0x18) * 8 && times[0x81] == times[0x80] + 4 * 8,
+          "gap2 (0x18 périodes) tous les 0x200 octets, horloge de 8 cycles");
+}
+
 void extended_palettes_test() {
     Vram vram;
     Memory memory;
@@ -650,6 +717,7 @@ int main() {
     objects_test();
     affine_backgrounds_test();
     windows_and_effects_test();
+    game_card_test();
     extended_palettes_test();
     bitmap_objects_test();
     mosaic_test();

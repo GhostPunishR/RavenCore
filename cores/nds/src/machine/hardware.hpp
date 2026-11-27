@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cartridge/game_card.hpp"
 #include "cpu/cp15.hpp"
 #include "dma/dma_channel.hpp"
 #include "gpu/engine2d.hpp"
@@ -32,6 +33,7 @@ struct Hardware {
     LcdTiming lcd{irq9, irq7};
     Cp15 cp15;
     Memory memory;
+    GameCard card;
 
     // KEYINPUT (bits 0-9, 0 = appuyé) ; EXTKEYIN de l'ARM7 : X, Y, crayon
     // posé (bit 6) et couvercle fermé (bit 7), les bits 2, 4 et 5 levés.
@@ -66,6 +68,8 @@ struct Hardware {
     [[nodiscard]] Cycles arm7_time() const noexcept { return arm7_cycles; }
     // Slot GBA attribué à l'ARM7 (EXMEMCNT bit 7 de l'ARM9).
     [[nodiscard]] bool gba_slot_arm7() const noexcept { return (external_memory[0] & 0x80U) != 0; }
+    // Slot de la cartouche DS attribué à l'ARM7 (EXMEMCNT bit 11 de l'ARM9).
+    [[nodiscard]] bool card_arm7() const noexcept { return (external_memory[0] & 0x800U) != 0; }
 };
 
 } // namespace ravenemu::nds

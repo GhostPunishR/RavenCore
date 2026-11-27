@@ -59,9 +59,8 @@ private:
     void settle(Cycles now);
     void render_line(unsigned line);
     void on_lcd_event(LcdTiming::Phase phase);
+    void on_card_event();
     void sync_cp15() noexcept;
-
-    std::vector<std::uint8_t> rom_;
 };
 
 } // namespace ravenemu::nds

@@ -312,6 +312,8 @@ Chaque étape se termine par des tests automatisés et un résultat montrable.
 
 La DMA et les décompressions du BIOS sans fonction de rappel sont faites aussi. Les objets (sprites) normaux et affines aussi. Les fonds affines, étendus et bitmap aussi. Les fenêtres et les effets de couleur aussi. Les palettes étendues, les objets bitmap et la mosaïque aussi. Les décompressions par fonctions de rappel aussi, en code ARM du BIOS de RavenCore. L'étape 2 se clôt sur son résultat montrable : `cores/nds/homebrew/`, un homebrew en mode texte écrit en C pour RavenCore, sans libnds, et compilé par Clang et ld.lld. Il affiche du texte sur les deux écrans, compte les images et les secondes par IRQ, échange avec l'ARM7 par l'IPC, lit le pseudo du firmware et les touches ; `nds_raven_homebrew` le vérifie à chaque CI.
 
+L'étape 3 commence par le bus de la cartouche (`cartridge/game_card.cpp`) : registres AUXSPICNT, ROMCTRL et commande, commandes B7 (données) et B8 (identifiant de la puce) du mode principal, temps de transfert, DMA « cartouche », IRQ de fin et attribution du slot par EXMEMCNT. Le homebrew y lit un message dans sa ROM. Restent pour l'étape 3 les sauvegardes, l'écran tactile, l'horloge et le son.
+
 1. **Fondations :**
    - le CPU ARM partagé ;
    - l'ARM9 et CP15 ;

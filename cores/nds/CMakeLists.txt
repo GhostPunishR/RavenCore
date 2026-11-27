@@ -1,6 +1,7 @@
 # Cœur Nintendo DS, en construction : pas encore d'API publique, ni de cœur
 # Libretro, ni d'installation. Ses deux processeurs viennent du CPU ARM commun.
 add_library(nds_raven_core STATIC
+    src/cartridge/game_card.cpp
     src/cartridge/header.cpp
     src/gpu/affine_background.cpp
     src/gpu/compositor.cpp

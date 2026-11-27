@@ -57,6 +57,7 @@ std::uint32_t Bus9::io_word(std::uint32_t address) {
     auto& hw = hw_;
     const auto now = hw.arm9_time();
     if (address == 0x0410'0000U) return hw.ipc.receive(0);
+    if (address == 0x0410'0010U) return hw.card_arm7() ? 0U : hw.card.read_data(now, hw.scheduler, hw.irq9);
     if (address >= 0x0400'1000U && address < 0x0400'1070U) return hw.engine_b.read(address & 0xfffU);
     if (address >= 0x0400'1000U) return 0;
     const auto offset = address & 0xfffU;
@@ -65,6 +66,7 @@ std::uint32_t Bus9::io_word(std::uint32_t address) {
     if (offset >= 0x0e0 && offset < 0x0f0) return hw.dma_fill[(offset - 0x0e0) / 4];
     if (offset >= 0x280 && offset < 0x2b0) return hw.divider.read(offset, now);
     if (offset >= 0x2b0 && offset < 0x2c0) return hw.square_root.read(offset, now);
+    if (offset >= 0x1a0 && offset < 0x1c0) return hw.card_arm7() ? 0U : hw.card.read(offset - 0x1a0);
     if (offset != 0x004 && offset < 0x070) return hw.engine_a.read(offset);
     switch (offset) {
     case 0x004: return hw.lcd.read(0);
@@ -121,6 +123,10 @@ void Bus9::io_write_word(std::uint32_t address, std::uint32_t value, std::uint32
     }
     if (offset >= 0x280 && offset < 0x2b0) return hw.divider.write(offset, value, mask, now);
     if (offset >= 0x2b0 && offset < 0x2c0) return hw.square_root.write(offset, value, mask, now);
+    if (offset >= 0x1a0 && offset < 0x1c0) {
+        if (!hw.card_arm7()) hw.card.write(offset - 0x1a0, value, mask, now, hw.scheduler);
+        return;
+    }
     switch (offset) {
     case 0x004: hw.lcd.write(0, value, mask); break;
     case 0x130: hw.key_control[0] = merge(hw.key_control[0], value >> 16U, mask >> 16U) & 0xc3ffU; break;

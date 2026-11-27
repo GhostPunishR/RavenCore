@@ -6,7 +6,9 @@
  * - les secondes, par l'IRQ d'un minuteur ;
  * - la réponse de l'ARM7 par la FIFO de l'IPC (41, puis 42) ;
  * - le pseudo des réglages utilisateur du firmware ;
- * - les touches appuyées.
+ * - les touches appuyées ;
+ * - un message lu dans la ROM par le bus de la cartouche (commande B7, DMA
+ *   « cartouche », IRQ de fin de transfert attendue par IntrWait).
  */
 #include "ds.h"
 #include "font.h"
@@ -21,6 +23,14 @@
  * Firmware User Settings ») : pseudo en UTF-16, puis sa longueur. */
 #define NICKNAME ((volatile const uint16_t*)0x027ffc86u)
 #define NICKNAME_LENGTH REG16(0x027ffc9au)
+
+/* En-tête de la cartouche recopié à 0x027FFE00 : ROMCTRL des commandes
+ * normales (060h). */
+#define HEADER_ROMCTRL REG32(0x027ffe60u)
+
+/* Message à 0x8000 dans la ROM (cartridge_message.txt), lu en un bloc. */
+enum { MESSAGE_ADDRESS = 0x8000, BLOCK_WORDS = 0x200 / 4 };
+static uint32_t card_block[BLOCK_WORDS];
 
 /* Couleurs de RavenEmu en BGR555 : fond #0B0C12, texte #F5F2FF, accent
  * #A78BFA, texte atténué #AAA2BC. */
@@ -44,6 +54,57 @@ static void irq_handler(void) {
 
 static void vblank_wait(void) {
     __asm__ volatile("swi 0x050000" ::: "r0", "r1", "r2", "r3", "r12", "memory");
+}
+
+/* IntrWait (SWI 04h) : r0 = 1 oublie les drapeaux déjà levés. */
+static void interrupt_wait(uint32_t mask) {
+    register uint32_t r0 __asm__("r0") = 1;
+    register uint32_t r1 __asm__("r1") = mask;
+    __asm__ volatile("swi 0x040000" : "+r"(r0), "+r"(r1) : : "r2", "r3", "r12", "memory");
+}
+
+/* Lignes de 32 octets du cache de données de l'ARM946E-S : nettoyées et
+ * invalidées avant que la DMA écrive, invalidées après (CP15, c7). */
+static void cache_clean_invalidate(const void* start, unsigned bytes) {
+    for (uintptr_t line = (uintptr_t)start & ~31u; line < (uintptr_t)start + bytes; line += 32)
+        __asm__ volatile("mcr p15, 0, %0, c7, c14, 1" : : "r"(line) : "memory");
+}
+static void cache_invalidate(const void* start, unsigned bytes) {
+    for (uintptr_t line = (uintptr_t)start & ~31u; line < (uintptr_t)start + bytes; line += 32)
+        __asm__ volatile("mcr p15, 0, %0, c7, c6, 1" : : "r"(line) : "memory");
+}
+
+/* Lit 0x200 octets de la cartouche à `address` par la commande B7 : la DMA 0,
+ * en mode « cartouche », prend chaque mot reçu, et l'IRQ de fin de transfert
+ * réveille IntrWait (GBATEK, « DS Cartridge I/O Ports »). */
+static void card_read_block(uint32_t address, uint32_t* destination) {
+    cache_clean_invalidate(destination, BLOCK_WORDS * 4u);
+    DMA0SAD = CARD_DATA;
+    DMA0DAD = (uint32_t)(uintptr_t)destination;
+    /* activée, départ « cartouche », mots de 32 bits, répétée, source fixe, 1 mot */
+    DMA0CNT = 0x80000000u | (5u << 27u) | (1u << 26u) | (1u << 25u) | (2u << 23u) | 1u;
+    AUXSPICNT = 0xc000u; /* slot activé, IRQ de fin de transfert */
+    CARD_COMMAND[0] = 0xb7u | ((address >> 24u) << 8u) | (((address >> 16u) & 0xffu) << 16u) |
+                      (((address >> 8u) & 0xffu) << 24u);
+    CARD_COMMAND[1] = address & 0xffu;
+    /* réglages de l'en-tête, blocs de 0x200 octets, départ */
+    ROMCTRL = (HEADER_ROMCTRL & 0x187f7fffu) | 0xa1000000u;
+    interrupt_wait(IRQ_CARD);
+    DMA0CNT = 0;
+    cache_invalidate(destination, BLOCK_WORDS * 4u);
+}
+
+static void show_card_message(Screen screen, unsigned y) {
+    card_read_block(MESSAGE_ADDRESS, card_block);
+    char message[31];
+    const char* bytes = (const char*)card_block;
+    unsigned count = 0;
+    while (count < 30 && bytes[count] != '\0' && bytes[count] != '\n') {
+        message[count] = bytes[count];
+        ++count;
+    }
+    message[count] = '\0';
+    text_print(screen, 1, y, PALETTE_TEXT, message);
 }
 
 static Screen screen_of(unsigned engine) {
@@ -108,6 +169,7 @@ static void draw_labels(Screen top, Screen bottom) {
     text_print(top, 1, 9, PALETTE_MUTED, "PSEUDO");
     show_nickname(top, 12, 9);
     text_print(top, 1, 12, PALETTE_MUTED, "TOUCHES");
+    text_print(top, 1, 15, PALETTE_MUTED, "CARTOUCHE");
     text_print(bottom, 1, 1, PALETTE_ACCENT, "ECRAN DU BAS - MOTEUR B");
     text_print(bottom, 1, 3, PALETTE_TEXT, "DEUX PROCESSEURS ARM");
     text_print(bottom, 1, 4, PALETTE_TEXT, "DEUX MOTEURS 2D");
@@ -132,8 +194,9 @@ int main(void) {
 
     BIOS_IRQ_HANDLER = (uint32_t)(uintptr_t)irq_handler;
     DISPSTAT = DISPSTAT_VBLANK_IRQ;
-    IE = IRQ_VBLANK | IRQ_TIMER0;
+    IE = IRQ_VBLANK | IRQ_TIMER0 | IRQ_CARD;
     IME = 1;
+    show_card_message(top, 16);
 
     uint32_t frames = 0;
     for (;;) {

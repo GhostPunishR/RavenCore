@@ -19,6 +19,7 @@ enum class Event : unsigned {
     lcd,      // début de ligne, puis H-Blank de l'ARM9 et de l'ARM7
     timers9,  // prochain débordement d'un timer de l'ARM9
     timers7,  // prochain débordement d'un timer de l'ARM7
+    card,     // bus de la cartouche : mot prêt ou transfert fini
     count,
 };
 

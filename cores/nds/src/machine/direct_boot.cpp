@@ -14,16 +14,10 @@ namespace {
 void write32(Memory& memory, std::uint32_t address, std::uint32_t value) { store(memory.main(address), value, 4); }
 void write16(Memory& memory, std::uint32_t address, std::uint32_t value) { store(memory.main(address), value, 2); }
 
-// Identifiant de puce : fabricant C2h (Macronix), puis taille en Mio - 1.
-std::uint32_t chip_id(const CartridgeHeader& header) noexcept {
-    const auto megabytes = header.capacity >= 3 && header.capacity < 13 ? 1U << (header.capacity - 3U) : 1U;
-    return 0xc2U | ((megabytes - 1U) << 8U);
-}
-
 } // namespace
 
 void Machine::direct_boot() {
-    const std::span<const std::uint8_t> rom{rom_};
+    const auto rom = hw.card.rom();
     if (secure_area(rom, header) == SecureArea::encrypted)
         throw CartridgeError("zone sécurisée chiffrée : seules les ROM déchiffrées démarrent sans BIOS");
     hw.cp15.reset();
@@ -36,7 +30,7 @@ void Machine::direct_boot() {
 void Machine::boot_memory() {
     auto& memory = hw.memory;
     memory.wram_control = 3;  // les 32 Kio partagés à l'ARM7
-    const std::span<const std::uint8_t> rom{rom_};
+    const auto rom = hw.card.rom();
     for (std::uint32_t index = 0; index < header.arm9_size; ++index)
         *memory.main(header.arm9_address + index) = rom[header.arm9_offset + index];
     for (std::uint32_t index = 0; index < header.arm7_size; ++index) {
@@ -51,7 +45,7 @@ void Machine::boot_memory() {
         write32(memory, id, 0xe7ff'deffU);
         write32(memory, id + 4, 0xe7ff'deffU);
     }
-    const auto id = chip_id(header);
+    const auto id = hw.card.chip_id();
     for (const std::uint32_t base : {0x027f'f800U, 0x027f'fc00U}) {
         write32(memory, base, id);
         write32(memory, base + 4, id);

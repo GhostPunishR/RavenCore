@@ -33,7 +33,12 @@ std::string row_text(const Machine& machine, unsigned engine, unsigned row) {
     return text.substr(0, text.find_last_not_of(' ') + 1);
 }
 
-unsigned number_at(const Machine& machine, unsigned row) { return static_cast<unsigned>(std::stoul(row_text(machine, 0, row).substr(12))); }
+// Nombre écrit à la colonne 12 d'une rangée de l'écran du haut ; 0 s'il n'y en a pas.
+unsigned number_at(const Machine& machine, unsigned row) {
+    const auto text = row_text(machine, 0, row);
+    if (text.size() <= 12 || text[12] < '0' || text[12] > '9') return 0;
+    return static_cast<unsigned>(std::stoul(text.substr(12)));
+}
 
 void write_screenshot(const Machine& machine, const char* path) {
     std::ofstream out{path, std::ios::binary};
@@ -65,6 +70,8 @@ int main(int argc, char** argv) {
     check(row_text(machine, 0, 8) == " ARM7 IPC   42", "l'ARM7 répond 42 par la FIFO de l'IPC");
     check(row_text(machine, 0, 9) == " PSEUDO     RAVENEMU", "pseudo des réglages du firmware");
     check(row_text(machine, 0, 13) == " AUCUNE", "aucune touche appuyée");
+    check(row_text(machine, 0, 16) == " LU SUR LA CARTOUCHE PAR DMA",
+          "message lu dans la ROM par le bus de la cartouche (B7, DMA, IRQ de fin)");
     machine.hw.keys = 0x3ffU & ~(1U | 8U);  // A et START
     machine.run_frame();
     machine.run_frame();
