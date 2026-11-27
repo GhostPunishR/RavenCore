@@ -67,10 +67,15 @@ void Engine2d::draw_affine_layer(unsigned bg, Layer kind, const Vram& vram, cons
     const auto palette = main_ ? 0x000U : 0x400U;
     const auto pa = affine_parameter(bg, 0);
     const auto pc = affine_parameter(bg, 2);
+    // Mosaïque verticale : les lignes d'un bloc reprennent sa première ligne.
+    const auto mosaic = (control & 0x40U) != 0;
+    const auto origin_x = mosaic ? mosaic_x_[bg - 2] : reference_x_[bg - 2];
+    const auto origin_y = mosaic ? mosaic_y_[bg - 2] : reference_y_[bg - 2];
+    const auto extended = (display & 0x4000'0000U) != 0;
     for (unsigned x = 0; x < width; ++x) {
         const auto step = static_cast<std::int32_t>(x);
-        auto tx = (reference_x_[bg - 2] + pa * step) >> 8;
-        auto ty = (reference_y_[bg - 2] + pc * step) >> 8;
+        auto tx = (origin_x + pa * step) >> 8;
+        auto ty = (origin_y + pc * step) >> 8;
         const auto inside = tx >= 0 && ty >= 0 && tx < static_cast<std::int32_t>(map_width) &&
                             ty < static_cast<std::int32_t>(map_height);
         if (!inside && !wrap) {
@@ -91,11 +96,15 @@ void Engine2d::draw_affine_layer(unsigned bg, Layer kind, const Vram& vram, cons
         } else if (kind == Layer::affine) {  // carte de 8 bits, tuiles de 256 couleurs
             const auto tile = vram.read(area, (screen_base + (v / 8U) * (map_width / 8U) + u / 8U) & area_mask, 1);
             index = vram.read(area, (char_base + tile * 64U + (v % 8U) * 8U + u % 8U) & area_mask, 1);
-        } else {  // carte de 16 bits : tuile, retournements (palettes étendues pas encore)
+        } else {  // carte de 16 bits : tuile, retournements, palette étendue
             const auto entry = vram.read(area, (screen_base + ((v / 8U) * (map_width / 8U) + u / 8U) * 2U) & area_mask, 2);
             const auto px = (entry & 0x400U) != 0 ? 7U - u % 8U : u % 8U;
             const auto py = (entry & 0x800U) != 0 ? 7U - v % 8U : v % 8U;
             index = vram.read(area, (char_base + (entry & 0x3ffU) * 64U + py * 8U + px) & area_mask, 1);
+            if (index != 0 && extended) {
+                colors[x] = extended_color(vram, bg, (entry >> 12U) * 256U + index);
+                continue;
+            }
         }
         colors[x] = index == 0 ? transparent : standard_color(memory, palette + index * 2U);
     }

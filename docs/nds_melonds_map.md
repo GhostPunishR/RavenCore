@@ -310,7 +310,7 @@ Chaque étape se termine par des tests automatisés et un résultat montrable.
 - la VRAM et sa projection, les deux moteurs 2D en mode texte et l'image des deux écrans ;
 - les réglages utilisateur du firmware, générés.
 
-La DMA et les décompressions du BIOS sans fonction de rappel sont faites aussi. Les objets (sprites) normaux et affines aussi. Les fonds affines, étendus et bitmap aussi. Les fenêtres et les effets de couleur aussi. Restent pour l'étape 2 les objets bitmap, les palettes étendues et les décompressions par fonctions de rappel.
+La DMA et les décompressions du BIOS sans fonction de rappel sont faites aussi. Les objets (sprites) normaux et affines aussi. Les fonds affines, étendus et bitmap aussi. Les fenêtres et les effets de couleur aussi. Les palettes étendues, les objets bitmap et la mosaïque aussi. Restent pour l'étape 2 les décompressions par fonctions de rappel.
 
 1. **Fondations :**
    - le CPU ARM partagé ;
