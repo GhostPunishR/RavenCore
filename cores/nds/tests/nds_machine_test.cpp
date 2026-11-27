@@ -157,6 +157,7 @@ void direct_boot_test() {
     check((main_word(machine, 0x027f'fc80U) & 0xffffU) == 5 && (main_word(machine, 0x027f'fc86U) & 0xffffU) == u'R' &&
               (main_word(machine, 0x027f'fc9aU) & 0xffffU) == 8,
           "réglages utilisateur générés : version 5, pseudo de 8 lettres");
+    check(machine.hw.sound.read(0x104, 0) == 0x200, "biais du son à 200h, comme le laisse le firmware");
 }
 
 // L'ARM9 donne la banque A au LCDC, la remplit de rouge et l'affiche (mode 2).

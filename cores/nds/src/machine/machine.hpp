@@ -40,6 +40,9 @@ public:
     // Écran tactile : point touché (pixels de l'écran du bas), ou relâché ;
     // EXTKEYIN bit 6 suit le crayon.
     void set_touch(bool pressed, unsigned x = 0, unsigned y = 0) noexcept;
+    // Son produit depuis le dernier retrait, en stéréo (gauche, droite) à
+    // 32 728,5 Hz (1024 périodes système) : l'hôte le lit puis le vide.
+    [[nodiscard]] std::vector<std::int16_t>& audio() noexcept { return hw.sound.output(); }
     // Date et heure de l'horloge temps réel (2000 à 2099), qui avancent
     // ensuite avec le temps émulé.
     void set_date_time(const DateTime& date_time) noexcept { hw.rtc.set_date_time(date_time, hw.now); }

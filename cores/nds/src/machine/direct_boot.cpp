@@ -5,8 +5,9 @@
 
 // Démarrage direct : l'état que le BIOS et le firmware laissent au lancement
 // d'une cartouche, d'après GBATEK (« BIOS RAM Usage », « DS Cartridge
-// Header », « ARM CP15 »). Les piles et le réglage de CP15 sont des choix de
-// RavenCore, signalés comme tels : les programmes les règlent eux-mêmes.
+// Header », « ARM CP15 », « DS Sound Control Registers »). Les piles et le
+// réglage de CP15 sont des choix de RavenCore, signalés comme tels : les
+// programmes les règlent eux-mêmes.
 namespace ravenemu::nds {
 
 namespace {
@@ -63,6 +64,9 @@ void Machine::boot_memory() {
     std::copy(settings.begin(), settings.end(), memory.main(0x027f'fc80U));
     hw.post_boot = {1, 1};
     hw.external_memory = {0x6000U, 0};  // slots à l'ARM9, RAM principale en mode synchrone
+    // Le firmware monte le biais du son à 200h (le niveau moyen de GBATEK) :
+    // les jeux jouent sans le régler eux-mêmes.
+    hw.sound.set_bias_level(true);
 }
 
 void Machine::boot_processors() {

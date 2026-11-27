@@ -123,6 +123,23 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
   - les interruptions INT1 et INT2 ne sont pas encore modélisées.
 - Homebrew : l'ARM7 lit l'heure sur l'horloge, bit par bit, et l'ARM9 l'affiche.
 - Tests : `nds_raven_rtc` (nouveau fichier) pilote l'horloge bit par bit : date et heure, temps qui passe, minuit, commande inversée, écriture d'un 29 février, mode 12 h et midi, registres, alarme 1, remise à zéro, commande invalide ; `nds_raven_homebrew` règle 21:30:45 et lit 21:30:46 une seconde plus tard.
+- **Cœur NDS, son de l'ARM7** (GBATEK, « DS Sound »), registres 0x04000400 à 0x04000507 :
+  - seize canaux (SOUNDxCNT, SAD, TMR, PNT, LEN). Tous lisent le PCM8, le PCM16 et l'IMA-ADPCM. Les canaux 8 à 13 jouent aussi une onde carrée à huit rapports, et les canaux 14 et 15 le bruit du registre à décalage de GBATEK ;
+  - départs retardés de 1 échantillon (PSG), 3 (PCM) et 11 (ADPCM). Modes coup unique, boucle depuis PNT (l'état de l'ADPCM y est rechargé) et manuel, et drapeau Hold. Le bit 31 retombe au début du dernier échantillon ;
+  - table des pas de l'ADPCM générée par la formule de GBATEK, avec ses trois corrections ;
+  - mixeur aux largeurs de GBATEK (volume, diviseur, panoramique, maître) :
+    - chaque sortie, gauche et droite, vient du mixeur ou des canaux 1 et 3 ;
+    - le biais s'ajoute, puis le signal est borné à 0..3FFh ;
+    - un échantillon stéréo sort toutes les 1024 périodes de l'horloge système, soit environ 32 728 Hz, et l'hôte le lit dans `Machine::audio` ;
+  - SWI 08h de l'ARM7, `SoundBias`, sans la rampe. Le démarrage direct met le biais à 200h, comme le firmware, car les jeux jouent sans le régler ;
+  - pas encore : la capture (SNDCAPxCNT), la rampe de `SoundBias`, la sortie vers Libretro.
+- Tests : `nds_raven_sound` (nouveau fichier) joue sur une mémoire de test :
+  - le PSG et ses rapports, le bruit ;
+  - le PCM8 en coup unique et avec Hold, le PCM16 en boucle ;
+  - le décodage ADPCM, vérifié par un calcul indépendant de la formule de GBATEK, et l'ADPCM en boucle ;
+  - le mixeur, le routage des canaux 1 et 3, le maître coupé et le biais.
+
+  `nds_raven_machine` vérifie le biais au démarrage direct.
 
 ### Documentation
 

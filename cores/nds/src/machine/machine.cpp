@@ -17,6 +17,9 @@ Machine::Machine(std::vector<std::uint8_t> rom) : header(parse_header(rom)) {
                 &bios7};
     bus9.instruction = {[](const void* cpu) { return static_cast<const Arm9*>(cpu)->instruction_address(); }, &arm9};
     bus7.instruction = {[](const void* cpu) { return static_cast<const Arm7*>(cpu)->instruction_address(); }, &arm7};
+    // Les canaux du son lisent leurs échantillons par le bus de l'ARM7.
+    hw.sound.set_source({[](void* bus, std::uint32_t address, unsigned width) { return static_cast<Bus7*>(bus)->peek(address, width); },
+                         &bus7});
     direct_boot();
     hw.lcd.start(hw.scheduler, hw.now);
 }
@@ -76,6 +79,7 @@ void Machine::run_arm7(Cycles end) {
 void Machine::settle(Cycles now) {
     hw.timers9.advance(now);
     hw.timers7.advance(now);
+    hw.sound.run(now);
     while (const auto event = hw.scheduler.take_due(now)) {
         if (*event == Event::lcd) on_lcd_event(hw.lcd.on_event(hw.scheduler, now));
         else if (*event == Event::card) on_card_event();
