@@ -10,7 +10,9 @@
  * - un message lu dans la ROM par le bus de la cartouche (commande B7, DMA
  *   « cartouche », IRQ de fin de transfert attendue par IntrWait) ;
  * - le nombre de démarrages, gardé dans l'EEPROM de sauvegarde, dont le cœur
- *   reconnaît seul le type.
+ *   reconnaît seul le type ;
+ * - le point touché sur l'écran tactile : l'ARM7 le lit par le bus SPI,
+ *   l'ARM9 le convertit en pixels avec le calibrage des réglages utilisateur.
  */
 #include "ds.h"
 #include "font.h"
@@ -22,7 +24,9 @@
 #define BIOS_IRQ_HANDLER REG32(0x027c3ffcu)
 
 /* Réglages utilisateur du firmware recopiés en RAM principale (GBATEK, « DS
- * Firmware User Settings ») : pseudo en UTF-16, puis sa longueur. */
+ * Firmware User Settings ») : pseudo en UTF-16, sa longueur, et le calibrage
+ * de l'écran tactile (deux points, mesure de 12 bits et pixel). */
+#define USER_SETTINGS ((volatile const uint8_t*)0x027ffc80u)
 #define NICKNAME ((volatile const uint16_t*)0x027ffc86u)
 #define NICKNAME_LENGTH REG16(0x027ffc9au)
 
@@ -192,6 +196,38 @@ static void show_nickname(Screen screen, unsigned x, unsigned y) {
     text_print(screen, x, y, PALETTE_TEXT, name);
 }
 
+/* Division signée par le diviseur de l'ARM9 (32 / 32 bits). */
+static int32_t divide(int32_t numerator, int32_t denominator) {
+    DIVCNT = 0;
+    DIV_NUMER = (uint32_t)numerator;
+    DIV_DENOM = (uint32_t)denominator;
+    while ((DIVCNT & 0x8000u) != 0) {
+    }
+    return (int32_t)DIV_RESULT;
+}
+
+/* Mesure de 12 bits vers pixel (GBATEK, « DS Touch Screen Controller ») :
+ * (adc - adc1) * (scr2 - scr1) / (adc2 - adc1) + (scr1 - 1). */
+static int32_t touch_pixel(uint32_t adc, unsigned axis) {
+    const int32_t adc1 = USER_SETTINGS[0x58u + axis * 2u] | (USER_SETTINGS[0x59u + axis * 2u] << 8);
+    const int32_t adc2 = USER_SETTINGS[0x5eu + axis * 2u] | (USER_SETTINGS[0x5fu + axis * 2u] << 8);
+    const int32_t scr1 = USER_SETTINGS[0x5cu + axis];
+    const int32_t scr2 = USER_SETTINGS[0x62u + axis];
+    return divide(((int32_t)adc - adc1) * (scr2 - scr1), adc2 - adc1) + scr1 - 1;
+}
+
+static void show_touch(Screen screen, unsigned y, uint32_t message) {
+    for (unsigned x = 0; x < 32; ++x) screen.map[y * 32u + x] = 0;
+    if ((message & 0x01000000u) == 0) {
+        text_print(screen, 1, y, PALETTE_MUTED, "LEVE");
+        return;
+    }
+    text_print(screen, 1, y, PALETTE_MUTED, "X");
+    text_number(screen, 3, y, PALETTE_TEXT, (uint32_t)touch_pixel((message >> 12u) & 0xfffu, 0), 3);
+    text_print(screen, 7, y, PALETTE_MUTED, "Y");
+    text_number(screen, 9, y, PALETTE_TEXT, (uint32_t)touch_pixel(message & 0xfffu, 1), 3);
+}
+
 static void show_keys(Screen screen, unsigned y) {
     static const char* const names[10] = {"A", "B", "SELECT", "START", "DROITE", "GAUCHE", "HAUT", "BAS", "R", "L"};
     const unsigned pressed = ~(unsigned)KEYINPUT & 0x3ffu;
@@ -220,6 +256,7 @@ static void draw_labels(Screen top, Screen bottom) {
     show_nickname(top, 12, 9);
     text_print(top, 1, 12, PALETTE_MUTED, "TOUCHES");
     text_print(top, 1, 15, PALETTE_MUTED, "CARTOUCHE");
+    text_print(top, 1, 18, PALETTE_MUTED, "TACTILE");
     text_print(bottom, 1, 1, PALETTE_ACCENT, "ECRAN DU BAS - MOTEUR B");
     text_print(bottom, 1, 3, PALETTE_TEXT, "DEUX PROCESSEURS ARM");
     text_print(bottom, 1, 4, PALETTE_TEXT, "DEUX MOTEURS 2D");
@@ -255,7 +292,12 @@ int main(void) {
         ++frames;
         text_number(top, 12, 6, PALETTE_TEXT, frames, 6);
         text_number(top, 12, 7, PALETTE_TEXT, seconds, 4);
-        if ((IPCFIFOCNT & FIFO_RECV_EMPTY) == 0) text_number(top, 12, 8, PALETTE_TEXT, IPCFIFORECV, 2);
+        while ((IPCFIFOCNT & FIFO_RECV_EMPTY) == 0) {
+            const uint32_t message = IPCFIFORECV;
+            if ((message & TOUCH_REPLY) != 0) show_touch(top, 19, message);
+            else text_number(top, 12, 8, PALETTE_TEXT, message, 2);
+        }
+        IPCFIFOSEND = TOUCH_REQUEST;
         show_keys(top, 13);
     }
 }

@@ -12,6 +12,7 @@
 #include "math/divider.hpp"
 #include "math/square_root.hpp"
 #include "memory/memory.hpp"
+#include "spi/spi_bus.hpp"
 #include "timers/timers.hpp"
 
 #include <array>
@@ -34,6 +35,7 @@ struct Hardware {
     Cp15 cp15;
     Memory memory;
     GameCard card;
+    SpiBus spi;
 
     // KEYINPUT (bits 0-9, 0 = appuyé) ; EXTKEYIN de l'ARM7 : X, Y, crayon
     // posé (bit 6) et couvercle fermé (bit 7), les bits 2, 4 et 5 levés.

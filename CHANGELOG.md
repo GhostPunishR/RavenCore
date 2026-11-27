@@ -108,6 +108,14 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
   - les bus donnent à la cartouche l'adresse de l'instruction qui écrit AUXSPIDATA (`InstructionHook`, `Cpu::instruction_address`).
 - Homebrew : commande et adresse de l'EEPROM partent d'une fonction, les données d'une autre ; son type est reconnu seul.
 - Tests : `save_detection_test` dans `nds_raven_hardware` (largeurs de 1, 2 et 3 octets, instruction unique, bascule vers l'EEPROM de 128 Kio, Flash confirmée, effacement, fichier) ; `nds_raven_homebrew` démarre sans type imposé.
+- **Cœur NDS, SPI de l'ARM7** (GBATEK, « DS Serial Peripheral Interface Bus (SPI) », « DS Power Management Device », « DS Touch Screen Controller (TSC) », « DS Firmware Header », « DS Firmware User Settings ») :
+  - SPICNT et SPIDATA : choix de l'appareil, maintien du chip select (bit 11), occupation de 64 << débit cycles, IRQ 23 en fin de transfert (bit 14) ;
+  - gestion de l'alimentation : registres 0 à 3, répétés jusqu'à 7Fh ; son et rétroéclairages allumés au démarrage ;
+  - Flash du firmware (puce de 256 Kio du modèle de sauvegarde) au contenu généré par RavenCore : en-tête, calibrage Wi-Fi minimal avec une adresse MAC locale, réglages utilisateur en deux exemplaires avec compteur et CRC16 ;
+  - écran tactile (TSC2046) : voies X, Y, Z1, Z2, températures, batterie et micro, sur 12 ou 8 bits, avec commande pendant la réponse ; le point touché suit le calibrage des réglages ; `Machine::set_touch` le règle, et EXTKEYIN bit 6 suit le crayon.
+- **Cœur NDS, tables du son du BIOS de l'ARM7** (SWI 1Ah, 1Bh, 1Ch) : calculées par RavenCore d'après la description de GBATEK (sinus, hauteur, volume en pas de 0,1 dB), aux bornes de GBATEK ; la table des volumes reste une estimation à vérifier avec le son.
+- Homebrew : l'ARM7 lit le point touché par le SPI, l'ARM9 le convertit en pixels avec le calibrage des réglages et le diviseur matériel.
+- Tests : `spi_devices_test` dans `nds_raven_hardware` (alimentation, tactile, image du firmware, bus SPI, tables du son) ; dans `nds_raven_homebrew`, crayon levé, point (100, 50) touché, puis relevé.
 
 ### Documentation
 

@@ -12,6 +12,8 @@ add_library(nds_raven_core STATIC
     src/machine/machine.cpp
     src/memory/io7.cpp
     src/memory/io9.cpp
+    src/spi/firmware_image.cpp
+    src/spi/spi_bus.cpp
 )
 target_include_directories(nds_raven_core PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>)
 target_link_libraries(nds_raven_core PUBLIC ravenemu_arm)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bios/decompression.hpp"
+#include "bios/sound_tables.hpp"
 #include "machine/hardware.hpp"
 #include "math/square_root.hpp"
 
@@ -16,9 +17,11 @@
 // code du jeu : l'hôte les laisse au vecteur SWI, où le code ARM du BIOS de
 // RavenCore les exécute (callback_decompression.hpp).
 //
-// Pas encore écrites : tables du son de l'ARM7 (0x1A-0x1C), GetBootProcs,
-// CustomPost, SoftReset. Elles ne font rien et sont comptées dans
-// `unsupported`.
+// Les tables du son de l'ARM7 (0x1A-0x1C) sont calculées par RavenCore
+// (sound_tables.hpp) ; un index hors des bornes rend 0.
+//
+// Pas encore écrites : GetBootProcs, CustomPost, SoftReset. Elles ne font
+// rien et sont comptées dans `unsupported`.
 namespace ravenemu::nds {
 
 template <typename CpuType, typename BusType, bool Arm9>
@@ -56,6 +59,12 @@ public:
         case 0x13:
         case 0x15: return false;  // par fonctions de rappel : au vecteur SWI
         case 0x14: decompression::run_length(bus_, r[0], r[1]); break;
+        case 0x1a:
+        case 0x1b:
+        case 0x1c:  // tables du son : ARM7 seul
+            if (Arm9) ++unsupported;
+            else r[0] = sound_table(number, r[0]);
+            break;
         case 0x16:
         case 0x18:  // filtres différentiels : ARM9 seul
             if (Arm9) decompression::differential(bus_, r[0], r[1], number == 0x18);
@@ -69,6 +78,13 @@ public:
     unsigned unsupported{};
 
 private:
+    static std::uint32_t sound_table(std::uint32_t number, std::uint32_t index) noexcept {
+        const auto pick = [index](const auto& table) -> std::uint32_t { return index < table.size() ? table[index] : 0U; };
+        if (number == 0x1a) return pick(sound_tables::sine_table);
+        if (number == 0x1b) return pick(sound_tables::pitch_table);
+        return pick(sound_tables::volume_table);
+    }
+
     void halt() noexcept {
         if constexpr (Arm9) hw_.arm9_halted = true;
         else hw_.arm7_halted = true;

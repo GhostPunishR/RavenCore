@@ -1,4 +1,5 @@
 #include "bios/decompression.hpp"
+#include "bios/sound_tables.hpp"
 #include "cartridge/game_card.hpp"
 #include "cartridge/header.hpp"
 #include "cpu/cp15.hpp"
@@ -8,11 +9,14 @@
 #include "ipc/ipc.hpp"
 #include "math/divider.hpp"
 #include "math/square_root.hpp"
+#include "spi/firmware_image.hpp"
+#include "spi/spi_bus.hpp"
 #include "memory/memory.hpp"
 #include "timers/timers.hpp"
 
 #include "check.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <array>
 #include <initializer_list>
@@ -671,6 +675,74 @@ void card_spi_test() {
           "hors du mode SPI : rien n'est échangé, AUXSPIDATA garde le dernier octet");
 }
 
+// SPI de l'ARM7 et ses appareils, d'après GBATEK (« DS Serial Peripheral
+// Interface Bus (SPI) », « DS Power Management Device », « DS Touch Screen
+// Controller (TSC) », « DS Firmware Header », « DS Firmware User Settings »).
+void spi_devices_test() {
+    PowerManagement power;
+    const auto pm = [&](std::uint8_t index, std::uint8_t value) {
+        static_cast<void>(power.transfer(index));
+        const auto reply = power.transfer(value);
+        power.deselect();
+        return reply;
+    };
+    check(pm(0x80, 0) == 0x0d, "alimentation : son et rétroéclairages allumés au démarrage");
+    pm(0x00, 0xff);
+    check(pm(0x80, 0) == 0x7f && pm(0x84, 0) == 0x7f, "registre 0 : bits 0-6 ; l'index 4 le répète");
+    pm(0x01, 0xff);
+    check(pm(0x81, 0) == 0x00, "registre 1 (batterie) en lecture seule : 0, batterie bonne");
+
+    TouchScreen touch;
+    const auto convert = [&](std::uint8_t command) {
+        static_cast<void>(touch.transfer(command));
+        const auto high = touch.transfer(0);
+        const auto low = touch.transfer(0);
+        return static_cast<unsigned>((high << 8U) | low);
+    };
+    check(convert(0xd0) == 0 && convert(0x90) == (0xfffU << 3U), "relâché : X = 000h, Y = FFFh");
+    touch.set_touch(true, 10, 20);
+    check(convert(0xd0) == (176U << 3U) && convert(0x90) == (336U << 3U), "touché en (10, 20) : (point + 1) × 16 sur 12 bits");
+    check(convert(0xd8) == ((176U >> 4U) << 7U), "conversion sur 8 bits");
+    static_cast<void>(touch.transfer(0xd0));
+    const auto high = touch.transfer(0);
+    const auto chained = touch.transfer(0x90);  // commande Y pendant le second octet de X
+    check(((high << 8U) | chained) == (176U << 3U) && ((touch.transfer(0) << 8U) | touch.transfer(0)) == (336U << 3U),
+          "nouvelle commande pendant la réponse");
+
+    const auto image = firmware_image(UserSettings{});
+    const auto at16 = [&](std::size_t at) { return static_cast<unsigned>(image[at] | (image[at + 1] << 8U)); };
+    check(image.size() == 256 * 1024 && at16(0x20) * 8U == 0x3fe00U && image[0x1d] == 0xff, "en-tête : réglages à 3FE00h, console DS");
+    check(at16(0x2a) == crc16(std::span<const std::uint8_t>{image}.subspan(0x2c, 0x138), 0), "calibrage Wi-Fi : CRC16 de valeur initiale 0");
+    for (const std::size_t area : {0x3fe00U, 0x3ff00U}) {
+        check(at16(area) == 5 && at16(area + 0x72) == crc16(std::span<const std::uint8_t>{image}.subspan(area, 0x70)),
+              "réglages utilisateur : version 5 et CRC16");
+    }
+    check(at16(0x3fe70) == 0 && at16(0x3ff70) == 1, "deux exemplaires, le second le plus récent");
+
+    SpiBus spi;
+    Scheduler scheduler;
+    InterruptController irq{irq::arm7_bits};
+    const auto send = [&](std::uint32_t control, std::uint8_t byte, Cycles now) {
+        spi.write(control, 0xffffU, now, scheduler);
+        spi.write(std::uint32_t{byte} << 16U, 0x00ff'0000U, now, scheduler);
+        return static_cast<std::uint8_t>(spi.read(now + 1000) >> 16U);
+    };
+    for (const std::uint8_t byte : std::initializer_list<std::uint8_t>{0x03, 0x03, 0xfe, 0x00}) send(0x8900, byte, 0);  // firmware, READ 3FE00h
+    check(send(0x8900, 0, 0) == 0x05 && send(0x8100, 0, 0) == 0x00, "firmware par le SPI : version des réglages (05h, 00h)");
+    send(0x8a01, 0xd0, 0);  // écran tactile, 2 MHz
+    check((spi.read(127) & 0x80U) != 0 && (spi.read(128) & 0x80U) == 0, "occupé 128 cycles à 2 MHz");
+    send(0xc200, 0x80, 1000);  // IRQ demandée, puce relâchée après l'octet
+    check(scheduler.time_of(Event::spi) == 1064, "fin du transfert : événement à 64 cycles");
+    spi.on_event(irq);
+    check((irq.flags() & (1U << irq::spi)) != 0, "IRQ 23 en fin de transfert");
+    check(send(0x0100, 0x9f, 2000) == 0x00, "bus coupé (bit 15) : rien n'est échangé");
+
+    check(sound_tables::sine_table[0x3f] == 0x7ff5 && sound_tables::pitch_table[0x2ff] == 0xff8a &&
+              *std::max_element(sound_tables::volume_table.begin(), sound_tables::volume_table.end()) == 0x7f &&
+              sound_tables::volume_table.size() == 0x2d4,
+          "tables du son : bornes de GBATEK");
+}
+
 void extended_palettes_test() {
     Vram vram;
     Memory memory;
@@ -863,6 +935,7 @@ int main() {
     save_memory_test();
     save_detection_test();
     card_spi_test();
+    spi_devices_test();
     extended_palettes_test();
     bitmap_objects_test();
     mosaic_test();

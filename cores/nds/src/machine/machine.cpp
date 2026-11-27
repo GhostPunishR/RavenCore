@@ -36,6 +36,11 @@ void Machine::run_frame() {
     while (hw.lcd.frames() == frame) run_for(LcdTiming::line_cycles);
 }
 
+void Machine::set_touch(bool pressed, unsigned x, unsigned y) noexcept {
+    hw.spi.touch_screen().set_touch(pressed, x, y);
+    hw.extended_keys = pressed ? hw.extended_keys & ~0x40U : hw.extended_keys | 0x40U;
+}
+
 // L'ARM9 ne sort de Halt que si IME le permet (GBATEK, « BIOS Halt Functions »).
 void Machine::run_arm9(Cycles end) {
     const auto limit = end * 2;
@@ -74,6 +79,7 @@ void Machine::settle(Cycles now) {
     while (const auto event = hw.scheduler.take_due(now)) {
         if (*event == Event::lcd) on_lcd_event(hw.lcd.on_event(hw.scheduler, now));
         else if (*event == Event::card) on_card_event();
+        else if (*event == Event::spi) hw.spi.on_event(hw.irq7);
     }
     hw.scheduler.schedule(Event::timers9, hw.timers9.next_overflow());
     hw.scheduler.schedule(Event::timers7, hw.timers7.next_overflow());
