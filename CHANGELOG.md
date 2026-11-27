@@ -116,6 +116,13 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 - **Cœur NDS, tables du son du BIOS de l'ARM7** (SWI 1Ah, 1Bh, 1Ch) : calculées par RavenCore d'après la description de GBATEK (sinus, hauteur, volume en pas de 0,1 dB), aux bornes de GBATEK ; la table des volumes reste une estimation à vérifier avec le son.
 - Homebrew : l'ARM7 lit le point touché par le SPI, l'ARM9 le convertit en pixels avec le calibrage des réglages et le diviseur matériel.
 - Tests : `spi_devices_test` dans `nds_raven_hardware` (alimentation, tactile, image du firmware, bus SPI, tables du son) ; dans `nds_raven_homebrew`, crayon levé, point (100, 50) touché, puis relevé.
+- **Cœur NDS, horloge temps réel** (GBATEK, « DS Real-Time Clock (RTC) », Seiko S-35180) :
+  - registre 0x04000138 de l'ARM7 : données, /SCK, CS et leurs directions ; commande puis paramètres, poids faible en tête, un bit par front montant ; la puce sort ses bits au front descendant. Une commande envoyée poids fort en tête est retournée ;
+  - registres : état 1 (remise à zéro, mode 12 ou 24 h, drapeaux effacés à la lecture), état 2, date et heure en BCD, heure seule, alarmes, réglage, registre libre ;
+  - la date avance avec le temps émulé, depuis celle réglée par l'hôte (`Machine::set_date_time`) ou par le jeu : l'émulation reste déterministe. Années 2000 à 2099, jour de la semaine compté à partir du lundi (0) et décalé par une écriture du jeu ;
+  - les interruptions INT1 et INT2 ne sont pas encore modélisées.
+- Homebrew : l'ARM7 lit l'heure sur l'horloge, bit par bit, et l'ARM9 l'affiche.
+- Tests : `nds_raven_rtc` (nouveau fichier) pilote l'horloge bit par bit : date et heure, temps qui passe, minuit, commande inversée, écriture d'un 29 février, mode 12 h et midi, registres, alarme 1, remise à zéro, commande invalide ; `nds_raven_homebrew` règle 21:30:45 et lit 21:30:46 une seconde plus tard.
 
 ### Documentation
 
