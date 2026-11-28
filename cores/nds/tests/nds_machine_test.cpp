@@ -232,6 +232,38 @@ void main_memory_display_test() {
     check(bottom(255, 1) == to_argb(0x1f, 0) && bottom(0, 2) == 0xff00'0000U, "écrite par le CPU : deux lignes gardées, puis noir");
 }
 
+// Interruption de l'horloge jusqu'à l'ARM7 : RCNT et l'état 2 réglés par le
+// bus de l'ARM7, l'IRQ 7 levée par l'ordonnanceur au début de la minute.
+void rtc_interrupt_test() {
+    Machine machine{test_rom("####", {0xeafffffeU}, {0xeafffffeU})};
+    auto& bus = machine.bus7;
+    const auto lines = [&](std::uint32_t value) { bus.write16(0x0400'0138U, value); };
+    const auto send = [&](std::uint32_t byte) {
+        for (unsigned bit = 0; bit < 8; ++bit) {
+            const auto data = (byte >> bit) & 1U;
+            lines(0x74U | data);
+            lines(0x76U | data);
+        }
+    };
+    machine.set_date_time({2026, 11, 27, 21, 30, 59});  // sans interruption : rien de programmé
+    bus.write16(0x0400'0134U, 0x8100);  // RCNT : mode général, interruption de SI
+    lines(0x72);
+    lines(0x76);
+    send(0x46);  // écriture de l'état 2
+    send(0x07);  // INT1 : chaque minute, basse 7,9 ms
+    lines(0x72);  // l'écriture par le bus programme le début de la minute
+    check((bus.read16(0x0400'0134U) & 4U) != 0 && (machine.hw.irq7.flags() & (1U << irq::rtc)) == 0, "SI haut, pas d'IRQ");
+    machine.run_until(system_clock_hz + 1000);
+    check((bus.read16(0x0400'0134U) & 4U) == 0 && (machine.hw.irq7.flags() & (1U << irq::rtc)) != 0,
+          "21:31:00 : SI bas et IRQ 7 de l'ARM7");
+    machine.hw.irq7.write(0x214, 1U << irq::rtc, 0xffff'ffffU);
+    machine.run_until(system_clock_hz + 2 * LcdTiming::frame_cycles);
+    machine.set_date_time({2026, 11, 27, 21, 31, 59});  // l'hôte change l'heure : la minute suivante aussi
+    machine.run_until(machine.hw.now + system_clock_hz + 1000);
+    check((bus.read16(0x0400'0134U) & 4U) == 0 && (machine.hw.irq7.flags() & (1U << irq::rtc)) != 0,
+          "date changée par l'hôte : IRQ 7 au début de sa minute suivante");
+}
+
 // L'ARM9 donne la banque A au LCDC, la remplit de rouge et l'affiche (mode 2).
 void video_test() {
     const std::initializer_list<std::uint32_t> program{
@@ -482,6 +514,7 @@ int main() {
     direct_boot_test();
     sound_bias_test();
     main_memory_display_test();
+    rtc_interrupt_test();
     video_test();
     dma_test();
     two_processors_test();

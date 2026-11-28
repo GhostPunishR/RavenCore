@@ -89,6 +89,7 @@ void Machine::settle(Cycles now) {
         if (*event == Event::lcd) on_lcd_event(hw.lcd.on_event(hw.scheduler, now));
         else if (*event == Event::card) on_card_event();
         else if (*event == Event::spi) hw.spi.on_event(hw.irq7);
+        else if (*event == Event::rtc) hw.rtc_interrupt.check(hw.rtc, hw.scheduler, hw.irq7, now);
     }
     hw.scheduler.schedule(Event::timers9, hw.timers9.next_overflow());
     hw.scheduler.schedule(Event::timers7, hw.timers7.next_overflow());
