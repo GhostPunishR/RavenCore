@@ -68,6 +68,7 @@ std::uint32_t Bus9::io_word(std::uint32_t address) {
     if (offset >= 0x2b0 && offset < 0x2c0) return hw.square_root.read(offset, now);
     if (offset >= 0x1a0 && offset < 0x1c0) return hw.card_arm7() ? 0U : hw.card.read(offset - 0x1a0, now);
     if (offset == 0x068) return 0;  // DISP_MMEM_FIFO : en écriture seule
+    if (offset >= 0x400 && offset < 0x6a4) return hw.geometry.read(offset - 0x400, now);
     if (offset != 0x004 && offset < 0x070) return hw.engine_a.read(offset);
     switch (offset) {
     case 0x004: return hw.lcd.read(0);
@@ -115,10 +116,20 @@ void Bus9::io_write_word(std::uint32_t address, std::uint32_t value, std::uint32
     if (offset == 0x068) return hw.main_memory_display.push(value & mask);
     if (offset != 0x004 && offset < 0x070) return hw.engine_a.write(offset, value, mask);
     if (offset >= 0x100 && offset < 0x110) return hw.timers9.write(offset - 0x100, value, mask, now);
+    if (offset >= 0x400 && offset < 0x6a4) {
+        // Le CPU attend qu'une place se libère dans le FIFO plein (2 cycles de
+        // l'ARM9 par cycle système).
+        const auto resume = hw.geometry.write(offset - 0x400, value, mask, now);
+        hw.arm9_cycles += (resume - now) * 2;
+        return hw.geometry_changed();
+    }
     if (offset >= 0x0b0 && offset < 0x0e0) {
         const auto index = (offset - 0x0b0) / 12;
-        if (!hw.dma9[index].enabled()) hw.main_memory_display.disarm(index);  // attend l'image suivante
+        const auto was_enabled = hw.dma9[index].enabled();
+        if (!was_enabled) hw.main_memory_display.disarm(index);  // attend l'image suivante
         if (write_dma_register(hw.dma9, offset, value, mask, true)) run_dma(*this, hw.dma9[index], index, true, hw.irq9);
+        if (!was_enabled && hw.dma9[index].enabled() && dma_timing(hw.dma9[index].control, true, index) == DmaTiming::geometry_fifo)
+            feed_geometry();
         return;
     }
     if (offset >= 0x0e0 && offset < 0x0f0) {
@@ -141,7 +152,10 @@ void Bus9::io_write_word(std::uint32_t address, std::uint32_t value, std::uint32
     case 0x204: hw.external_memory[0] = merge(hw.external_memory[0], value, mask & 0xe8ffU); break;
     case 0x208:
     case 0x210:
-    case 0x214: hw.irq9.write(offset, value, mask); break;
+    case 0x214:
+        hw.irq9.write(offset, value, mask);
+        hw.geometry_changed();  // l'IRQ 21 reste levée tant que sa condition tient
+        break;
     case 0x240:
     case 0x244:
     case 0x248:

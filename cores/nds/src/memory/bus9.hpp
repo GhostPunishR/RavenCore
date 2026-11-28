@@ -90,6 +90,26 @@ public:
     void dma_write32(std::uint32_t address, std::uint32_t value) {
         dma_access([&] { write(address, value, 4); return 0U; });
     }
+    // DMA de géométrie (mode 7) : tant que le FIFO est à moins de la moitié,
+    // un canal actif y envoie jusqu'à 112 mots (GBATEK, « GXFIFO Access via
+    // DMA »). Les écritures de la DMA n'en relancent pas d'autre.
+    void feed_geometry() {
+        if (feeding_geometry_) return;
+        feeding_geometry_ = true;
+        for (unsigned round = 0; round < 8 && hw_.geometry.wants_dma(); ++round) {
+            auto fed = false;
+            for (unsigned index = 0; index < 4 && !fed; ++index) {
+                auto& channel = hw_.dma9[index];
+                if (!channel.enabled() || dma_timing(channel.control, true, index) != DmaTiming::geometry_fifo) continue;
+                run_dma(*this, channel, index, true, hw_.irq9, 112);
+                fed = true;
+            }
+            if (!fed) break;
+        }
+        feeding_geometry_ = false;
+        hw_.geometry_changed();
+    }
+
     // Lance les canaux actifs qui attendent ce départ.
     void trigger_dma(DmaTiming timing) {
         for (unsigned index = 0; index < 4; ++index) {
@@ -189,6 +209,7 @@ private:
     Hardware& hw_;
     std::vector<std::uint8_t> bios_;
     bool dma_{};
+    bool feeding_geometry_{};
     Region last_region_{Region::none};
     std::uint32_t last_address_{};
     unsigned last_width_{};

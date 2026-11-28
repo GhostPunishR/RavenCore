@@ -6,6 +6,8 @@ add_library(nds_raven_core STATIC
     src/cartridge/save_memory.cpp
     src/gpu/affine_background.cpp
     src/gpu/compositor.cpp
+    src/gpu/geometry/geometry_engine.cpp
+    src/gpu/geometry/matrix_unit.cpp
     src/gpu/engine2d.cpp
     src/gpu/object_renderer.cpp
     src/machine/direct_boot.cpp
@@ -47,6 +49,12 @@ if(BUILD_TESTING)
     target_include_directories(nds_raven_sound_tests PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support)
     target_link_libraries(nds_raven_sound_tests PRIVATE nds_raven_core)
     add_test(NAME nds_raven_sound COMMAND nds_raven_sound_tests)
+
+    # Moteur de géométrie de la 3D : matrices, piles, FIFO, GXSTAT.
+    add_executable(nds_raven_geometry_tests tests/nds_geometry_test.cpp)
+    target_include_directories(nds_raven_geometry_tests PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../common/tests/support)
+    target_link_libraries(nds_raven_geometry_tests PRIVATE nds_raven_core)
+    add_test(NAME nds_raven_geometry COMMAND nds_raven_geometry_tests)
 endif()
 
 # Homebrew de démonstration, écrit pour RavenCore : il faut Clang et ld.lld

@@ -4,6 +4,7 @@
 #include "cpu/cp15.hpp"
 #include "dma/dma_channel.hpp"
 #include "gpu/engine2d.hpp"
+#include "gpu/geometry/geometry_engine.hpp"
 #include "gpu/main_memory_display.hpp"
 #include "gpu/vram.hpp"
 #include "gpu/lcd_timing.hpp"
@@ -61,6 +62,16 @@ struct Hardware {
     Engine2d engine_a{true};
     Engine2d engine_b{false};
     MainMemoryDisplay main_memory_display;  // DISP_MMEM_FIFO, mode 3 du moteur A
+    geometry::GeometryEngine geometry;
+
+    // Après un changement du moteur de géométrie : IRQ 21 (un niveau, que
+    // l'acquittement n'efface pas) et prochain rendez-vous.
+    void geometry_changed() noexcept {
+        if (geometry.irq_condition()) irq9.request(irq::geometry_fifo);
+        const auto next = geometry.next_event();
+        if (next == Scheduler::never) scheduler.cancel(Event::geometry);
+        else scheduler.schedule(Event::geometry, next);
+    }
     // Les deux écrans en ARGB8888, 256 × 192 chacun : celui du haut, puis
     // celui du bas. POWCNT1 bit 15 met le moteur A en haut.
     static constexpr std::size_t screen_pixels = 256 * 192;

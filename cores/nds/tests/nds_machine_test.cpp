@@ -264,6 +264,65 @@ void rtc_interrupt_test() {
           "date changée par l'hôte : IRQ 7 au début de sa minute suivante");
 }
 
+// Moteur de géométrie dans la machine, par le bus de l'ARM9 : IRQ 21 tenue
+// tant que sa condition est vraie, CPU arrêté devant le FIFO plein,
+// SWAP_BUFFERS libéré au V-Blank, DMA de géométrie (mode 7) par blocs.
+void geometry_machine_test() {
+    Machine machine{test_rom("####", {0xeafffffeU}, {0xeafffffeU})};
+    auto& bus = machine.bus9;
+    const auto clip = [&](unsigned index) { return bus.read32(0x0400'0640U + index * 4); };
+    const auto irq21 = [&] { return (machine.hw.irq9.flags() & (1U << irq::geometry_fifo)) != 0; };
+    bus.write32(0x0400'0600U, 0x8000'0000U);  // GXSTAT : IRQ quand le FIFO est vide
+    bus.write32(0x0400'0214U, 1U << irq::geometry_fifo);
+    check(irq21(), "FIFO vide : IF bit 21, que l'acquittement n'efface pas");
+    bus.write32(0x0400'0600U, 0);
+    bus.write32(0x0400'0214U, 1U << irq::geometry_fifo);
+    check(!irq21(), "IRQ du FIFO coupée : acquittée");
+
+    // 600 MTX_IDENTITY (19 cycles chacune) : le moteur n'en garde que 261
+    // (FIFO, PIPE, commande en cours), le CPU ne finit donc pas avant que 339
+    // se soient exécutées. Sans attente, une écriture coûte 4 cycles système.
+    const auto start = machine.hw.arm9_cycles;
+    for (int write = 0; write < 600; ++write) bus.write32(0x0400'0454U, 0);
+    check(machine.hw.arm9_cycles - start >= 2 * 19 * (600 - 261), "FIFO plein : le CPU attend la fin des commandes");
+
+    machine.run_frame();
+    machine.run_for((LcdTiming::lines - LcdTiming::visible_lines + 10) * LcdTiming::line_cycles);
+    bus.write32(0x0400'0440U, 1);  // MTX_MODE : position
+    for (const auto parameter : {0x1000U, 0U, 0U}) bus.write32(0x0400'0470U, parameter);  // MTX_TRANS
+    bus.write32(0x0400'0540U, 0);  // SWAP_BUFFERS
+    bus.write32(0x0400'0454U, 0);  // MTX_IDENTITY
+    machine.run_for(10 * LcdTiming::line_cycles);
+    check(clip(12) == 0x1000U && (bus.read32(0x0400'0600U) & 0x0800'0000U) != 0, "SWAP_BUFFERS : la suite attend le V-Blank");
+    machine.run_frame();
+    machine.run_for(1000);
+    check(clip(12) == 0 && (bus.read32(0x0400'0600U) & 0x0800'0000U) == 0, "après le V-Blank et 392 cycles : MTX_IDENTITY");
+
+    // 23 matrices de 16 paramètres (391 mots) : la DMA les envoie par blocs
+    // de 112 mots, chaque fois que le FIFO passe sous la moitié. Le moteur,
+    // arrêté par SWAP_BUFFERS jusqu'au V-Blank, ne vide pas le FIFO : deux
+    // blocs passent (224 mots, 210 entrées dont 4 dans le PIPE), puis la DMA
+    // attend.
+    constexpr std::uint32_t list = 0x0210'0000U;
+    std::uint32_t at = list;
+    for (std::uint32_t matrix = 1; matrix <= 23; ++matrix) {
+        store(machine.hw.memory.main(at), 0x16, 4);  // MTX_LOAD_4x4
+        at += 4;
+        for (unsigned index = 0; index < 16; ++index, at += 4)
+            store(machine.hw.memory.main(at), index == 12 ? matrix << 12U : (index % 5 == 0 ? 0x1000U : 0U), 4);
+    }
+    bus.write32(0x0400'00d4U, list);
+    bus.write32(0x0400'00d8U, 0x0400'0400U);
+    bus.write32(0x0400'0540U, 0);  // SWAP_BUFFERS
+    bus.write32(0x0400'00dcU, 0xbc40'0000U | 391U);  // activée, mode 7, 32 bits, destination fixe
+    check(machine.hw.dma9[3].enabled() && machine.hw.dma9[3].remaining == 391 - 224 &&
+              ((bus.read32(0x0400'0600U) >> 16U) & 0x1ffU) == 206,
+          "DMA de géométrie : deux blocs de 112 mots, puis attente sous la moitié du FIFO");
+    machine.run_frame();
+    check(clip(12) == 23U << 12U && !machine.hw.dma9[3].enabled() && machine.hw.dma9[3].current_source == at,
+          "DMA de géométrie : toute la liste, puis canal arrêté");
+}
+
 // L'ARM9 donne la banque A au LCDC, la remplit de rouge et l'affiche (mode 2).
 void video_test() {
     const std::initializer_list<std::uint32_t> program{
@@ -515,6 +574,7 @@ int main() {
     sound_bias_test();
     main_memory_display_test();
     rtc_interrupt_test();
+    geometry_machine_test();
     video_test();
     dma_test();
     two_processors_test();
