@@ -158,8 +158,15 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
   - pas encore : la capture d'écran (DISPCAPCNT), qui lit aussi cette FIFO, et le départ de DMA « début d'affichage ».
 - Test : `nds_raven_machine` affiche une image de la RAM principale par la DMA 3, et vérifie l'attente de la ligne 0, après une activation comme après une relance en cours d'image, ainsi que les écritures du CPU dans la FIFO.
 
+### Modifié
+
+- **RavenGBA n'est plus marqué expérimental.** RetroArch l'affiche sous le nom « RavenGBA », au lieu de « RavenGBA (experimental) », et son fichier d'information sous « Nintendo - Game Boy Advance (RavenGBA) ». Le README le range, comme RavenGBC, parmi les cœurs avancés.
+
+  RetroArch nomme d'après le cœur les dossiers des sauvegardes et des états quand l'option « Trier par cœur » est active, ainsi que les remaps et les surcharges de configuration. Ceux qu'il a rangés sous « RavenGBA (experimental) » sont à déplacer dans le dossier « RavenGBA ». Les fichiers ne changent pas.
+
 ### Documentation
 
+- **README remis au propre** : la partie RetroArch est découpée en sections (installation, console émulée et BIOS, options, sauvegardes et horloge GBA, vibration et capteurs, codes de triche, RetroAchievements, câble link). Il signale aussi le cœur Nintendo DS en cours d'écriture.
 - **Carte de melonDS pour préparer le cœur NDS** ([docs/nds_melonds_map.md](docs/nds_melonds_map.md)). Elle décrit ses composants, son modèle temporel, sa carte mémoire et son démarrage. Elle propose aussi un découpage de `cores/nds/` et des étapes. C'est une lecture d'architecture, sans aucun code ni aucune donnée repris : GBATEK reste la référence matérielle. Les moteurs, l'API, Libretro et le format des états ne changent pas.
 
 ## 0.17.4 - 2026-11-21

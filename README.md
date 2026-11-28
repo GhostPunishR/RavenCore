@@ -12,9 +12,11 @@ Ce sont les cœurs maison de [RavenEmu](https://github.com/GhostPunishR/RavenEmu
 | Cœur | Console | État |
 | --- | --- | --- |
 | **RavenGBC** | Game Boy Color et Game Boy | Avancé |
-| **RavenGBA** | Game Boy Advance | Expérimental |
+| **RavenGBA** | Game Boy Advance | Avancé |
 
-Comme la console, le cœur Game Boy Color lit aussi les jeux Game Boy : un seul moteur qui choisit, pour chaque jeu, la console qu'il émule.
+Comme la console, le cœur Game Boy Color lit aussi les jeux Game Boy : un seul moteur, qui choisit pour chaque jeu la console qu'il émule.
+
+Un cœur Nintendo DS est en cours d'écriture dans `cores/nds/`. Il n'a encore ni cœur Libretro ni API publique.
 
 **Sommaire :** [Compiler](#compiler) · [RetroArch](#utiliser-avec-retroarch) · [Intégrer](#intégrer-dans-un-projet) · [Tests](#tests) · [Limites](#état-et-limites) · [Versions](#versions) · [Contribuer](#contribuer) · [Licence](#licence)
 
@@ -34,6 +36,8 @@ Pour ne compiler que les moteurs, ajoutez `-DRAVENEMU_BUILD_LIBRETRO=OFF -DBUILD
 
 ## Utiliser avec RetroArch
 
+### Installer
+
 1. Téléchargez l'archive de votre système depuis les [releases](https://github.com/GhostPunishR/RavenCore/releases). Pour la version en développement, prenez l'artefact d'une [exécution CI](https://github.com/GhostPunishR/RavenCore/actions/workflows/ci.yml).
 
    | Système | Archive |
@@ -47,14 +51,58 @@ Pour ne compiler que les moteurs, ajoutez `-DRAVENEMU_BUILD_LIBRETRO=OFF -DBUILD
 2. Installez les cœurs :
    - **Linux, Windows, macOS** : copiez le contenu de `cores/` dans le dossier des cœurs, et celui de `info/` dans le dossier des informations des cœurs (RetroArch les indique dans **Paramètres > Dossiers**). Sous macOS, si RetroArch refuse un cœur téléchargé, retirez la quarantaine du dossier des cœurs : `xattr -dr com.apple.quarantine <dossier>`.
    - **Android** : dans RetroArch, **Charger un cœur > Installer ou restaurer un cœur**, puis choisissez chaque fichier de `cores/`. Les fichiers de `info/` sont facultatifs : ils donnent le nom complet du cœur.
+
 3. Chargez le cœur voulu :
 
-| Cœur | Console |
-| --- | --- |
-| `ravenemu_gbc_libretro` | Game Boy Color et Game Boy (`.gbc`, `.gb`, `.sgb`) |
-| `ravenemu_gba_libretro` | Game Boy Advance |
+   | Cœur | Console |
+   | --- | --- |
+   | `ravenemu_gbc_libretro` | Game Boy Color et Game Boy (`.gbc`, `.gb`, `.sgb`) |
+   | `ravenemu_gba_libretro` | Game Boy Advance (`.gba`) |
+
+> Les cœurs ne sont pas encore proposés par le téléchargeur intégré de RetroArch.
+
+### Console émulée, boot ROM et BIOS
 
 RavenGBC émule par défaut une Game Boy Color : les jeux Game Boy y prennent des couleurs, comme sur la console. L'option **Console émulée** choisit la Game Boy, la console de chaque jeu, ou la Game Boy Color d'une Game Boy Advance.
+
+RavenGBC démarre un jeu sans boot ROM, dans l'état où elle l'aurait laissé. Si l'option le permet, il prend celle de la console émulée dans le dossier système de RetroArch, et l'animation de démarrage revient :
+
+| Console | Fichier |
+| --- | --- |
+| Game Boy | `dmg_boot.bin` ou `gb_bios.bin` |
+| Game Boy Color | `cgb_boot.bin` ou `gbc_bios.bin` |
+| Game Boy Advance (mode GBC) | `agb_boot.bin` |
+
+Sans boot ROM, un jeu Game Boy sur la Game Boy Color prend quand même les couleurs que la boot ROM de la GBC lui aurait choisies, d'après la table relevée par [The Cutting Room Floor](https://tcrf.net/Notes:Game_Boy_Color_Bootstrap_ROM) (CC BY 3.0, voir [NOTICE.md](NOTICE.md)).
+
+RavenGBA n'a besoin d'aucun BIOS : RavenCore répond lui-même à ses appels. L'option **BIOS** lui fait utiliser `gba_bios.bin` (16 Kio), le BIOS d'une console, depuis le dossier système. Les appels et les interruptions du jeu passent alors par lui, avec ou sans son animation de démarrage. Un état ne se recharge qu'avec le BIOS qui l'a créé.
+
+Aucune boot ROM ni aucun BIOS n'est fourni.
+
+### Options
+
+Les options s'affichent en français, rangées en quatre catégories : **Image**, **Commandes**, **Système** et **Cartouche**. Elles s'appliquent pendant le jeu, sauf la console émulée, la boot ROM, le BIOS, le type de sauvegarde et l'horloge, appliqués au chargement du jeu.
+
+| Option | Clé | Cœurs | Valeurs |
+| --- | --- | --- | --- |
+| Console émulée | `ravenemu_gbc_hardware` | RavenGBC | `gbc` (par défaut) : la Game Boy Color, où les jeux Game Boy prennent des couleurs. `gba` : la GBC d'une Game Boy Advance, dont les jeux qui la reconnaissent débloquent leurs bonus (Zelda Oracle, Shantae…). `auto` : la console du jeu (un jeu Game Boy sur la Game Boy) ; `auto_gba` : de même, avec la GBC d'une GBA. `gb` : la Game Boy pour tous, qui refuse les jeux réservés à la GBC |
+| Palette | `ravenemu_gbc_palette` | RavenGBC | Jeux sur la Game Boy : vert (Game Boy, par défaut), gris (Game Boy Pocket) ou gris neutre |
+| Couleurs des jeux Game Boy | `ravenemu_gbc_dmg_colors` | RavenGBC | Sur la Game Boy Color ou Advance, sans boot ROM. « Comme sur la GBC » (par défaut) : celles que sa boot ROM choisit d'après le titre du jeu (Pokémon Rouge en rouge…), ou ses couleurs par défaut pour un jeu qu'elle ne connaît pas. Ou l'une des douze combinaisons de touches tenues pendant son logo (B + Gauche : gris, B + Droite : négatif…) |
+| Correction des couleurs LCD | `ravenemu_gbc_color_correction`, `ravenemu_gba_color_correction` | RavenGBC (GBC et GBA), RavenGBA | Désactivée par défaut. Activée, elle adoucit les couleurs vives comme l'écran de la console, avec le réglage de RavenEmu Android |
+| Mélange d'images | `ravenemu_gbc_frame_blending`, `ravenemu_gba_frame_blending` | Tous | Désactivé par défaut. **Mélange** : la moyenne des deux dernières images, pour les jeux qui font clignoter un objet une image sur deux. **Rémanence** : l'image s'efface lentement, comme sur l'écran LCD |
+| Directions opposées | `ravenemu_gbc_opposing_directions`, `ravenemu_gba_opposing_directions` | Tous | Bloquées par défaut : haut et bas, ou gauche et droite, tenus ensemble ne sont pas transmis, comme sur la croix de la console. Ou autorisées |
+| Boot ROM | `ravenemu_gbc_boot_rom` | RavenGBC | Celle de la console émulée, utilisée si son fichier est présent (par défaut), ou jamais |
+| Type de sauvegarde | `ravenemu_gba_save_type` | RavenGBA | `auto`, `sram`, `flash64`, `flash128`, `eeprom512`, `eeprom8k`, `none` |
+| Horloge (RTC) | `ravenemu_gba_rtc` | RavenGBA | `auto`, `enabled`, `disabled` |
+| Lumière du capteur solaire | `ravenemu_gba_solar_light` | RavenGBA | Pourcentage de plein soleil : `50` par défaut, de `0` à `100` par pas de 10. Ou `sensor` : le capteur de lumière de l'appareil, 50 % s'il n'en a pas |
+| Capteurs de l'appareil | `ravenemu_gbc_device_sensors`, `ravenemu_gba_device_sensors` | Tous | Utilisés s'il y en a (par défaut) : accéléromètre et gyroscope s'ajoutent au stick gauche. Ou stick gauche seul |
+| BIOS | `ravenemu_gba_bios` | RavenGBA | BIOS de RavenCore (par défaut), ou vrai BIOS (`gba_bios.bin`), avec ou sans son animation de démarrage |
+
+### Sauvegardes et horloge des jeux GBA
+
+La sauvegarde et l'horloge d'un jeu GBA sont détectées automatiquement. La détection de l'horloge couvre aussi les pilotes Pokémon/CFRU sans marqueur Seiko, à partir de leur identité interne et de références GPIO ([détails et limites](cores/gba/tests/rtc_compatibility.md)). Si la détection se trompe, les options **Type de sauvegarde** et **Horloge (RTC)** les imposent.
+
+### Vibration et capteurs
 
 Les cœurs gèrent la vibration (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) et les capteurs des cartouches. Ils les pilotent au stick analogique gauche, et avec les capteurs du téléphone ou de la manette s'il en a :
 
@@ -63,54 +111,39 @@ Les cœurs gèrent la vibration (MBC5 Rumble, Drill Dozer, WarioWare: Twisted!) 
 | Accéléromètre MBC7 | Kirby Tilt 'n' Tumble, Command Master | Stick gauche, accéléromètre de l'appareil |
 | Inclinaison GBA | Yoshi Topsy-Turvy, Koro Koro Puzzle | Stick gauche, accéléromètre de l'appareil |
 | Gyroscope GBA | WarioWare: Twisted! | Stick gauche, axe horizontal (à droite : sens horaire), gyroscope de l'appareil |
-| Capteur solaire GBA | Boktai 1 à 3 | Option `ravenemu_gba_solar_light` : un pourcentage, ou le capteur de lumière de l'appareil |
+| Capteur solaire GBA | Boktai 1 à 3 | Option **Lumière du capteur solaire** : un pourcentage, ou le capteur de lumière de l'appareil |
 
 Les capteurs de l'appareil passent par l'interface de RetroArch (« Capteurs » doit y être activé), avec les conversions de RavenEmu Android :
 - **Inclinaison** : posé à plat, l'appareil n'est pas incliné ; tenu debout, il l'est de 1 g. Le jeu se cale souvent lui-même sur la position de départ.
 - **Rotation** : un demi-tour par seconde donne la pleine échelle.
 - **Lumière** : rien sous 1000 lux (une pièce éclairée), le plein soleil vers 100 000 lux, sur une échelle logarithmique.
 
-Ils ne s'allument que pour un jeu qui en a besoin. L'option **Capteurs de l'appareil** les ignore pour garder le stick seul.
+Ils ne s'allument que pour un jeu qui en a besoin. L'option **Capteurs de l'appareil** les ignore, pour garder le stick seul.
 
-La sauvegarde et l'horloge d'un jeu GBA sont détectées automatiquement. La détection RTC couvre aussi les pilotes Pokémon/CFRU sans marqueur Seiko, à partir de leur identité interne et de références GPIO ([détails et limites](cores/gba/tests/rtc_compatibility.md)). Si la détection se trompe, deux options du cœur les imposent.
-
-Les options s'affichent en français, rangées en quatre catégories : **Image**, **Commandes**, **Système** et **Cartouche**. Elles s'appliquent pendant le jeu, sauf la console émulée, la boot ROM, le BIOS, le type de sauvegarde et l'horloge, appliqués au chargement du jeu :
-
-| Option | Clé | Cœurs | Valeurs |
-| --- | --- | --- | --- |
-| Console émulée | `ravenemu_gbc_hardware` | RavenGBC | `gbc` par défaut : la Game Boy Color, où les jeux Game Boy prennent des couleurs. `gba` : la GBC d'une Game Boy Advance, dont les jeux qui la reconnaissent débloquent leurs bonus (Zelda Oracle, Shantae…). `auto` : la console du jeu (un jeu Game Boy sur la Game Boy) ; `auto_gba` : de même, la GBC sur une GBA. `gb` : la Game Boy pour tous, qui refuse les jeux réservés à la GBC |
-| Palette | `ravenemu_gbc_palette` | RavenGBC | Jeux sur la Game Boy. Vert (Game Boy) par défaut, gris (Game Boy Pocket) ou gris neutre |
-| Couleurs des jeux Game Boy | `ravenemu_gbc_dmg_colors` | RavenGBC | Sur la Game Boy Color ou Advance, sans boot ROM. « Comme sur la GBC » par défaut : celles que sa boot ROM choisit d'après le titre du jeu (Pokémon Rouge en rouge…), ou ses couleurs par défaut pour un jeu qu'elle ne connaît pas. Ou l'une des douze combinaisons de touches tenues pendant son logo (B + Gauche : gris, B + Droite : négatif…) |
-| Correction des couleurs LCD | `ravenemu_gbc_color_correction`, `ravenemu_gba_color_correction` | RavenGBC (GBC et GBA), RavenGBA | Désactivée par défaut. Activée, elle adoucit les couleurs vives comme l'écran de la console, avec le réglage de RavenEmu Android |
-| Mélange d'images | `ravenemu_gbc_frame_blending`, `ravenemu_gba_frame_blending` | Tous | Désactivé par défaut. **Mélange** : la moyenne des deux dernières images, pour les jeux qui font clignoter un objet une image sur deux. **Rémanence** : l'image s'efface lentement, comme sur l'écran LCD |
-| Directions opposées | `ravenemu_gbc_opposing_directions`, `ravenemu_gba_opposing_directions` | Tous | Bloquées par défaut : haut et bas, ou gauche et droite, tenus ensemble ne sont pas transmis, comme sur la croix de la console. Autorisées, sinon |
-| Boot ROM | `ravenemu_gbc_boot_rom` | RavenGBC | Utilisée si son fichier est présent (par défaut), ou non : celle de la console émulée |
-| Type de sauvegarde | `ravenemu_gba_save_type` | RavenGBA | `auto`, `sram`, `flash64`, `flash128`, `eeprom512`, `eeprom8k`, `none` |
-| Horloge (RTC) | `ravenemu_gba_rtc` | RavenGBA | `auto`, `enabled`, `disabled` |
-| Lumière du capteur solaire | `ravenemu_gba_solar_light` | RavenGBA | Pourcentage de plein soleil : `50` par défaut, de `0` à `100` par pas de 10. Ou `sensor` : le capteur de lumière de l'appareil, 50 % s'il n'en a pas |
-| Capteurs de l'appareil | `ravenemu_gbc_device_sensors`, `ravenemu_gba_device_sensors` | Tous | Utilisés s'il y en a (par défaut) : accéléromètre et gyroscope s'ajoutent au stick gauche. Ou stick gauche seul |
-| BIOS | `ravenemu_gba_bios` | RavenGBA | BIOS de RavenCore par défaut, ou vrai BIOS (`gba_bios.bin`), avec ou sans son animation de démarrage |
-
-RavenGBC démarre un jeu sans boot ROM, dans l'état où elle l'aurait laissé. Il utilise celle de la console émulée, depuis le dossier système de RetroArch, si l'option le permet : `dmg_boot.bin` ou `gb_bios.bin` (Game Boy), `cgb_boot.bin` ou `gbc_bios.bin` (Game Boy Color), `agb_boot.bin` (Game Boy Advance). On retrouve alors l'animation de démarrage. Sans elle, un jeu Game Boy sur la Game Boy Color prend quand même les couleurs que la boot ROM de la GBC lui aurait choisies, d'après la table relevée par [The Cutting Room Floor](https://tcrf.net/Notes:Game_Boy_Color_Bootstrap_ROM) (CC BY 3.0, voir [NOTICE.md](NOTICE.md)). Aucune boot ROM n'est fournie.
-
-RavenGBA n'a besoin d'aucun BIOS : RavenCore répond lui-même à ses appels. L'option **BIOS** lui fait utiliser `gba_bios.bin` (16 Kio), le BIOS d'une console, depuis le dossier système. Les appels et les interruptions du jeu passent alors par lui, avec ou sans son animation de démarrage. Un état ne se recharge qu'avec le BIOS qui l'a créé. Aucun BIOS n'est fourni.
-
-Un jeu refusé affiche sa raison à l'écran et dans le journal de RetroArch. Les images que RetroArch n'affiche pas (anticipation « run-ahead », avance rapide) ne sont pas dessinées par le cœur GBA ni converties par aucun cœur.
+### Codes de triche
 
 Le menu **Codes de triche** de RetroArch fonctionne avec les deux cœurs. Une entrée peut compter plusieurs lignes, séparées par des « + », des espaces ou des retours à la ligne :
 
 | Cœurs | Formats |
 | --- | --- |
 | RavenGBC | Game Genie (`ABC-DEF-GHI` ou `ABC-DEF`, aussi par groupes `ABC+DEF+GHI`) et GameShark (8 chiffres, comme `010238CD`), mélangeables |
-| RavenGBA | Codebreaker non chiffré (`XAAAAAAA YYYY`), GameShark v1/v2 et Action Replay v3 (`XXXXXXXX YYYYYYYY`) chiffrés tels que l'appareil les affiche ou déjà déchiffrés (« RAW »), reconnus automatiquement |
+| RavenGBA | Codebreaker non chiffré (`XAAAAAAA YYYY`), GameShark v1/v2 et Action Replay v3 (`XXXXXXXX YYYYYYYY`), chiffrés tels que l'appareil les affiche ou déjà déchiffrés (« RAW »), reconnus automatiquement |
 
-Les codes se lisent comme l'appareil les exécute, ce qui fait passer les listes de triches de RetroArch. Un code Codebreaker vers un miroir de l'EWRAM ou de l'IWRAM écrit la mémoire qu'il répète. Une écriture de 16 bits à une adresse impaire est alignée. Une écriture de 8 bits ne garde que l'octet bas de sa valeur. Les lignes d'identification et d'accroche ne sont pas vérifiées.
+Les codes se lisent comme l'appareil les exécute, ce qui fait passer les listes de triches de RetroArch :
+- un code Codebreaker vers un miroir de l'EWRAM ou de l'IWRAM écrit la mémoire qu'il répète ;
+- une écriture de 16 bits à une adresse impaire est alignée ;
+- une écriture de 8 bits ne garde que l'octet bas de sa valeur ;
+- les lignes d'identification et d'accroche ne sont pas vérifiées.
 
-Un code refusé affiche sa raison. Les patchs de ROM GBA, le changement de chiffrement `DEADFACE` et les codes Codebreaker chiffrés (type 9) ne sont pas pris en charge. Les codes d'activation (« Must Be On ») sont acceptés, mais n'ont pas d'effet : ils ne servent qu'à l'appareil.
+Un code refusé affiche sa raison. Les patchs de ROM GBA, le changement de chiffrement `DEADFACE` et les codes Codebreaker chiffrés (type 9) ne sont pas pris en charge. Les codes d'activation (« Must Be On ») sont acceptés, mais sans effet : ils ne servent qu'à l'appareil.
+
+### RetroAchievements
 
 Les cœurs déclarent à RetroArch la mémoire que surveille RetroAchievements : les succès s'activent comme avec les autres cœurs, et RetroArch applique lui-même les règles du mode Hardcore. RetroAchievements n'a pas encore testé RavenCore.
 
-**Deux joueurs reliés par câble link.** Chaque cœur déclare le sous-système « Deux joueurs (câble link) ». Dans RetroArch, charger le cœur, puis choisir « Deux joueurs (câble link) » dans **Charger du contenu** : le jeu du joueur 1, puis celui du joueur 2, deux jeux de la même console. Ils démarrent reliés, comme deux consoles et un câble :
+### Deux joueurs reliés par câble link
+
+Chaque cœur déclare le sous-système « Deux joueurs (câble link) ». Dans RetroArch, chargez le cœur, puis choisissez « Deux joueurs (câble link) » dans **Charger du contenu** : le jeu du joueur 1, puis celui du joueur 2, deux jeux de la même console. Ils démarrent reliés, comme deux consoles et un câble :
 - les deux écrans s'affichent côte à côte, le joueur 1 à gauche ;
 - le joueur 1 joue sur la manette du port 1, le joueur 2 sur celle du port 2 ;
 - chacun garde sa sauvegarde, au nom de son jeu (`Pokémon Rubis.srm`…) : celle d'une partie en solo sert telle quelle ;
@@ -119,7 +152,9 @@ Les cœurs déclarent à RetroArch la mémoire que surveille RetroAchievements :
 
 RetroAchievements, les codes de triche et les capteurs de l'appareil ne concernent que le joueur 1. Sur GBA, le joueur 1 est la console parente des jeux multijoueurs.
 
-> Les cœurs ne sont pas encore proposés par le téléchargeur intégré de RetroArch.
+### Jeux refusés et images sautées
+
+Un jeu refusé affiche sa raison à l'écran et dans le journal de RetroArch. Les images que RetroArch n'affiche pas (anticipation « run-ahead », avance rapide) ne sont pas dessinées par le cœur GBA, ni converties par aucun cœur.
 
 ## Intégrer dans un projet
 
@@ -172,12 +207,15 @@ ctest --test-dir build --output-on-failure
 
 ## État et limites
 
-- **GB / GBC** : les 261 tests publics retenus passent, dont une partie de SameSuite, de Mealybug Tearoom et des AGE test roms. Ces suites plus exigeantes, comme gbmicrotest, échouent encore en partie ; le détail est dans [cores/gbc/tests/README.md](cores/gbc/tests/README.md). Cartouches non prises en charge : TAMA5, Game Boy Camera, M161 et cartouches non licenciées. Le Super Game Boy n'est pas émulé. En mode Game Boy Advance, seuls les registres de démarrage distinguent la console d'une GBC.
-- **GBA** : expérimental. Les suites gba-tests et FuzzARM passent, mais le cœur n'a pas encore été essayé sur un large panel de jeux. Non émulés pour l'instant :
+- **GB / GBC** : les 261 tests publics retenus passent, dont une partie de SameSuite, de Mealybug Tearoom et des AGE test roms. Ces suites plus exigeantes, comme gbmicrotest, échouent encore en partie ; le détail est dans [cores/gbc/tests/README.md](cores/gbc/tests/README.md).
+  - Cartouches non prises en charge : TAMA5, Game Boy Camera, M161 et cartouches non licenciées.
+  - Le Super Game Boy n'est pas émulé.
+  - En mode Game Boy Advance, seuls les registres de démarrage distinguent la console d'une GBC.
+- **GBA** : les suites gba-tests et FuzzARM passent. Non émulés pour l'instant :
   - le mode UART et l'adaptateur sans fil ;
   - l'exception d'instruction indéfinie.
 - **Capteurs** : ceux des cartouches GBA suivent les mesures publiées par GBATEK, mais n'ont pas encore été essayés en jeu. Le sens des axes d'inclinaison (GBA et MBC7) et l'échelle du gyroscope restent à confirmer.
-- **RetroAchievements** : les cœurs Libretro exposent une copie de la mémoire du jeu, rafraîchie à chaque image, vérifiée avec le code de rcheevos qu'utilise RetroArch mais pas encore en jeu dans RetroArch. Sur Game Boy, les deux fenêtres de ROM suivent la banque choisie par le jeu et les registres d'E/S sont exposés ; restent hors carte la RAM du MBC7 et, pour le MBC2, les bits hauts que relit le CPU. Le détail est dans [docs/retroachievements.md](docs/retroachievements.md). L'intégration de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte.
+- **RetroAchievements** : les cœurs Libretro exposent une copie de la mémoire du jeu, rafraîchie à chaque image. Elle est vérifiée avec le code de rcheevos qu'utilise RetroArch, mais pas encore en jeu dans RetroArch. Sur Game Boy, les deux fenêtres de ROM suivent la banque choisie par le jeu et les registres d'E/S sont exposés ; restent hors carte la RAM du MBC7 et, pour le MBC2, les bits hauts que relit le CPU. Le détail est dans [docs/retroachievements.md](docs/retroachievements.md). L'intégration de [RavenEmu Android](https://github.com/GhostPunishR/RavenEmu) est distincte.
 - **Codes de triche** : décodés d'après Pan Docs et GBATEK, vérifiés avec des codes fabriqués pour les tests, pas encore avec des codes publiés essayés en jeu. Un code GBA de 16 chiffres est reconnu à son déchiffrement : sur des codes Action Replay fabriqués, environ un sur 40 000 est lu à tort comme un code GameShark.
 - **Câble link distant** : deux consoles seulement, prévu pour un réseau local. La console qui cadence un transfert attend un aller-retour réseau : un jeu GBA qui enchaîne les transferts peut ralentir. Essayé entre un téléphone et un PC : un échange Pokémon Émeraude ↔ Saphir va au bout, mais lentement. Détails dans [docs/remote_link.md](docs/remote_link.md).
 - **États instantanés** : un état ne se recharge pas dans une version plus ancienne que celle qui l'a créé. Les changements de format sont listés dans le [journal des modifications](CHANGELOG.md).

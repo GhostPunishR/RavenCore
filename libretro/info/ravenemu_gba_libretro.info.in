@@ -1,4 +1,4 @@
-display_name = "Nintendo - Game Boy Advance (RavenGBA, experimental)"
+display_name = "Nintendo - Game Boy Advance (RavenGBA)"
 corename = "RavenGBA"
 authors = "GhostPunishR"
 supported_extensions = "gba"
