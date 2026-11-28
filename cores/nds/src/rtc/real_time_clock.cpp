@@ -38,6 +38,9 @@ DateTime from_seconds(std::int64_t seconds) noexcept {
     return date;
 }
 
+// INT1 0111b : basse 7,9 ms au début de chaque minute.
+constexpr Cycles minute_pulse = system_clock_hz * 79 / 10'000;
+
 std::uint8_t reverse_bits(std::uint8_t value) noexcept {
     std::uint8_t reversed = 0;
     for (unsigned bit = 0; bit < 8; ++bit) reversed = static_cast<std::uint8_t>(reversed | (((std::uint32_t{value} >> bit) & 1U) << (7U - bit)));
@@ -53,13 +56,97 @@ std::int64_t RealTimeClock::seconds(Cycles now) const noexcept {
 void RealTimeClock::set_date_time(const DateTime& date_time, Cycles now) noexcept {
     base_seconds_ = to_seconds(date_time);
     base_cycles_ = now;
+    checked_minute_ = base_seconds_ / 60;  // la minute réglée ne compte pas comme un début de minute
 }
+
+// Cycles écoulés dans la seconde en cours : la seconde repart à chaque réglage.
+Cycles RealTimeClock::into_second(Cycles now) const noexcept { return (now - base_cycles_) % system_clock_hz; }
 
 DateTime RealTimeClock::date_time(Cycles now) const noexcept { return from_seconds(seconds(now)); }
 
 // Le 1er janvier 2000 était un samedi : 5 si 0 = lundi.
-unsigned RealTimeClock::weekday(Cycles now) const noexcept {
-    return static_cast<unsigned>((seconds(now) / seconds_per_day + 5 + weekday_offset_) % 7);
+unsigned RealTimeClock::weekday(Cycles now) const noexcept { return weekday_at(seconds(now)); }
+
+unsigned RealTimeClock::weekday_at(std::int64_t seconds) const noexcept {
+    return static_cast<unsigned>((seconds / seconds_per_day + 5 + weekday_offset_) % 7);
+}
+
+bool RealTimeClock::alarm_matches(const std::array<std::uint8_t, 3>& alarm, std::int64_t seconds) const noexcept {
+    const auto date = from_seconds(seconds);
+    if ((alarm[0] & 0x80U) != 0 && (alarm[0] & 7U) != weekday_at(seconds)) return false;
+    if ((alarm[1] & 0x80U) != 0 && (alarm[1] & 0x7fU) != encode_hour(date.hour)) return false;
+    return (alarm[2] & 0x80U) == 0 || (alarm[2] & 0x7fU) == to_bcd(date.minute);
+}
+
+void RealTimeClock::update(Cycles now) noexcept {
+    const auto minute = seconds(now) / 60;
+    if (minute > checked_minute_) {  // début de minute : front, alarmes
+        const auto mode = status2_ & 0x0fU;
+        if ((mode & 0x0bU) == 0x02U || (mode == 0x04U && alarm_matches(alarm1_, minute * 60))) int1_latched_ = true;
+        if ((status2_ & 0x40U) != 0 && alarm_matches(alarm2_, minute * 60)) {
+            int2_latched_ = true;
+            status1_ |= 0x20U;
+        }
+    }
+    checked_minute_ = minute;
+    const auto low = int1_low(now);
+    if (low && !int1_was_low_) status1_ |= 0x10U;
+    int1_was_low_ = low;
+}
+
+bool RealTimeClock::int1_low(Cycles now) const noexcept {
+    switch (status2_ & 0x0fU) {  // 0000b désactivée, 1xxxb 32 kHz (pas modélisée) : haute
+    case 1:
+    case 5: {
+        const auto phase = into_second(now);
+        for (unsigned bit = 0; bit < 5; ++bit) {
+            if ((alarm1_[2] & (1U << bit)) == 0) continue;
+            const auto half_periods = phase * (Cycles{2} << bit) / system_clock_hz;
+            if (half_periods % 2 == 0) return true;
+        }
+        return false;
+    }
+    case 2:
+    case 4:
+    case 6: return int1_latched_;
+    case 3: return seconds(now) % 60 < 30;
+    case 7: return seconds(now) % 60 == 0 && into_second(now) < minute_pulse;
+    default: return false;
+    }
+}
+
+bool RealTimeClock::interrupt_line(Cycles now) const noexcept { return !int1_low(now) && !int2_latched_; }
+
+Cycles RealTimeClock::next_change(Cycles now) const noexcept {
+    auto next = Scheduler::never;
+    const auto consider = [&](Cycles at) {
+        if (at > now && at < next) next = at;
+    };
+    const auto second_start = now - into_second(now);
+    const auto in_minute = static_cast<Cycles>(seconds(now) % 60);
+    const auto next_minute = second_start + (60 - in_minute) * system_clock_hz;
+    switch (status2_ & 0x0fU) {
+    case 1:
+    case 5:
+        for (unsigned bit = 0; bit < 5; ++bit) {
+            if ((alarm1_[2] & (1U << bit)) == 0) continue;
+            const auto halves = Cycles{2} << bit;
+            const auto next_half = into_second(now) * halves / system_clock_hz + 1;
+            consider(second_start + (next_half * system_clock_hz + halves - 1) / halves);
+        }
+        break;
+    case 2:
+    case 4:
+    case 6: consider(next_minute); break;
+    case 3: consider(second_start + ((in_minute < 30 ? 30 : 60) - in_minute) * system_clock_hz); break;
+    case 7:
+        consider(next_minute);
+        consider(second_start - in_minute * system_clock_hz + minute_pulse);
+        break;
+    default: break;
+    }
+    if ((status2_ & 0x40U) != 0) consider(next_minute);
+    return next;
 }
 
 std::uint32_t RealTimeClock::read() const noexcept {
@@ -68,6 +155,7 @@ std::uint32_t RealTimeClock::read() const noexcept {
 }
 
 void RealTimeClock::write(std::uint32_t value, std::uint32_t mask, Cycles now) noexcept {
+    update(now);
     const auto old = lines_;
     lines_ = (lines_ & ~mask & 0xffffU) | (value & mask & 0xffffU);
     const auto selected = (lines_ & 4U) != 0;
@@ -144,7 +232,8 @@ void RealTimeClock::command_received(std::uint8_t command, Cycles now) noexcept 
     switch (register_) {
     case 0:
         buffer_[0] = status1_;
-        status1_ &= 0x0f;  // drapeaux effacés à la lecture
+        status1_ &= 0x0f;  // drapeaux effacés à la lecture, interruptions en front et alarmes relâchées
+        int1_latched_ = int2_latched_ = false;
         break;
     case 4: buffer_[0] = status2_; break;
     case 2:
@@ -174,7 +263,11 @@ void RealTimeClock::apply_write(Cycles now) noexcept {
         if ((buffer_[0] & 1U) != 0) return reset(now);
         status1_ = static_cast<std::uint8_t>((status1_ & 0xf0U) | (buffer_[0] & 0x0eU));
         break;
-    case 4: status2_ = buffer_[0]; break;
+    case 4:
+        if (((status2_ ^ buffer_[0]) & 0x0fU) != 0) int1_latched_ = false;  // autre mode d'INT1
+        status2_ = buffer_[0];
+        if ((status2_ & 0x40U) == 0) int2_latched_ = false;
+        break;
     case 2:
     case 6: {
         auto date = date_time(now);
@@ -208,6 +301,7 @@ void RealTimeClock::reset(Cycles now) noexcept {
     status1_ = status2_ = adjust_ = free_ = 0;
     alarm1_ = {};
     alarm2_ = {};
+    int1_latched_ = int2_latched_ = int1_was_low_ = false;
     weekday_offset_ = 0;
     set_date_time(DateTime{}, now);
 }

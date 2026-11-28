@@ -26,7 +26,21 @@
 // 0=Monday? ») ; une écriture du jeu en décale le compte. Au démarrage :
 // mode 24 h, sans drapeau, 1er janvier 2000 à 0 h tant que l'hôte ne règle
 // rien.
-// Pas encore : interruptions INT1 et INT2 (fréquences, alarmes).
+// Interruptions (état 2) : INT1 selon les bits 0-3, INT2 (alarme 2) par le
+// bit 6. Une interruption levée met la broche /INT au niveau bas et fixe son
+// drapeau (état 1, bit 4 ou 5) :
+// - x001b fréquences (registre 1, bits 0-4 : 1, 2, 4, 8, 16 Hz) : chaque
+//   onde est basse pendant la première moitié de sa période, la broche basse
+//   si l'une l'est ;
+// - x010b chaque minute, en front ; 0100b alarme 1 ; alarme 2 : la broche
+//   reste basse jusqu'à la lecture de l'état 1, choix de RavenCore ;
+// - 0011b chaque minute, basse 30 s (secondes 0 à 29) ; 0111b chaque minute,
+//   basse 7,9 ms ;
+// - 1xxxb sortie à 32 kHz : pas modélisée, la broche reste haute.
+// Alarmes : jour de la semaine, heure (bit 6 après-midi, même en mode 24 h)
+// et minute, chacun comparé si son bit 7 est levé ; elles se vérifient au
+// début de chaque minute. INT1 et INT2 partagent la broche /INT, la seule
+// que GBATEK relie au DS (rtc_interrupt.hpp).
 namespace ravenemu::nds {
 
 struct DateTime {
@@ -48,6 +62,14 @@ public:
     [[nodiscard]] std::uint32_t read() const noexcept;
     void write(std::uint32_t value, std::uint32_t mask, Cycles now) noexcept;
 
+    // Fait passer le temps jusqu'à `now` : débuts de minute (front, alarmes)
+    // et drapeaux.
+    void update(Cycles now) noexcept;
+    // Broche /INT à `now`, vraie au niveau haut ; `update` la précède.
+    [[nodiscard]] bool interrupt_line(Cycles now) const noexcept;
+    // Prochaine date où la broche peut changer d'elle-même, sinon jamais.
+    [[nodiscard]] Cycles next_change(Cycles now) const noexcept;
+
 private:
     [[nodiscard]] std::int64_t seconds(Cycles now) const noexcept;
     void on_rising(bool data, Cycles now) noexcept;
@@ -59,6 +81,10 @@ private:
     [[nodiscard]] unsigned parameter_length() const noexcept;
     [[nodiscard]] std::uint8_t encode_hour(unsigned hour) const noexcept;
     [[nodiscard]] unsigned decode_hour(std::uint8_t value) const noexcept;
+    [[nodiscard]] unsigned weekday_at(std::int64_t seconds) const noexcept;
+    [[nodiscard]] Cycles into_second(Cycles now) const noexcept;
+    [[nodiscard]] bool int1_low(Cycles now) const noexcept;
+    [[nodiscard]] bool alarm_matches(const std::array<std::uint8_t, 3>& alarm, std::int64_t seconds) const noexcept;
 
     std::uint32_t lines_{};  // registre tel que l'ARM7 l'a écrit
     bool output_{};          // bit sorti par la puce
@@ -81,6 +107,11 @@ private:
     std::int64_t base_seconds_{};
     Cycles base_cycles_{};
     unsigned weekday_offset_{};
+    // Interruptions.
+    std::int64_t checked_minute_{};
+    bool int1_latched_{};
+    bool int2_latched_{};
+    bool int1_was_low_{};
 };
 
 } // namespace ravenemu::nds

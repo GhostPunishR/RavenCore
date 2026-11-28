@@ -14,6 +14,7 @@
 #include "math/square_root.hpp"
 #include "memory/memory.hpp"
 #include "rtc/real_time_clock.hpp"
+#include "rtc/rtc_interrupt.hpp"
 #include "sound/sound.hpp"
 #include "spi/spi_bus.hpp"
 #include "timers/timers.hpp"
@@ -40,6 +41,7 @@ struct Hardware {
     GameCard card;
     SpiBus spi;
     RealTimeClock rtc;
+    RtcInterrupt rtc_interrupt;  // /INT, RCNT et IRQ 7
     Sound sound;
 
     // KEYINPUT (bits 0-9, 0 = appuyé) ; EXTKEYIN de l'ARM7 : X, Y, crayon

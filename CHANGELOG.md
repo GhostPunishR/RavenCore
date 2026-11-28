@@ -120,7 +120,7 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
   - registre 0x04000138 de l'ARM7 : données, /SCK, CS et leurs directions ; commande puis paramètres, poids faible en tête, un bit par front montant ; la puce sort ses bits au front descendant. Une commande envoyée poids fort en tête est retournée ;
   - registres : état 1 (remise à zéro, mode 12 ou 24 h, drapeaux effacés à la lecture), état 2, date et heure en BCD, heure seule, alarmes, réglage, registre libre ;
   - la date avance avec le temps émulé, depuis celle réglée par l'hôte (`Machine::set_date_time`) ou par le jeu : l'émulation reste déterministe. Années 2000 à 2099, jour de la semaine compté à partir du lundi (0) et décalé par une écriture du jeu ;
-  - les interruptions INT1 et INT2 ne sont pas encore modélisées.
+  - les interruptions INT1 et INT2 suivent plus bas.
 - Homebrew : l'ARM7 lit l'heure sur l'horloge, bit par bit, et l'ARM9 l'affiche.
 - Tests : `nds_raven_rtc` (nouveau fichier) pilote l'horloge bit par bit : date et heure, temps qui passe, minuit, commande inversée, écriture d'un 29 février, mode 12 h et midi, registres, alarme 1, remise à zéro, commande invalide ; `nds_raven_homebrew` règle 21:30:45 et lit 21:30:46 une seconde plus tard.
 - **Cœur NDS, son de l'ARM7** (GBATEK, « DS Sound »), registres 0x04000400 à 0x04000507 :
@@ -157,6 +157,16 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
   - RavenCore remplit la FIFO au début de chaque ligne visible, puis en retire la ligne. La profondeur réelle du FIFO n'est pas donnée par GBATEK : la file garde ici deux lignes, et un point qui manque s'affiche noir ;
   - pas encore : la capture d'écran (DISPCAPCNT), qui lit aussi cette FIFO, et le départ de DMA « début d'affichage ».
 - Test : `nds_raven_machine` affiche une image de la RAM principale par la DMA 3, et vérifie l'attente de la ligne 0, après une activation comme après une relance en cours d'image, ainsi que les écritures du CPU dans la FIFO.
+- **Cœur NDS, interruptions de l'horloge** (GBATEK, « DS Real-Time Clock (RTC) », « DS Serial Port », « SIO General-Purpose Mode ») :
+  - INT1 selon l'état 2 : fréquences de 1 à 16 Hz, chaque minute en front, chaque minute basse 30 s ou 7,9 ms, alarme 1. INT2 : alarme 2 ;
+  - alarmes : jour de la semaine, heure et minute, chacun comparé si son bit 7 est levé, au début de chaque minute ;
+  - drapeaux de l'état 1 (bits 4 et 5), effacés à la lecture ;
+  - la broche /INT est reliée à SI. RCNT (0x04000134) la relit au bit 2, et un front descendant lève l'IRQ 7 de l'ARM7 en mode général, SI en entrée et son interruption permise. L'ordonnanceur prévoit le prochain changement de la broche ;
+  - choix de RavenCore, faute de détail dans GBATEK : une onde de fréquence est basse pendant la première moitié de sa période. La minute de 30 s est basse aux secondes 0 à 29. Une interruption en front ou d'alarme reste basse jusqu'à la lecture de l'état 1. INT1 et INT2 partagent la broche ;
+  - pas modélisée : la sortie à 32 kHz (INT1 1xxxb).
+- Tests :
+  - `nds_raven_rtc` : chaque mode d'INT1, l'alarme 2, les drapeaux, et RCNT avec l'IRQ 7 sur un front seulement ;
+  - `nds_raven_machine` : RCNT et l'état 2 réglés par le bus de l'ARM7, puis l'IRQ 7 levée au début de la minute, y compris après un changement d'heure par l'hôte.
 
 ### Modifié
 

@@ -21,6 +21,7 @@ enum class Event : unsigned {
     timers7,  // prochain débordement d'un timer de l'ARM7
     card,     // bus de la cartouche : mot prêt ou transfert fini
     spi,      // SPI de l'ARM7 : fin d'un transfert (IRQ)
+    rtc,      // horloge : la broche /INT peut changer
     count,
 };
 

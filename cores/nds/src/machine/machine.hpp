@@ -45,7 +45,10 @@ public:
     [[nodiscard]] std::vector<std::int16_t>& audio() noexcept { return hw.sound.output(); }
     // Date et heure de l'horloge temps réel (2000 à 2099), qui avancent
     // ensuite avec le temps émulé.
-    void set_date_time(const DateTime& date_time) noexcept { hw.rtc.set_date_time(date_time, hw.now); }
+    void set_date_time(const DateTime& date_time) {
+        hw.rtc.set_date_time(date_time, hw.now);
+        hw.rtc_interrupt.check(hw.rtc, hw.scheduler, hw.irq7, hw.now);
+    }
     // Les deux écrans de la dernière image, en ARGB8888 : 256 × 192 en haut,
     // puis 256 × 192 en bas.
     [[nodiscard]] const std::vector<std::uint32_t>& frame() const noexcept { return hw.frame; }
