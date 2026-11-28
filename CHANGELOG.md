@@ -151,9 +151,22 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 - Tests :
   - `nds_raven_sound` : canal arrêté, arrondi, capture des mixeurs en PCM16 et PCM8, minuteurs des deux captures, capture du canal 0, ses deux bogues, addition, rampe du biais ;
   - `nds_raven_machine` : un programme de l'ARM7 appelle `SoundBias` ; l'ARM7 reste dans le BIOS pendant toute la rampe.
+- **Cœur NDS, affichage depuis la RAM principale** (GBATEK, « DS Video Capture and Main Memory Display Mode ») :
+  - en mode 3 de DISPCNT, le moteur A montre l'image de 256 × 192 points envoyée à DISP_MMEM_FIFO (0x04000068), deux points par mot, le bit 15 ignoré ; la luminosité maîtresse s'y applique ;
+  - la DMA de l'ARM9 en mode 4 alimente la FIFO par rafales, de 4 mots selon GBATEK. Un canal activé attend la ligne 0 de l'image suivante ;
+  - RavenCore remplit la FIFO au début de chaque ligne visible, puis en retire la ligne. La profondeur réelle du FIFO n'est pas donnée par GBATEK : la file garde ici deux lignes, et un point qui manque s'affiche noir ;
+  - pas encore : la capture d'écran (DISPCAPCNT), qui lit aussi cette FIFO, et le départ de DMA « début d'affichage ».
+- Test : `nds_raven_machine` affiche une image de la RAM principale par la DMA 3, et vérifie l'attente de la ligne 0, après une activation comme après une relance en cours d'image, ainsi que les écritures du CPU dans la FIFO.
+
+### Modifié
+
+- **RavenGBA n'est plus marqué expérimental.** RetroArch l'affiche sous le nom « RavenGBA », au lieu de « RavenGBA (experimental) », et son fichier d'information sous « Nintendo - Game Boy Advance (RavenGBA) ». Le README le range, comme RavenGBC, parmi les cœurs avancés.
+
+  RetroArch nomme d'après le cœur les dossiers des sauvegardes et des états quand l'option « Trier par cœur » est active, ainsi que les remaps et les surcharges de configuration. Ceux qu'il a rangés sous « RavenGBA (experimental) » sont à déplacer dans le dossier « RavenGBA ». Les fichiers ne changent pas.
 
 ### Documentation
 
+- **README remis au propre** : la partie RetroArch est découpée en sections (installation, console émulée et BIOS, options, sauvegardes et horloge GBA, vibration et capteurs, codes de triche, RetroAchievements, câble link). Il signale aussi le cœur Nintendo DS en cours d'écriture.
 - **Carte de melonDS pour préparer le cœur NDS** ([docs/nds_melonds_map.md](docs/nds_melonds_map.md)). Elle décrit ses composants, son modèle temporel, sa carte mémoire et son démarrage. Elle propose aussi un découpage de `cores/nds/` et des étapes. C'est une lecture d'architecture, sans aucun code ni aucune donnée repris : GBATEK reste la référence matérielle. Les moteurs, l'API, Libretro et le format des états ne changent pas.
 
 ## 0.17.4 - 2026-11-21

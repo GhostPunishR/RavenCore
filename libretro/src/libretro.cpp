@@ -120,7 +120,7 @@ constexpr unsigned width = 160, height = 144;
 constexpr double fps = 4'194'304.0 / 70'224.0;
 #define RAVENEMU_OPTION(name) "ravenemu_gbc_" name
 #else
-constexpr const char* label = "RavenGBA (experimental)";
+constexpr const char* label = "RavenGBA";
 constexpr const char* name = "RavenGBA";
 constexpr const char* extensions = "gba";
 constexpr unsigned width = 240, height = 160;
