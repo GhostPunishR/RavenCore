@@ -19,7 +19,7 @@ void SoundChannel::write(std::uint32_t offset, std::uint32_t value, std::uint32_
         const auto was_busy = (control_ & busy) != 0;
         control_ = merge(control_) & 0xff7f'837fU;
         if (!was_busy && (control_ & busy) != 0) start();
-        if ((control_ & busy) == 0) playing_ = false;
+        if ((control_ & busy) == 0) stop();
         break;
     }
     case 0x4: source_ = merge(source_) & 0x07ff'fffcU; break;
@@ -54,6 +54,16 @@ void SoundChannel::start() noexcept {
     loop_saved_ = false;
     delay_ = format() == psg ? 1U : (format() == ima_adpcm ? 11U : 3U);
     start_delay_ = delay_;
+}
+
+// Arrêt : la sortie retombe à 0, sauf avec Hold, qui la garde jusqu'à ce
+// que le drapeau soit effacé ou le canal relancé.
+void SoundChannel::stop() noexcept {
+    playing_ = false;
+    if ((control_ & 0x8000U) == 0) {
+        finished_ = false;
+        output_ = 0;
+    }
 }
 
 void SoundChannel::advance(std::uint32_t ticks, const SampleSource& source) {

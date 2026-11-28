@@ -13,6 +13,7 @@ add_library(nds_raven_core STATIC
     src/memory/io7.cpp
     src/memory/io9.cpp
     src/rtc/real_time_clock.cpp
+    src/sound/capture_unit.cpp
     src/sound/sound.cpp
     src/sound/sound_channel.cpp
     src/spi/firmware_image.cpp

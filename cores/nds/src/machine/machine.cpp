@@ -17,9 +17,14 @@ Machine::Machine(std::vector<std::uint8_t> rom) : header(parse_header(rom)) {
                 &bios7};
     bus9.instruction = {[](const void* cpu) { return static_cast<const Arm9*>(cpu)->instruction_address(); }, &arm9};
     bus7.instruction = {[](const void* cpu) { return static_cast<const Arm7*>(cpu)->instruction_address(); }, &arm7};
-    // Les canaux du son lisent leurs échantillons par le bus de l'ARM7.
+    // Les canaux du son lisent leurs échantillons, et les captures écrivent
+    // les leurs, par le bus de l'ARM7.
     hw.sound.set_source({[](void* bus, std::uint32_t address, unsigned width) { return static_cast<Bus7*>(bus)->peek(address, width); },
                          &bus7});
+    hw.sound.set_sink({[](void* bus, std::uint32_t address, std::uint32_t value, unsigned width) {
+                           static_cast<Bus7*>(bus)->poke(address, value, width);
+                       },
+                       &bus7});
     direct_boot();
     hw.lcd.start(hw.scheduler, hw.now);
 }

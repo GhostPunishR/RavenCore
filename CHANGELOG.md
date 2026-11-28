@@ -131,8 +131,8 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
     - chaque sortie, gauche et droite, vient du mixeur ou des canaux 1 et 3 ;
     - le biais s'ajoute, puis le signal est borné à 0..3FFh ;
     - un échantillon stéréo sort toutes les 1024 périodes de l'horloge système, soit environ 32 728 Hz, et l'hôte le lit dans `Machine::audio` ;
-  - SWI 08h de l'ARM7, `SoundBias`, sans la rampe. Le démarrage direct met le biais à 200h, comme le firmware, car les jeux jouent sans le régler ;
-  - pas encore : la capture (SNDCAPxCNT), la rampe de `SoundBias`, la sortie vers Libretro.
+  - SWI 08h de l'ARM7, `SoundBias`. Le démarrage direct met le biais à 200h, comme le firmware, car les jeux jouent sans le régler ;
+  - pas encore : la sortie vers Libretro.
 - Tests : `nds_raven_sound` (nouveau fichier) joue sur une mémoire de test :
   - le PSG et ses rapports, le bruit ;
   - le PCM8 en coup unique et avec Hold, le PCM16 en boucle ;
@@ -140,6 +140,17 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
   - le mixeur, le routage des canaux 1 et 3, le maître coupé et le biais.
 
   `nds_raven_machine` vérifie le biais au démarrage direct.
+- **Cœur NDS, capture du son** (GBATEK, « DS Sound Capture ») :
+  - deux captures (SNDCAPxCNT, DAD et LEN), en PCM16 ou PCM8, en boucle ou en coup unique. La capture 0 suit le minuteur du canal 1, la 1 celui du canal 3 ;
+  - sources : le mixeur gauche ou droit, borné à ±8000h, ou le canal 0 ou 2 après son volume, avec les deux bogues de GBATEK : -8000h quand les deux canaux sont négatifs, et débordement sur 16 bits de l'addition ;
+  - addition des canaux 0 + 1 et 2 + 3 : le canal 1 ou 3 s'ajoute à l'autre avant le panoramique et ne sort plus seul. SOUNDCNT peut l'exclure du mixeur, pas de la capture ;
+  - arrondi de GBATEK : vers zéro quand le bit fort de la partie fractionnaire est levé ;
+  - les échantillons sont écrits en mémoire dès leur capture : le FIFO n'est pas modélisé.
+- **Cœur NDS, rampe de `SoundBias`** : le biais monte ou descend d'un pas toutes les r1 boucles d'attente du BIOS (4 cycles chacune, d'après la table de `WaitByLoop` de GBATEK), et l'ARM7 reste dans le BIOS jusqu'à la fin de la rampe. Le coût propre d'un pas, que GBATEK ne donne pas, n'est pas compté.
+- Son : un canal arrêté par le jeu se tait désormais, sauf avec Hold. Il gardait jusqu'ici son dernier échantillon.
+- Tests :
+  - `nds_raven_sound` : canal arrêté, arrondi, capture des mixeurs en PCM16 et PCM8, minuteurs des deux captures, capture du canal 0, ses deux bogues, addition, rampe du biais ;
+  - `nds_raven_machine` : un programme de l'ARM7 appelle `SoundBias` ; l'ARM7 reste dans le BIOS pendant toute la rampe.
 
 ### Documentation
 

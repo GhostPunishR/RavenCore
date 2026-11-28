@@ -22,6 +22,8 @@
 //   jusqu'à la fin de sa période, ou indéfiniment avec Hold (bit 15) ; mode
 //   manuel (0) : la lecture continue au-delà, choix de RavenCore (GBATEK ne
 //   le décrit pas).
+// - Arrêté (bit 31 à 0), le canal est muet, sauf avec Hold : GBATEK garde
+//   le dernier échantillon jusqu'à l'effacement du drapeau.
 namespace ravenemu::nds {
 
 // Lecture des échantillons par le bus de l'ARM7, donnée par la machine.
@@ -38,6 +40,9 @@ public:
     explicit SoundChannel(unsigned index) noexcept : index_(index) {}
 
     [[nodiscard]] std::uint32_t control() const noexcept { return control_; }
+    [[nodiscard]] bool enabled() const noexcept { return (control_ & 0x8000'0000U) != 0; }
+    // SOUNDxTMR, partagé avec la capture pour les canaux 1 et 3.
+    [[nodiscard]] std::uint16_t timer() const noexcept { return timer_; }
     // `offset` de 0 à 0Fh, mots de 32 bits.
     void write(std::uint32_t offset, std::uint32_t value, std::uint32_t mask) noexcept;
     // Avance de `ticks` coups de 16,76 MHz.
@@ -50,6 +55,7 @@ private:
     [[nodiscard]] std::uint32_t end() const noexcept;  // fin, en unités de position
     [[nodiscard]] std::uint32_t loop_start() const noexcept;
     void start() noexcept;
+    void stop() noexcept;
     void next_sample(const SampleSource& source);
     [[nodiscard]] std::int32_t fetch(const SampleSource& source);
     void reach_end() noexcept;
