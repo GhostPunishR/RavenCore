@@ -160,6 +160,29 @@ void direct_boot_test() {
     check(machine.hw.sound.read(0x104, 0) == 0x200, "biais du son à 200h, comme le laisse le firmware");
 }
 
+// SoundBias (SWI 08h) de l'ARM7 : le biais descend pas à pas, et l'ARM7 reste
+// dans le BIOS pendant toute la rampe (200h pas de 120h × 4 cycles, plus
+// d'une image).
+void sound_bias_test() {
+    const std::initializer_list<std::uint32_t> program{
+        0xe3a00000U,  // mov r0, #0
+        0xe3a01e12U,  // mov r1, #0x120
+        0xef080000U,  // swi #0x080000              ; SoundBias
+        0xe3a02622U,  // mov r2, #0x02200000
+        0xe3a03001U,  // mov r3, #1
+        0xe5823040U,  // str r3, [r2, #0x40]
+        0xeafffffeU,  // b .
+    };
+    Machine machine{test_rom("####", {0xeafffffeU}, program)};
+    machine.run_frame();
+    const auto during = machine.hw.sound.read(0x104, machine.hw.now);
+    check(during > 0 && during < 0x200 && main_word(machine, results + 0x40) == 0,
+          "pendant la rampe : biais entre 0 et 200h, ARM7 dans le BIOS");
+    machine.run_frame();
+    check(machine.hw.sound.read(0x104, machine.hw.now) == 0 && main_word(machine, results + 0x40) == 1,
+          "rampe finie : biais à 0, l'ARM7 reprend");
+}
+
 // L'ARM9 donne la banque A au LCDC, la remplit de rouge et l'affiche (mode 2).
 void video_test() {
     const std::initializer_list<std::uint32_t> program{
@@ -408,6 +431,7 @@ void callback_decompression_test() {
 
 int main() {
     direct_boot_test();
+    sound_bias_test();
     video_test();
     dma_test();
     two_processors_test();

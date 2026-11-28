@@ -33,6 +33,12 @@ struct Bench {
                               return value;
                           },
                           this});
+        sound.set_sink({[](void* context, std::uint32_t address, std::uint32_t value, unsigned width) {
+                            auto& bytes = static_cast<Bench*>(context)->memory;
+                            for (unsigned byte = 0; byte < width; ++byte)
+                                bytes[(address + byte) & 0xfffU] = static_cast<std::uint8_t>(value >> (8U * byte));
+                        },
+                        this});
         sound.write(0x104, 0x200, all, 0);   // SOUNDBIAS
         sound.write(0x100, 0x807f, all, 0);  // SOUNDCNT : maître au plus
     }
@@ -56,6 +62,20 @@ struct Bench {
     void put16(std::uint32_t at, std::uint16_t value) {
         memory[at] = static_cast<std::uint8_t>(value);
         memory[at + 1] = static_cast<std::uint8_t>(value >> 8U);
+    }
+    [[nodiscard]] std::uint16_t get16(std::uint32_t at) const {
+        return static_cast<std::uint16_t>(memory[at] | (memory[at + 1] << 8U));
+    }
+    // Un canal en PCM16 qui boucle sur la valeur `value`, quatre mots à `at`.
+    void constant(unsigned index, std::int16_t value, std::uint32_t control, std::uint32_t at) {
+        for (unsigned sample = 0; sample < 8; ++sample) put16(at + sample * 2, static_cast<std::uint16_t>(value));
+        channel(index, control | 0x8000'0000U | (1U << 27U) | (1U << 29U), at, one_per_output, 0, 4);
+    }
+    // Capture x : SNDCAPxLEN, SNDCAPxDAD, puis SNDCAPxCNT.
+    void capture(unsigned index, std::uint32_t control, std::uint32_t destination, std::uint32_t length) {
+        sound.write(0x114 + index * 8, length, all, now);
+        sound.write(0x110 + index * 8, destination, all, now);
+        sound.write(0x108, control << (8U * index), 0xffU << (8U * index), now);
     }
 };
 
@@ -181,6 +201,136 @@ void mixer_test() {
     check(bench.run(4)[3] == low, "SoundBias à 0 : la sortie tombe à 000h");
 }
 
+// Un canal arrêté se tait, sauf avec Hold.
+void stop_test() {
+    Bench bench;
+    bench.constant(0, 0x4000, full_left, 0x100);
+    check(bench.run(8)[7] == 0x4000, "canal en cours");
+    bench.sound.write(0, format(1) | full_left, all, bench.now);
+    check(bench.run(2) == std::vector<std::int16_t>(2, silence) && (bench.sound.read(0, bench.now) & start) == 0, "arrêté : muet");
+    bench.constant(0, 0x4000, full_left | 0x8000U, 0x100);
+    bench.run(8);
+    bench.sound.write(0, 0x8000U | format(1) | full_left, all, bench.now);
+    check(bench.run(2) == std::vector<std::int16_t>(2, 0x4000), "arrêté avec Hold : le dernier échantillon reste");
+    bench.sound.write(0, format(1) | full_left, all, bench.now);
+    check(bench.run(2) == std::vector<std::int16_t>(2, silence), "Hold effacé : muet");
+}
+
+void capture_rounding_test() {
+    check(CaptureUnit::round({0x4080, 8}) == 0x40 && CaptureUnit::round({-0x40, 8}) == 0 && CaptureUnit::round({-0x80, 8}) == 0 &&
+              CaptureUnit::round({-0xc0, 8}) == -1 && CaptureUnit::round({-0x140, 8}) == -1 &&
+              CaptureUnit::round({-0x1c0, 8}) == -2,
+          "arrondi : vers zéro si le bit fort de la fraction est levé, sinon fraction écartée");
+}
+
+// Capture des mixeurs, en PCM16 puis en PCM8, au rythme de SOUND1TMR et
+// SOUND3TMR.
+void capture_mixer_test() {
+    Bench bench;
+    bench.sound.write(0x18, one_per_output, all, 0);  // SOUND1TMR : un échantillon par sortie
+    check(bench.sound.read(0x108, 0) == 0, "captures arrêtées au départ");
+    bench.memory[0x410] = 0xee;
+    bench.capture(1, 0x80, 0x410, 1);
+    bench.run(4);
+    check(bench.memory[0x410] == 0xee, "capture 1 sans SOUND3TMR : rien avant 10000h coups");
+    bench.capture(1, 0x00, 0x410, 1);
+    bench.sound.write(0x38, one_per_output, all, 0);  // SOUND3TMR
+    bench.constant(4, 0x3000, full_left, 0x100);
+    bench.constant(5, 0x1000, full_left, 0x140);
+    bench.constant(6, -0x7000, 0x7f'0000U | 0x7fU, 0x180);  // tout à droite
+    bench.run(8);
+    for (unsigned at = 0x400; at < 0x420; ++at) bench.memory[at] = 0xee;
+    bench.capture(0, 0x80, 0x400, 2);  // boucle, PCM16, 2 mots
+    bench.capture(1, 0x8c, 0x410, 1);  // coup unique, PCM8, 1 mot
+    bench.run(12);
+    check(bench.get16(0x400) == 0x4000 && bench.get16(0x406) == 0x4000 && bench.memory[0x408] == 0xee,
+          "PCM16 du mixeur gauche, en boucle sur LEN mots");
+    check(bench.memory[0x410] == 0x90 && bench.memory[0x413] == 0x90 && bench.memory[0x414] == 0xee &&
+              (bench.sound.read(0x108, bench.now) & 0x8080U) == 0x80U,
+          "PCM8 du mixeur droit, coup unique : 4 octets puis bit 7 retombé");
+    bench.constant(7, -0x7000, 0x7f'0000U | 0x7fU, 0x1c0);
+    bench.capture(1, 0x80, 0x410, 1);
+    bench.run(12);
+    check(bench.get16(0x410) == 0x8000, "mixeur borné à -8000h pour la capture");
+}
+
+// Chaque capture suit son minuteur : SOUND1TMR pour la 0, SOUND3TMR pour la 1.
+void capture_timer_test() {
+    Bench bench;
+    bench.sound.write(0x18, 0xfe00, all, 0);  // un débordement par échantillon de sortie
+    bench.sound.write(0x38, 0xff00, all, 0);  // deux
+    for (unsigned at = 0x400; at < 0x600; ++at) bench.memory[at] = 0xee;
+    bench.capture(0, 0x88, 0x400, 4);  // boucle, PCM8, 16 octets
+    bench.capture(1, 0x88, 0x500, 4);
+    bench.run(5);
+    const auto written = [&](std::uint32_t at) {
+        unsigned count = 0;
+        for (unsigned byte = 0; byte < 16; ++byte) count += bench.memory[at + byte] != 0xee ? 1U : 0U;
+        return count;
+    };
+    check(written(0x400) == 5 && written(0x500) == 10, "capture 0 au rythme de SOUND1TMR, capture 1 à celui de SOUND3TMR");
+    bench.sound.write(0x118, all, all, bench.now);
+    check(bench.sound.read(0x110, bench.now) == 0x400 && bench.sound.read(0x118, bench.now) == 0x07ff'fffcU &&
+              bench.sound.read(0x114, bench.now) == 0,
+          "SNDCAPxDAD relu (bits 2 à 26), SNDCAPxLEN en écriture seule");
+}
+
+// Capture du canal 0 : volume avant le panoramique, bogues de GBATEK, addition.
+void capture_channel_test() {
+    Bench bench;
+    bench.sound.write(0x18, one_per_output, all, 0);
+    bench.constant(0, 0x4000, 0x7f'0000U | 64U, 0x100);  // volume 64, tout à droite
+    bench.capture(0, 0x82, 0x400, 1);
+    bench.run(12);
+    check(bench.get16(0x400) == 0x2000, "canal 0 après son volume, avant le panoramique");
+    bench.constant(0, -0x1000, full_left, 0x100);
+    bench.constant(1, -0x10, 0x7f'0000U | 0x7fU, 0x140);
+    bench.run(12);
+    check(bench.get16(0x400) == 0x8000, "bogue : -8000h si les canaux 0 et 1 sont tous deux négatifs");
+    bench.constant(0, 0x1000, full_left, 0x100);
+    bench.constant(1, 0x1000, 0x7f'0000U | 0x7fU, 0x140);
+    bench.capture(0, 0x83, 0x400, 1);  // addition
+    const auto right = bench.run(12, 1);
+    check(bench.get16(0x400) == 0x2000 && right.back() == silence, "addition : 1 + 0 capturés, le canal 1 ne sort plus seul");
+    check(bench.run(4).back() == 0x2000, "addition : la somme sort par le panoramique du canal 0");
+    bench.sound.write(0x100, 0x907f, all, bench.now);  // canal 1 retiré du mixeur
+    check(bench.run(12).back() == 0x1000 && bench.get16(0x400) == 0x2000, "canal 1 exclu : retiré du mixeur, pas de la capture");
+    bench.sound.write(0x100, 0x807f, all, bench.now);
+    bench.constant(0, 0x6000, full_left, 0x100);
+    bench.constant(1, 0x6000, 0x7f'0000U | 0x7fU, 0x140);
+    bench.run(12);
+    check(bench.get16(0x400) == 0xc000, "bogue : la somme déborde sur 16 bits vers la capture");
+    // Volume 126 : 6001h donne 5E80h et une fraction. La somme, BD01h et une
+    // fraction de bit fort levé, devient négative en débordant, et s'arrondit
+    // donc vers zéro : BD02h.
+    bench.constant(0, 0x6001, 126U, 0x100);  // tout à gauche, volume 126
+    bench.constant(1, 0x6001, 0x7f'0000U | 126U, 0x140);
+    bench.run(12);
+    check(bench.get16(0x400) == 0xbd02, "bogue : la somme débordée s'arrondit comme une valeur négative");
+    bench.constant(0, 0x6000, full_left | 0x8000U, 0x100);
+    bench.constant(1, 0x6000, 0x7f'0000U | 0x7fU, 0x140);
+    bench.run(4);
+    bench.sound.write(0, 0x8000U | format(1) | full_left, all, bench.now);  // canal 0 arrêté, sa sortie gardée par Hold
+    const auto left = bench.run(12);
+    check(bench.get16(0x400) == 0x6000 && left.back() == silence, "canal 0 arrêté : capture du canal 1 seul, sortie muette");
+}
+
+// SoundBias : un pas au départ, puis un par période, jusqu'au niveau visé.
+void bias_ramp_test() {
+    Bench bench;
+    bench.sound.write(0x100, 0, all, 0);  // maître coupé : seul le biais sort
+    check(bench.sound.ramp_bias(false, Sound::cycles_per_sample, bench.now) == 0x200 * Sound::cycles_per_sample,
+          "durée : 200h pas");
+    const auto samples = bench.run(3);
+    check(samples == std::vector<std::int16_t>{-2 * 64, -3 * 64, -4 * 64}, "le biais descend d'un pas par période");
+    check(bench.sound.read(0x104, bench.now) == 0x200 - 4, "SOUNDBIAS suit la rampe");
+    bench.run(0x200);
+    check(bench.sound.read(0x104, bench.now) == 0 && bench.sound.ramp_bias(false, 1, bench.now) == 0, "rampe finie : 000h");
+    bench.sound.ramp_bias(true, 2 * Sound::cycles_per_sample, bench.now);
+    bench.sound.write(0x104, 0x123, all, bench.now + 4 * Sound::cycles_per_sample);
+    check(bench.sound.read(0x104, bench.now + 8 * Sound::cycles_per_sample) == 0x123, "une écriture de SOUNDBIAS arrête la rampe");
+}
+
 } // namespace
 
 int main() {
@@ -189,5 +339,11 @@ int main() {
     pcm_test();
     adpcm_test();
     mixer_test();
+    stop_test();
+    capture_rounding_test();
+    capture_mixer_test();
+    capture_timer_test();
+    capture_channel_test();
+    bias_ramp_test();
     return 0;
 }

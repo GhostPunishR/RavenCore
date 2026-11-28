@@ -5,6 +5,7 @@
 #include "machine/hardware.hpp"
 #include "math/square_root.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 
@@ -46,9 +47,9 @@ public:
             if (Arm9) ++unsupported;
             else halt();
             break;
-        case 0x08:  // SoundBias (ARM7) : biais à 0 ou 200h, sans la rampe
+        case 0x08:  // SoundBias (ARM7)
             if (Arm9) ++unsupported;
-            else hw_.sound.set_bias_level(r[0] != 0);
+            else sound_bias();
             break;
         case 0x09: divide(); break;
         case 0x0b: copy_or_fill(false); break;
@@ -86,6 +87,18 @@ private:
         if (number == 0x1a) return pick(sound_tables::sine_table);
         if (number == 0x1b) return pick(sound_tables::pitch_table);
         return pick(sound_tables::volume_table);
+    }
+
+    // SoundBias : r0 = 0 vers 000h, sinon vers 200h ; r1 = attente entre deux
+    // pas, en tours de la boucle de WaitByLoop (4 cycles sur l'ARM7, d'après
+    // la table de GBATEK : 20BAh tours pour 1 ms). Le coût propre d'un pas
+    // n'est pas donné par GBATEK : un pas dure ici r1 tours, de 1 à 10000h
+    // (bornes de RavenCore).
+    // L'ARM7 reste dans le BIOS pendant toute la rampe.
+    void sound_bias() {
+        auto& r = cpu_.regs.r;
+        const auto step = Cycles{std::clamp<std::uint32_t>(r[1], 1, 0x1'0000U)} * 4;
+        bus_.internal(static_cast<int>(hw_.sound.ramp_bias(r[0] != 0, step, hw_.arm7_time())));
     }
 
     void halt() noexcept {

@@ -51,6 +51,13 @@ public:
         const auto* at = locate(address, false, region);
         return at != nullptr ? load(at, width) : 0U;
     }
+    // Écriture sans temps d'accès, là où `peek` lit (RAM principale, WRAM) :
+    // la capture du son.
+    void poke(std::uint32_t address, std::uint32_t value, unsigned width) {
+        Region region{};
+        auto* at = locate(address, true, region);
+        if (at != nullptr) store(at, value, width);
+    }
 
     std::uint32_t dma_read16(std::uint32_t address) { return read(address, 2); }
     std::uint32_t dma_read32(std::uint32_t address) { return read(address, 4); }
