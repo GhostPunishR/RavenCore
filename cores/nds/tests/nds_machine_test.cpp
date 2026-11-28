@@ -183,6 +183,55 @@ void sound_bias_test() {
           "rampe finie : biais à 0, l'ARM7 reprend");
 }
 
+// Affichage depuis la RAM principale (mode 3 du moteur A, sur l'écran du
+// bas) : la DMA 3 en mode 4 envoie l'image par rafales de 4 mots à
+// DISP_MMEM_FIFO. Activée en cours d'image, elle attend la ligne 0 suivante.
+void main_memory_display_test() {
+    Machine machine{test_rom("####", {0xeafffffeU}, {0xeafffffeU})};
+    auto& bus = machine.bus9;
+    constexpr std::uint32_t bitmap = 0x0210'0000U;
+    const auto color = [](std::uint32_t x, std::uint32_t y) {
+        return static_cast<std::uint16_t>((x & 31U) | ((y & 31U) << 5U) | ((x >> 3U) << 10U));
+    };
+    for (std::uint32_t y = 0; y < 192; ++y)
+        for (std::uint32_t x = 0; x < 256; ++x) store(machine.hw.memory.main(bitmap + (y * 256 + x) * 2), color(x, y) | 0x8000U, 2);
+    const auto bottom = [&](std::uint32_t x, std::uint32_t y) { return machine.frame()[Hardware::screen_pixels + y * 256 + x]; };
+    machine.run_frame();
+    machine.run_for((LcdTiming::lines - LcdTiming::visible_lines + 100) * LcdTiming::line_cycles);  // ligne 100
+    check(machine.hw.lcd.line() == 100, "ligne 100 de l'image suivante");
+    bus.write32(0x0400'0000U, 0x0003'0000U);  // DISPCNT : mode 3
+    bus.write32(0x0400'00d4U, bitmap);
+    bus.write32(0x0400'00d8U, 0x0400'0068U);
+    bus.write32(0x0400'00dcU, 0xa640'0004U);  // activée, mode 4, 32 bits, répétée, destination fixe, 4 mots
+    machine.run_frame();
+    // La ligne 100 était déjà dessinée, écran éteint (blanc).
+    check(bottom(0, 100) == 0xffff'ffffU && bottom(0, 101) == 0xff00'0000U && bottom(255, 191) == 0xff00'0000U &&
+              machine.hw.dma9[3].current_source == bitmap,
+          "activée en cours d'image : la DMA attend la ligne 0, la FIFO vide s'affiche noire");
+    machine.run_frame();
+    auto same = true;
+    for (std::uint32_t y = 0; y < 192; ++y)
+        for (std::uint32_t x = 0; x < 256; ++x) same = same && bottom(x, y) == to_argb(color(x, y), 0);
+    check(same && machine.hw.dma9[3].current_source == bitmap + 256 * 192 * 2,
+          "image entière lue en RAM principale, 32 rafales de 4 mots par ligne ; bit 15 ignoré");
+    // Arrêtée puis relancée en cours d'image, la DMA attend de nouveau la ligne 0.
+    machine.run_for((LcdTiming::lines - LcdTiming::visible_lines + 100) * LcdTiming::line_cycles);
+    bus.write32(0x0400'00dcU, 0);
+    bus.write32(0x0400'00d4U, bitmap);
+    bus.write32(0x0400'00dcU, 0xa640'0004U);
+    machine.run_frame();
+    check(machine.hw.dma9[3].current_source == bitmap, "relancée en cours d'image : rien avant la ligne 0");
+    machine.run_frame();
+    check(machine.hw.dma9[3].current_source == bitmap + 256 * 192 * 2 && bottom(17, 133) == to_argb(color(17, 133), 0),
+          "puis l'image entière à l'image suivante");
+    // Le CPU peut aussi écrire la FIFO ; elle garde au plus deux lignes.
+    bus.write32(0x0400'00dcU, 0);
+    for (std::uint32_t word = 0; word < 300; ++word) bus.write32(0x0400'0068U, 0x001f'001fU);
+    check(bus.read32(0x0400'0068U) == 0, "DISP_MMEM_FIFO en écriture seule");
+    machine.run_frame();
+    check(bottom(255, 1) == to_argb(0x1f, 0) && bottom(0, 2) == 0xff00'0000U, "écrite par le CPU : deux lignes gardées, puis noir");
+}
+
 // L'ARM9 donne la banque A au LCDC, la remplit de rouge et l'affiche (mode 2).
 void video_test() {
     const std::initializer_list<std::uint32_t> program{
@@ -432,6 +481,7 @@ void callback_decompression_test() {
 int main() {
     direct_boot_test();
     sound_bias_test();
+    main_memory_display_test();
     video_test();
     dma_test();
     two_processors_test();

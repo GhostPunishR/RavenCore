@@ -100,6 +100,7 @@ void Machine::on_lcd_event(LcdTiming::Phase phase) {
     const auto line = hw.lcd.line();
     switch (phase) {
     case LcdTiming::Phase::line_start:
+        if (line == 0) arm_main_memory_display();
         if (line < LcdTiming::visible_lines) render_line(line);
         if (line == LcdTiming::visible_lines) {
             bus9.trigger_dma(DmaTiming::vblank);
@@ -121,6 +122,35 @@ void Machine::on_card_event() {
     else bus9.trigger_dma(DmaTiming::cartridge);
 }
 
+// Ligne 0 : les DMA de l'ARM9 actives en mode 4 alimenteront la FIFO
+// d'affichage pendant cette image.
+void Machine::arm_main_memory_display() noexcept {
+    for (unsigned index = 0; index < 4; ++index) {
+        const auto& channel = hw.dma9[index];
+        if (channel.enabled() && dma_timing(channel.control, true, index) == DmaTiming::main_memory_display)
+            hw.main_memory_display.arm(index);
+    }
+}
+
+// Mode 3 du moteur A : les rafales de DMA remplissent la FIFO jusqu'à une
+// ligne entière (32 rafales de 4 mots), ou jusqu'à ce qu'aucun canal ne
+// l'alimente plus.
+void Machine::feed_main_memory_display() {
+    auto& display = hw.main_memory_display;
+    for (unsigned burst = 0; burst < 64 && display.size() < MainMemoryDisplay::line_words; ++burst) {
+        auto fed = false;
+        for (unsigned index = 0; index < 4; ++index) {
+            auto& channel = hw.dma9[index];
+            if (!display.armed(index) || !channel.enabled() ||
+                dma_timing(channel.control, true, index) != DmaTiming::main_memory_display)
+                continue;
+            run_dma(bus9, channel, index, true, hw.irq9);
+            fed = true;
+        }
+        if (!fed) return;
+    }
+}
+
 // Chaque moteur dessine la ligne au début de celle-ci ; POWCNT1 bit 15 place
 // le moteur A sur l'écran du haut.
 void Machine::render_line(unsigned line) {
@@ -128,6 +158,10 @@ void Machine::render_line(unsigned line) {
     std::array<std::uint16_t, Engine2d::width> b{};
     hw.engine_a.render_line(line, hw.vram, hw.memory, a);
     hw.engine_b.render_line(line, hw.vram, hw.memory, b);
+    if (((hw.engine_a.display_control() >> 16U) & 3U) == 3) {
+        feed_main_memory_display();
+        a = hw.main_memory_display.take_line();
+    }
     const auto a_on_top = (hw.power_control9 & 0x8000U) != 0;
     auto* top = &hw.frame[line * Engine2d::width];
     auto* bottom = &hw.frame[Hardware::screen_pixels + line * Engine2d::width];

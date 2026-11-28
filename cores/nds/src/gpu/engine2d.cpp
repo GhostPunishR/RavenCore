@@ -85,7 +85,7 @@ void Engine2d::compose_line(unsigned line, const Vram& vram, const Memory& memor
         for (unsigned x = 0; x < width; ++x) out[x] = vram.bank_halfword(bank, (line * width + x) * 2U) & 0x7fffU;
         return;
     }
-    if (display_mode == 3) {  // RAM principale par la FIFO d'affichage : pas encore
+    if (display_mode == 3) {  // RAM principale : la machine prend la ligne dans la FIFO (main_memory_display.hpp)
         std::fill(out.begin(), out.end(), std::uint16_t{0});
         return;
     }

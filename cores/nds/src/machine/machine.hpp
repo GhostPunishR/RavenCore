@@ -67,6 +67,8 @@ private:
     void run_arm7(Cycles end);
     void settle(Cycles now);
     void render_line(unsigned line);
+    void arm_main_memory_display() noexcept;
+    void feed_main_memory_display();
     void on_lcd_event(LcdTiming::Phase phase);
     void on_card_event();
     void sync_cp15() noexcept;

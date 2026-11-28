@@ -151,6 +151,12 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 - Tests :
   - `nds_raven_sound` : canal arrêté, arrondi, capture des mixeurs en PCM16 et PCM8, minuteurs des deux captures, capture du canal 0, ses deux bogues, addition, rampe du biais ;
   - `nds_raven_machine` : un programme de l'ARM7 appelle `SoundBias` ; l'ARM7 reste dans le BIOS pendant toute la rampe.
+- **Cœur NDS, affichage depuis la RAM principale** (GBATEK, « DS Video Capture and Main Memory Display Mode ») :
+  - en mode 3 de DISPCNT, le moteur A montre l'image de 256 × 192 points envoyée à DISP_MMEM_FIFO (0x04000068), deux points par mot, le bit 15 ignoré ; la luminosité maîtresse s'y applique ;
+  - la DMA de l'ARM9 en mode 4 alimente la FIFO par rafales, de 4 mots selon GBATEK. Un canal activé attend la ligne 0 de l'image suivante ;
+  - RavenCore remplit la FIFO au début de chaque ligne visible, puis en retire la ligne. La profondeur réelle du FIFO n'est pas donnée par GBATEK : la file garde ici deux lignes, et un point qui manque s'affiche noir ;
+  - pas encore : la capture d'écran (DISPCAPCNT), qui lit aussi cette FIFO, et le départ de DMA « début d'affichage ».
+- Test : `nds_raven_machine` affiche une image de la RAM principale par la DMA 3, et vérifie l'attente de la ligne 0, après une activation comme après une relance en cours d'image, ainsi que les écritures du CPU dans la FIFO.
 
 ### Documentation
 
