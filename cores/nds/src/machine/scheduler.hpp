@@ -22,6 +22,7 @@ enum class Event : unsigned {
     card,     // bus de la cartouche : mot prêt ou transfert fini
     spi,      // SPI de l'ARM7 : fin d'un transfert (IRQ)
     rtc,      // horloge : la broche /INT peut changer
+    geometry, // moteur de géométrie : fin d'une commande
     count,
 };
 

@@ -86,10 +86,14 @@ void Machine::settle(Cycles now) {
     hw.timers7.advance(now);
     hw.sound.run(now);
     while (const auto event = hw.scheduler.take_due(now)) {
-        if (*event == Event::lcd) on_lcd_event(hw.lcd.on_event(hw.scheduler, now));
+        if (*event == Event::lcd) on_lcd_event(hw.lcd.on_event(hw.scheduler, now), now);
         else if (*event == Event::card) on_card_event();
         else if (*event == Event::spi) hw.spi.on_event(hw.irq7);
         else if (*event == Event::rtc) hw.rtc_interrupt.check(hw.rtc, hw.scheduler, hw.irq7, now);
+        else if (*event == Event::geometry) {
+            hw.geometry.run(now);
+            bus9.feed_geometry();
+        }
     }
     hw.scheduler.schedule(Event::timers9, hw.timers9.next_overflow());
     hw.scheduler.schedule(Event::timers7, hw.timers7.next_overflow());
@@ -97,7 +101,7 @@ void Machine::settle(Cycles now) {
 
 // Débuts de ligne : rendu et DMA de V-Blank ; H-Blank : DMA de H-Blank de
 // l'ARM9, sur les lignes visibles seulement (GBATEK).
-void Machine::on_lcd_event(LcdTiming::Phase phase) {
+void Machine::on_lcd_event(LcdTiming::Phase phase, Cycles now) {
     const auto line = hw.lcd.line();
     switch (phase) {
     case LcdTiming::Phase::line_start:
@@ -106,6 +110,8 @@ void Machine::on_lcd_event(LcdTiming::Phase phase) {
         if (line == LcdTiming::visible_lines) {
             bus9.trigger_dma(DmaTiming::vblank);
             bus7.trigger_dma(DmaTiming::vblank);
+            hw.geometry.on_vblank(now);  // SWAP_BUFFERS libéré
+            hw.geometry_changed();
         }
         break;
     case LcdTiming::Phase::hblank9:

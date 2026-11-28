@@ -59,9 +59,12 @@ constexpr std::uint32_t dma_units(std::uint32_t control, bool arm9, unsigned cha
 // Transfert d'un canal : unités de 16 ou 32 bits (bit 26), pas de la source
 // (bits 23-24) et de la destination (bits 21-22) : +, -, fixe, et pour la
 // destination + avec rechargement. Répétition (bit 25) hors départ immédiat ;
-// IRQ en fin de transfert (bit 30).
+// IRQ en fin de transfert (bit 30). `limit` borne les unités d'un départ :
+// la DMA de géométrie envoie au plus 112 mots à la fois, le canal restant
+// actif jusqu'à la dernière unité.
 template <typename BusType>
-void run_dma(BusType& bus, DmaChannel& channel, unsigned index, bool arm9, InterruptController& irq) {
+void run_dma(BusType& bus, DmaChannel& channel, unsigned index, bool arm9, InterruptController& irq,
+             std::uint32_t limit = 0xffff'ffffU) {
     const auto words = (channel.control & (1U << 26U)) != 0;
     const auto width = words ? 4U : 2U;
     const auto step = [width](std::uint32_t mode) -> std::uint32_t {
@@ -73,7 +76,8 @@ void run_dma(BusType& bus, DmaChannel& channel, unsigned index, bool arm9, Inter
     const auto destination_step = step(destination_mode);
     auto source = channel.current_source & ~(width - 1U);
     auto destination = channel.current_destination & ~(width - 1U);
-    for (std::uint32_t unit = 0; unit < channel.remaining; ++unit) {
+    const auto units = channel.remaining < limit ? channel.remaining : limit;
+    for (std::uint32_t unit = 0; unit < units; ++unit) {
         if (words) bus.dma_write32(destination, bus.dma_read32(source));
         else bus.dma_write16(destination, bus.dma_read16(source));
         source += source_step;
@@ -81,6 +85,8 @@ void run_dma(BusType& bus, DmaChannel& channel, unsigned index, bool arm9, Inter
     }
     channel.current_source = source;
     channel.current_destination = destination;
+    channel.remaining -= units;
+    if (channel.remaining != 0) return;
     const auto repeat = (channel.control & (1U << 25U)) != 0;
     if (repeat && dma_timing(channel.control, arm9, index) != DmaTiming::immediate) {
         channel.remaining = dma_units(channel.control, arm9, index);

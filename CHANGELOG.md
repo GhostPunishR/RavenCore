@@ -167,6 +167,18 @@ Ce fichier recense les évolutions notables de RavenCore. Son format suit [Keep 
 - Tests :
   - `nds_raven_rtc` : chaque mode d'INT1, l'alarme 2, les drapeaux, et RCNT avec l'IRQ 7 sur un front seulement ;
   - `nds_raven_machine` : RCNT et l'état 2 réglés par le bus de l'ARM7, puis l'IRQ 7 levée au début de la minute, y compris après un changement d'heure par l'hôte.
+- **Cœur NDS, 3D : moteur de géométrie** (GBATEK, « DS 3D Overview », « DS 3D I/O Map », « DS 3D Geometry Commands », « DS 3D Matrix Load/Multiply », « DS 3D Matrix Stack », « DS 3D Status », « DS 3D Tests ») :
+  - commandes reçues par GXFIFO (0x04000400), groupées ou non, ou par leurs ports (0x04000440 à 0x040005FF). Le FIFO a 256 entrées et le PIPE 4, avec la règle de passage de l'un à l'autre décrite par GBATEK. Les commandes invalides sont ignorées ;
+  - chaque commande attend tous ses paramètres, puis dure le temps de la table de GBATEK. MTX_MULT et MTX_TRANS prennent 30 cycles de plus en mode 2. SWAP_BUFFERS arrête le moteur jusqu'au V-Blank, plus 392 cycles. Un CPU qui écrit dans le FIFO plein attend qu'une place se libère ;
+  - matrices de 32 bits, dont 12 après la virgule (`gpu/geometry/matrix.hpp`) : chargements 4 × 4 et 4 × 3, identité, produits 4 × 4, 4 × 3 et 3 × 3, échelle et translation, en C = M × C ;
+  - quatre modes de matrice, et les piles de projection, de coordonnées, de directions et de texture, avec leurs erreurs (`gpu/geometry/matrix_unit.cpp`) ;
+  - GXSTAT : tests, piles, FIFO, moteur occupé, et l'IRQ 21 du FIFO, tenue tant que sa condition est vraie. Le registre relit aussi CLIPMTX_RESULT et VECMTX_RESULT ; POS_TEST et VEC_TEST rendent leurs résultats ;
+  - DMA de géométrie (mode 7) : jusqu'à 112 mots à la fois, chaque fois que le FIFO passe sous la moitié ;
+  - pas encore : l'effet des commandes de sommets, de polygones, de textures et de lumières, et de VIEWPORT, qui prennent déjà leurs paramètres et leur durée. BOX_TEST répond « dedans », faute de découpage. Le rendu viendra ensuite.
+- `run_dma` peut s'arrêter après un nombre d'unités, le canal restant actif jusqu'à la dernière.
+- Tests :
+  - `nds_raven_geometry` (nouveau fichier) : produits et arrondis, ordre C = M × C, modes, chargements 4 × 3, piles et leurs erreurs, commandes groupées et invalides, PIPE et FIFO, durées, IRQ, SWAP_BUFFERS, POS_TEST, VEC_TEST et son débordement ;
+  - `nds_raven_machine` : IRQ 21 tenue malgré l'acquittement, CPU arrêté devant le FIFO plein, SWAP_BUFFERS libéré au V-Blank, DMA de géométrie par blocs de 112 mots.
 
 ### Modifié
 
